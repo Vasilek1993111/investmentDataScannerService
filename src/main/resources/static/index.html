@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investment Data Scanner Service</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #333;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            max-width: 800px;
+            width: 90%;
+            text-align: center;
+        }
+
+        .header {
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            color: #2c3e50;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            color: #7f8c8d;
+            font-size: 1.1em;
+            line-height: 1.6;
+        }
+
+        .nav-links {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .nav-link {
+            display: block;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            text-decoration: none;
+            color: #2c3e50;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+
+        .nav-link:hover {
+            background: #e9ecef;
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.15);
+        }
+
+        .nav-link.primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .nav-link.primary:hover {
+            background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+            transform: translateY(-3px);
+            box-shadow: 0 12px 30px rgba(102, 126, 234, 0.3);
+        }
+
+        .nav-link h3 {
+            margin-bottom: 8px;
+            font-size: 1.2em;
+        }
+
+        .nav-link p {
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+
+        .status {
+            margin-top: 30px;
+            padding: 20px;
+            background: #e8f5e8;
+            border-radius: 12px;
+            border-left: 4px solid #27ae60;
+        }
+
+        .status h3 {
+            color: #27ae60;
+            margin-bottom: 10px;
+        }
+
+        .status p {
+            color: #2c3e50;
+            line-height: 1.5;
+        }
+
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #ecf0f1;
+            color: #7f8c8d;
+            font-size: 0.9em;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+                margin: 20px;
+            }
+
+            .header h1 {
+                font-size: 2em;
+            }
+
+            .nav-links {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 Investment Data Scanner Service</h1>
+            <p>Высокопроизводительный сервис для сканирования и анализа рыночных данных в реальном времени</p>
+        </div>
+
+        <div class="nav-links">
+            <a href="/quote-scanner.html" class="nav-link primary">
+                <h3>🚀 Сканер Котировок</h3>
+                <p>Мониторинг котировок инструментов в реальном времени</p>
+            </a>
+
+            <a href="/pair-scanner.html" class="nav-link primary">
+                <h3>⚖️ Сканер Пар Инструментов</h3>
+                <p>Сравнение пар инструментов и анализ дельты</p>
+            </a>
+
+        </div>
+
+        <div class="status">
+            <h3>✅ Сервис Активен</h3>
+            <p>Все компоненты системы работают в штатном режиме. Подключение к T-Invest API установлено, данные
+                поступают в реальном времени.</p>
+        </div>
+
+        <div class="footer">
+            <p>Investment Data Scanner Service v1.0 | Порт: 8085 | Статус: Online</p>
+        </div>
+    </div>
+</body>
+
+</html>
