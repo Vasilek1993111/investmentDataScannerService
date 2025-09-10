@@ -14,6 +14,7 @@ import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import com.example.investmentdatascannerservice.config.InstrumentPairConfig;
 import com.example.investmentdatascannerservice.dto.InstrumentPair;
 import com.example.investmentdatascannerservice.dto.PairComparisonResult;
 import jakarta.annotation.PostConstruct;
@@ -48,16 +49,58 @@ public class InstrumentPairService {
     private final ExecutorService processingExecutor =
             Executors.newFixedThreadPool(PROCESSING_THREADS);
 
+    // Конфигурация
+    private final InstrumentPairConfig config;
+
     // Статистика
     private final AtomicLong totalComparisonsProcessed = new AtomicLong(0);
     private final AtomicLong totalComparisonsSent = new AtomicLong(0);
+
+    public InstrumentPairService(InstrumentPairConfig config) {
+        this.config = config;
+    }
 
     @PostConstruct
     public void init() {
         log.info("=== INSTRUMENT PAIR SERVICE INITIALIZATION ===");
         log.info("Initializing InstrumentPairService with {} processing threads",
                 PROCESSING_THREADS);
+
+        // Загружаем пары из конфигурации
+        loadPairsFromConfig();
+
         log.info("===============================================");
+    }
+
+    /**
+     * Загрузка пар инструментов из конфигурации
+     */
+    private void loadPairsFromConfig() {
+        if (config.getPairs() == null || config.getPairs().isEmpty()) {
+            log.info("No instrument pairs configured in application.properties");
+            return;
+        }
+
+        log.info("Loading {} instrument pairs from configuration", config.getPairs().size());
+
+        for (InstrumentPairConfig.PairConfig pairConfig : config.getPairs()) {
+            if (pairConfig.getPairId() != null && pairConfig.getFirstInstrument() != null
+                    && pairConfig.getSecondInstrument() != null) {
+
+                InstrumentPair pair = new InstrumentPair(pairConfig.getPairId(),
+                        pairConfig.getFirstInstrument(), pairConfig.getSecondInstrument(),
+                        pairConfig.getFirstInstrumentName(), pairConfig.getSecondInstrumentName());
+
+                instrumentPairs.put(pair.getPairId(), pair);
+                log.info("Loaded pair from config: {} ({} vs {})", pair.getPairId(),
+                        pair.getFirstInstrumentName(), pair.getSecondInstrumentName());
+            } else {
+                log.warn("Skipping invalid pair configuration: {}", pairConfig);
+            }
+        }
+
+        log.info("Successfully loaded {} instrument pairs from configuration",
+                instrumentPairs.size());
     }
 
     @PreDestroy

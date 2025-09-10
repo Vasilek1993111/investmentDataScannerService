@@ -665,6 +665,9 @@
 
         // Автоматическое подключение при загрузке страницы
         window.addEventListener('load', () => {
+            // Сначала загружаем пары с сервера
+            loadPairsFromServer();
+            // Затем подключаемся к WebSocket
             setTimeout(connect, 1000);
         });
     </script>
