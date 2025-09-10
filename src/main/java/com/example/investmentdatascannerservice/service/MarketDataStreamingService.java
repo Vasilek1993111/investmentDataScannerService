@@ -261,8 +261,9 @@ public class MarketDataStreamingService {
                         // Отправляем данные в сканер котировок
                         quoteScannerService.processTrade(resp.getTrade());
                     } else if (resp.hasOrderbook()) {
-                        log.info("Received order book data from T-Invest API for FIGI: {}",
+                        log.debug("Received order book data from T-Invest API for FIGI: {}",
                                 resp.getOrderbook().getFigi());
+                        // Обрабатываем стакан синхронно для минимальной задержки
                         processOrderBook(resp.getOrderbook());
                         // Отправляем данные в сканер котировок
                         quoteScannerService.processOrderBook(resp.getOrderbook());

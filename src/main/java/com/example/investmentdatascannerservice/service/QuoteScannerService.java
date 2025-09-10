@@ -434,54 +434,116 @@ public class QuoteScannerService {
      * Обработка данных стакана заявок из T-Invest API
      */
     public void processOrderBook(OrderBook orderBook) {
-        processingExecutor.submit(() -> {
-            try {
-                String figi = orderBook.getFigi();
+        // Обрабатываем стаканы синхронно для минимальной задержки
+        try {
+            String figi = orderBook.getFigi();
 
-                // Фильтрация по настроенным инструментам
-                if (!config.getInstruments().isEmpty() && !config.getInstruments().contains(figi)) {
-                    log.debug(
-                            "Filtering out OrderBook for instrument {} - not in configured list: {}",
-                            figi, config.getInstruments());
-                    return;
-                }
-
-                log.debug("Processing OrderBook for instrument {} - in configured list: {}", figi,
-                        config.getInstruments());
-
-                // Получаем лучший BID (первая заявка на покупку)
-                BigDecimal bestBid = BigDecimal.ZERO;
-                long bestBidQuantity = 0;
-                if (orderBook.getBidsCount() > 0) {
-                    var bestBidOrder = orderBook.getBids(0);
-                    bestBid = BigDecimal.valueOf(bestBidOrder.getPrice().getUnits()).add(
-                            BigDecimal.valueOf(bestBidOrder.getPrice().getNano()).movePointLeft(9));
-                    bestBidQuantity = bestBidOrder.getQuantity();
-                }
-
-                // Получаем лучший ASK (первая заявка на продажу)
-                BigDecimal bestAsk = BigDecimal.ZERO;
-                long bestAskQuantity = 0;
-                if (orderBook.getAsksCount() > 0) {
-                    var bestAskOrder = orderBook.getAsks(0);
-                    bestAsk = BigDecimal.valueOf(bestAskOrder.getPrice().getUnits()).add(
-                            BigDecimal.valueOf(bestAskOrder.getPrice().getNano()).movePointLeft(9));
-                    bestAskQuantity = bestAskOrder.getQuantity();
-                }
-
-                // Обновляем данные стакана в кеше
-                bestBids.put(figi, bestBid);
-                bestAsks.put(figi, bestAsk);
-                bestBidQuantities.put(figi, bestBidQuantity);
-                bestAskQuantities.put(figi, bestAskQuantity);
-
-                log.debug("Order book processed for FIGI: {}, BID: {} ({}), ASK: {} ({})", figi,
-                        bestBid, bestBidQuantity, bestAsk, bestAskQuantity);
-
-            } catch (Exception e) {
-                log.error("Error processing order book for FIGI: {}", orderBook.getFigi(), e);
+            // Фильтрация по настроенным инструментам
+            if (!config.getInstruments().isEmpty() && !config.getInstruments().contains(figi)) {
+                log.debug("Filtering out OrderBook for instrument {} - not in configured list: {}",
+                        figi, config.getInstruments());
+                return;
             }
-        });
+
+            log.debug("Processing OrderBook for instrument {} - in configured list: {}", figi,
+                    config.getInstruments());
+
+            // Получаем лучший BID (первая заявка на покупку)
+            BigDecimal bestBid = BigDecimal.ZERO;
+            long bestBidQuantity = 0;
+            if (orderBook.getBidsCount() > 0) {
+                var bestBidOrder = orderBook.getBids(0);
+                bestBid = BigDecimal.valueOf(bestBidOrder.getPrice().getUnits()).add(
+                        BigDecimal.valueOf(bestBidOrder.getPrice().getNano()).movePointLeft(9));
+                bestBidQuantity = bestBidOrder.getQuantity();
+            }
+
+            // Получаем лучший ASK (первая заявка на продажу)
+            BigDecimal bestAsk = BigDecimal.ZERO;
+            long bestAskQuantity = 0;
+            if (orderBook.getAsksCount() > 0) {
+                var bestAskOrder = orderBook.getAsks(0);
+                bestAsk = BigDecimal.valueOf(bestAskOrder.getPrice().getUnits()).add(
+                        BigDecimal.valueOf(bestAskOrder.getPrice().getNano()).movePointLeft(9));
+                bestAskQuantity = bestAskOrder.getQuantity();
+            }
+
+            // Обновляем данные стакана в кеше
+            bestBids.put(figi, bestBid);
+            bestAsks.put(figi, bestAsk);
+            bestBidQuantities.put(figi, bestBidQuantity);
+            bestAskQuantities.put(figi, bestAskQuantity);
+
+            log.debug("Order book processed for FIGI: {}, BID: {} ({}), ASK: {} ({})", figi,
+                    bestBid, bestBidQuantity, bestAsk, bestAskQuantity);
+
+            // Немедленно отправляем обновление стакана в WebSocket (если включено)
+            if (config.isEnableImmediateOrderBookUpdates()) {
+                sendOrderBookUpdate(figi, bestBid, bestAsk, bestBidQuantity, bestAskQuantity);
+            }
+
+        } catch (Exception e) {
+            log.error("Error processing order book for FIGI: {}", orderBook.getFigi(), e);
+        }
+    }
+
+    /**
+     * Немедленная отправка обновления стакана в WebSocket
+     */
+    private void sendOrderBookUpdate(String figi, BigDecimal bestBid, BigDecimal bestAsk,
+            long bestBidQuantity, long bestAskQuantity) {
+        try {
+            // Получаем текущую цену из кеша
+            BigDecimal currentPrice = lastPrices.get(figi);
+            if (currentPrice == null) {
+                // Если нет текущей цены, используем среднее между BID и ASK
+                if (bestBid.compareTo(BigDecimal.ZERO) > 0
+                        && bestAsk.compareTo(BigDecimal.ZERO) > 0) {
+                    currentPrice = bestBid.add(bestAsk).divide(BigDecimal.valueOf(2), 2,
+                            java.math.RoundingMode.HALF_UP);
+                } else if (bestBid.compareTo(BigDecimal.ZERO) > 0) {
+                    currentPrice = bestBid;
+                } else if (bestAsk.compareTo(BigDecimal.ZERO) > 0) {
+                    currentPrice = bestAsk;
+                } else {
+                    return; // Нет данных для отправки
+                }
+            }
+
+            // Получаем предыдущую цену
+            BigDecimal previousPrice = lastPrices.get(figi);
+
+            // Получаем цену закрытия
+            BigDecimal closePrice = closePrices.get(figi);
+
+            // Получаем цену закрытия вечерней сессии
+            BigDecimal closePriceVS = closePriceEveningSessionService.getEveningClosePrice(figi);
+
+            // Определяем направление
+            String direction = "NEUTRAL";
+            if (previousPrice != null && previousPrice.compareTo(BigDecimal.ZERO) > 0) {
+                int comparison = currentPrice.compareTo(previousPrice);
+                if (comparison > 0) {
+                    direction = "UP";
+                } else if (comparison < 0) {
+                    direction = "DOWN";
+                }
+            }
+
+            // Создаем данные о котировке с обновленным стаканом
+            QuoteData quoteData = new QuoteData(figi, instrumentNames.getOrDefault(figi, figi),
+                    currentPrice, previousPrice, closePrice, null, closePriceVS, bestBid, bestAsk,
+                    bestBidQuantity, bestAskQuantity, LocalDateTime.now(), 0L, 0L, direction);
+
+            // Отправляем всем подписчикам
+            notifySubscribers(quoteData);
+
+            log.debug("Order book update sent for FIGI: {}, BID: {} ({}), ASK: {} ({})", figi,
+                    bestBid, bestBidQuantity, bestAsk, bestAskQuantity);
+
+        } catch (Exception e) {
+            log.error("Error sending order book update for FIGI: {}", figi, e);
+        }
     }
 
     /**

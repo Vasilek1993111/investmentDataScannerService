@@ -48,6 +48,16 @@ public class QuoteScannerConfig {
      */
     private int orderBookDepth = 10;
 
+    /**
+     * Включить/выключить немедленную отправку обновлений стакана
+     */
+    private boolean enableImmediateOrderBookUpdates = true;
+
+    /**
+     * Максимальная частота обновлений стакана в секунду (0 = без ограничений)
+     */
+    private int maxOrderBookUpdatesPerSecond = 0;
+
     // Геттеры и сеттеры
     public List<String> getInstruments() {
         return instruments;
@@ -103,5 +113,21 @@ public class QuoteScannerConfig {
 
     public void setOrderBookDepth(int orderBookDepth) {
         this.orderBookDepth = orderBookDepth;
+    }
+
+    public boolean isEnableImmediateOrderBookUpdates() {
+        return enableImmediateOrderBookUpdates;
+    }
+
+    public void setEnableImmediateOrderBookUpdates(boolean enableImmediateOrderBookUpdates) {
+        this.enableImmediateOrderBookUpdates = enableImmediateOrderBookUpdates;
+    }
+
+    public int getMaxOrderBookUpdatesPerSecond() {
+        return maxOrderBookUpdatesPerSecond;
+    }
+
+    public void setMaxOrderBookUpdatesPerSecond(int maxOrderBookUpdatesPerSecond) {
+        this.maxOrderBookUpdatesPerSecond = maxOrderBookUpdatesPerSecond;
     }
 }
