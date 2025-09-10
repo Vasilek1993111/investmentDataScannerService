@@ -276,8 +276,9 @@
                             <th>Инструмент</th>
                             <th>FIGI</th>
                             <th>Текущая цена</th>
+                            <th>Цена закрытия ОС</th>
                             <th>Изменение</th>
-                            <th>%</th>
+                            <th>Изменение ОС %</th>
                             <th>Объем</th>
                             <th>Направление</th>
                             <th>Время</th>
@@ -285,7 +286,7 @@
                     </thead>
                     <tbody id="quotesTableBody">
                         <tr>
-                            <td colspan="8" class="no-data">Нет данных. Нажмите "Подключиться" для начала мониторинга.
+                            <td colspan="9" class="no-data">Нет данных. Нажмите "Подключиться" для начала мониторинга.
                             </td>
                         </tr>
                     </tbody>
@@ -400,7 +401,7 @@
 
         function renderQuotesTable() {
             if (quotes.size === 0) {
-                quotesTableBody.innerHTML = '<tr><td colspan="8" class="no-data">Нет данных</td></tr>';
+                quotesTableBody.innerHTML = '<tr><td colspan="9" class="no-data">Нет данных</td></tr>';
                 return;
             }
 
@@ -410,6 +411,7 @@
 
             quotesTableBody.innerHTML = sortedQuotes.map(quote => {
                 const priceChangeClass = getPriceChangeClass(quote.priceChange);
+                const closePriceChangeClass = getPriceChangeClass(quote.closePriceChange);
                 const direction = getDirectionText(quote.direction);
 
                 return `
@@ -417,8 +419,9 @@
                         <td><strong>${quote.instrumentName || quote.figi}</strong></td>
                         <td><code>${quote.figi}</code></td>
                         <td class="${priceChangeClass}">${formatPrice(quote.currentPrice)}</td>
+                        <td>${formatPrice(quote.closePrice)}</td>
                         <td class="${priceChangeClass}">${formatPrice(quote.priceChange)}</td>
-                        <td class="${priceChangeClass}">${formatPercent(quote.priceChangePercent)}</td>
+                        <td class="${closePriceChangeClass}">${formatPercent(quote.closePriceChangePercent)}</td>
                         <td>${quote.volume || 0}</td>
                         <td>${direction}</td>
                         <td class="timestamp">${formatTime(quote.timestamp)}</td>

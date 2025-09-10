@@ -15,6 +15,9 @@ public class QuoteData {
     private final BigDecimal previousPrice;
     private final BigDecimal priceChange;
     private final BigDecimal priceChangePercent;
+    private final BigDecimal closePrice; // Цена закрытия за предыдущий день
+    private final BigDecimal closePriceChange; // Изменение от цены закрытия
+    private final BigDecimal closePriceChangePercent; // Изменение в % от основной сессии
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private final LocalDateTime timestamp;
     private final long volume;
@@ -22,15 +25,22 @@ public class QuoteData {
 
     public QuoteData(String figi, String instrumentName, BigDecimal currentPrice,
             BigDecimal previousPrice, LocalDateTime timestamp, long volume, String direction) {
+        this(figi, instrumentName, currentPrice, previousPrice, null, timestamp, volume, direction);
+    }
+
+    public QuoteData(String figi, String instrumentName, BigDecimal currentPrice,
+            BigDecimal previousPrice, BigDecimal closePrice, LocalDateTime timestamp, long volume,
+            String direction) {
         this.figi = figi;
         this.instrumentName = instrumentName;
         this.currentPrice = currentPrice;
         this.previousPrice = previousPrice;
+        this.closePrice = closePrice;
         this.timestamp = timestamp;
         this.volume = volume;
         this.direction = direction;
 
-        // Вычисляем разницу в цене
+        // Вычисляем разницу в цене от предыдущей цены
         if (previousPrice != null && previousPrice.compareTo(BigDecimal.ZERO) > 0) {
             this.priceChange = currentPrice.subtract(previousPrice);
             this.priceChangePercent =
@@ -39,6 +49,17 @@ public class QuoteData {
         } else {
             this.priceChange = BigDecimal.ZERO;
             this.priceChangePercent = BigDecimal.ZERO;
+        }
+
+        // Вычисляем изменение от цены закрытия
+        if (closePrice != null && closePrice.compareTo(BigDecimal.ZERO) > 0) {
+            this.closePriceChange = currentPrice.subtract(closePrice);
+            this.closePriceChangePercent =
+                    this.closePriceChange.divide(closePrice, 4, java.math.RoundingMode.HALF_UP)
+                            .multiply(BigDecimal.valueOf(100));
+        } else {
+            this.closePriceChange = BigDecimal.ZERO;
+            this.closePriceChangePercent = BigDecimal.ZERO;
         }
     }
 
@@ -79,9 +100,23 @@ public class QuoteData {
         return direction;
     }
 
+    public BigDecimal getClosePrice() {
+        return closePrice;
+    }
+
+    public BigDecimal getClosePriceChange() {
+        return closePriceChange;
+    }
+
+    public BigDecimal getClosePriceChangePercent() {
+        return closePriceChangePercent;
+    }
+
     @Override
     public String toString() {
-        return String.format("QuoteData{figi='%s', price=%s, change=%s (%.2f%%), time=%s}", figi,
-                currentPrice, priceChange, priceChangePercent, timestamp);
+        return String.format(
+                "QuoteData{figi='%s', price=%s, change=%s (%.2f%%), closeChange=%s (%.2f%%), time=%s}",
+                figi, currentPrice, priceChange, priceChangePercent, closePriceChange,
+                closePriceChangePercent, timestamp);
     }
 }

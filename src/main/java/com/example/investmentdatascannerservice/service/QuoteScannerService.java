@@ -43,10 +43,12 @@ public class QuoteScannerService {
 
     private final QuoteScannerConfig config;
     private final InstrumentPairService instrumentPairService;
+    private final ClosePriceService closePriceService;
 
     // Хранилище последних цен для расчета разниц
     private final Map<String, BigDecimal> lastPrices = new ConcurrentHashMap<>();
     private final Map<String, String> instrumentNames = new ConcurrentHashMap<>();
+    private final Map<String, BigDecimal> closePrices = new ConcurrentHashMap<>();
 
     // Подписчики на обновления котировок (для WebSocket)
     private final Set<Consumer<QuoteData>> quoteSubscribers = new CopyOnWriteArraySet<>();
@@ -63,9 +65,10 @@ public class QuoteScannerService {
     private final AtomicLong totalQuotesSent = new AtomicLong(0);
 
     public QuoteScannerService(QuoteScannerConfig config,
-            InstrumentPairService instrumentPairService) {
+            InstrumentPairService instrumentPairService, ClosePriceService closePriceService) {
         this.config = config;
         this.instrumentPairService = instrumentPairService;
+        this.closePriceService = closePriceService;
     }
 
     @PostConstruct
@@ -83,10 +86,28 @@ public class QuoteScannerService {
         // Загружаем имена инструментов из конфигурации
         instrumentNames.putAll(config.getInstrumentNames());
 
+        // Загружаем цены закрытия за предыдущий торговый день
+        loadClosePrices();
+
         // Запускаем периодическую очистку неактивных подписчиков каждые 30 секунд
         scheduler.scheduleAtFixedRate(this::cleanupInactiveSubscribers, 30, 30, TimeUnit.SECONDS);
 
         log.info("=============================================");
+    }
+
+    /**
+     * Загружает цены закрытия за предыдущий торговый день для всех настроенных инструментов
+     */
+    private void loadClosePrices() {
+        try {
+            log.info("Loading close prices for previous trading day...");
+            Map<String, BigDecimal> loadedClosePrices =
+                    closePriceService.getClosePricesForPreviousDay(config.getInstruments());
+            closePrices.putAll(loadedClosePrices);
+            log.info("Loaded {} close prices for previous trading day", loadedClosePrices.size());
+        } catch (Exception e) {
+            log.error("Error loading close prices", e);
+        }
     }
 
     @PreDestroy
@@ -141,6 +162,9 @@ public class QuoteScannerService {
                     }
                 }
 
+                // Получаем цену закрытия за предыдущий торговый день
+                BigDecimal closePrice = closePrices.get(figi);
+
                 // Создаем данные о котировке
                 QuoteData quoteData = new QuoteData(figi, instrumentNames.getOrDefault(figi, figi), // Используем
                                                                                                     // FIGI
@@ -148,7 +172,8 @@ public class QuoteScannerService {
                                                                                                     // имя
                                                                                                     // не
                                                                                                     // найдено
-                        currentPrice, previousPrice, eventTime, 1L, // Для LastPrice объем = 1
+                        currentPrice, previousPrice, closePrice, eventTime, 1L, // Для LastPrice
+                                                                                // объем = 1
                         direction);
 
                 totalQuotesProcessed.incrementAndGet();
@@ -209,8 +234,12 @@ public class QuoteScannerService {
                 }
 
                 // Создаем данные о котировке
+                // Получаем цену закрытия за предыдущий торговый день
+                BigDecimal closePrice = closePrices.get(figi);
+
                 QuoteData quoteData = new QuoteData(figi, instrumentNames.getOrDefault(figi, figi),
-                        currentPrice, previousPrice, eventTime, trade.getQuantity(), direction);
+                        currentPrice, previousPrice, closePrice, eventTime, trade.getQuantity(),
+                        direction);
 
                 totalQuotesProcessed.incrementAndGet();
 
