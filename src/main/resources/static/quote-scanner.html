@@ -384,6 +384,7 @@
 
         function updateQuote(quoteData) {
             const figi = quoteData.figi;
+            const isNewQuote = !quotes.has(figi);
             quotes.set(figi, quoteData);
 
             quoteCount++;
@@ -395,39 +396,90 @@
             activeInstruments.textContent = quotes.size;
             lastUpdate.textContent = lastUpdateTime.toLocaleTimeString();
 
-            // Обновляем таблицу
-            renderQuotesTable();
+            // Обновляем таблицу стабильно
+            if (isNewQuote) {
+                addQuoteToTable(quoteData);
+            } else {
+                updateQuoteInTable(quoteData);
+            }
         }
 
-        function renderQuotesTable() {
-            if (quotes.size === 0) {
-                quotesTableBody.innerHTML = '<tr><td colspan="9" class="no-data">Нет данных</td></tr>';
-                return;
+        function addQuoteToTable(quoteData) {
+            const figi = quoteData.figi;
+
+            // Создаем новую строку
+            const newRow = createQuoteRow(quoteData);
+            newRow.setAttribute('data-figi', figi);
+
+            // Находим правильную позицию для алфавитной сортировки
+            const name = (quoteData.instrumentName || quoteData.figi || '').toLowerCase();
+            const existingRows = quotesTableBody.querySelectorAll('tr[data-figi]');
+
+            let insertBeforeRow = null;
+            for (let row of existingRows) {
+                const existingFigi = row.getAttribute('data-figi');
+                const existingQuote = quotes.get(existingFigi);
+                const existingName = (existingQuote.instrumentName || existingQuote.figi || '').toLowerCase();
+
+                if (name.localeCompare(existingName) < 0) {
+                    insertBeforeRow = row;
+                    break;
+                }
             }
 
-            const sortedQuotes = Array.from(quotes.values()).sort((a, b) =>
-                new Date(b.timestamp) - new Date(a.timestamp)
-            );
+            // Вставляем в правильную позицию
+            if (insertBeforeRow) {
+                quotesTableBody.insertBefore(newRow, insertBeforeRow);
+            } else {
+                quotesTableBody.appendChild(newRow);
+            }
+        }
 
-            quotesTableBody.innerHTML = sortedQuotes.map(quote => {
-                const priceChangeClass = getPriceChangeClass(quote.priceChange);
-                const closePriceChangeClass = getPriceChangeClass(quote.closePriceChange);
-                const direction = getDirectionText(quote.direction);
+        function updateQuoteInTable(quoteData) {
+            const figi = quoteData.figi;
+            const existingRow = quotesTableBody.querySelector(`tr[data-figi="${figi}"]`);
 
-                return `
-                    <tr>
-                        <td><strong>${quote.instrumentName || quote.figi}</strong></td>
-                        <td><code>${quote.figi}</code></td>
-                        <td class="${priceChangeClass}">${formatPrice(quote.currentPrice)}</td>
-                        <td>${formatPrice(quote.closePrice)}</td>
-                        <td class="${priceChangeClass}">${formatPrice(quote.priceChange)}</td>
-                        <td class="${closePriceChangeClass}">${formatPercent(quote.closePriceChangePercent)}</td>
-                        <td>${quote.volume || 0}</td>
-                        <td>${direction}</td>
-                        <td class="timestamp">${formatTime(quote.timestamp)}</td>
-                    </tr>
-                `;
-            }).join('');
+            if (existingRow) {
+                // Обновляем содержимое существующей строки
+                const cells = existingRow.querySelectorAll('td');
+                const priceChangeClass = getPriceChangeClass(quoteData.priceChange);
+                const closePriceChangeClass = getPriceChangeClass(quoteData.closePriceChange);
+                const direction = getDirectionText(quoteData.direction);
+
+                cells[0].innerHTML = `<strong>${quoteData.instrumentName || quoteData.figi}</strong>`;
+                cells[1].innerHTML = `<code>${quoteData.figi}</code>`;
+                cells[2].className = priceChangeClass;
+                cells[2].textContent = formatPrice(quoteData.currentPrice);
+                cells[3].textContent = formatPrice(quoteData.closePrice);
+                cells[4].className = priceChangeClass;
+                cells[4].textContent = formatPrice(quoteData.priceChange);
+                cells[5].className = closePriceChangeClass;
+                cells[5].textContent = formatPercent(quoteData.closePriceChangePercent);
+                cells[6].textContent = quoteData.volume || 0;
+                cells[7].textContent = direction;
+                cells[8].textContent = formatTime(quoteData.timestamp);
+            }
+        }
+
+        function createQuoteRow(quoteData) {
+            const row = document.createElement('tr');
+            const priceChangeClass = getPriceChangeClass(quoteData.priceChange);
+            const closePriceChangeClass = getPriceChangeClass(quoteData.closePriceChange);
+            const direction = getDirectionText(quoteData.direction);
+
+            row.innerHTML = `
+                <td><strong>${quoteData.instrumentName || quoteData.figi}</strong></td>
+                <td><code>${quoteData.figi}</code></td>
+                <td class="${priceChangeClass}">${formatPrice(quoteData.currentPrice)}</td>
+                <td>${formatPrice(quoteData.closePrice)}</td>
+                <td class="${priceChangeClass}">${formatPrice(quoteData.priceChange)}</td>
+                <td class="${closePriceChangeClass}">${formatPercent(quoteData.closePriceChangePercent)}</td>
+                <td>${quoteData.volume || 0}</td>
+                <td>${direction}</td>
+                <td class="timestamp">${formatTime(quoteData.timestamp)}</td>
+            `;
+
+            return row;
         }
 
         function getPriceChangeClass(priceChange) {
