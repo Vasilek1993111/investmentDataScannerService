@@ -38,6 +38,16 @@ public class QuoteScannerConfig {
      */
     private Map<String, String> instrumentNames = Map.of();
 
+    /**
+     * Включить/выключить подписку на стаканы
+     */
+    private boolean enableOrderBookSubscription = false;
+
+    /**
+     * Глубина стакана (количество уровней)
+     */
+    private int orderBookDepth = 10;
+
     // Геттеры и сеттеры
     public List<String> getInstruments() {
         return instruments;
@@ -77,5 +87,21 @@ public class QuoteScannerConfig {
 
     public void setInstrumentNames(Map<String, String> instrumentNames) {
         this.instrumentNames = instrumentNames;
+    }
+
+    public boolean isEnableOrderBookSubscription() {
+        return enableOrderBookSubscription;
+    }
+
+    public void setEnableOrderBookSubscription(boolean enableOrderBookSubscription) {
+        this.enableOrderBookSubscription = enableOrderBookSubscription;
+    }
+
+    public int getOrderBookDepth() {
+        return orderBookDepth;
+    }
+
+    public void setOrderBookDepth(int orderBookDepth) {
+        this.orderBookDepth = orderBookDepth;
     }
 }

@@ -23,6 +23,7 @@ import com.example.investmentdatascannerservice.dto.QuoteData;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import ru.tinkoff.piapi.contract.v1.LastPrice;
+import ru.tinkoff.piapi.contract.v1.OrderBook;
 import ru.tinkoff.piapi.contract.v1.Trade;
 import ru.tinkoff.piapi.contract.v1.TradeDirection;
 
@@ -44,11 +45,18 @@ public class QuoteScannerService {
     private final QuoteScannerConfig config;
     private final InstrumentPairService instrumentPairService;
     private final ClosePriceService closePriceService;
+    private final ClosePriceEveningSessionService closePriceEveningSessionService;
 
     // Хранилище последних цен для расчета разниц
     private final Map<String, BigDecimal> lastPrices = new ConcurrentHashMap<>();
     private final Map<String, String> instrumentNames = new ConcurrentHashMap<>();
     private final Map<String, BigDecimal> closePrices = new ConcurrentHashMap<>();
+
+    // Хранилище данных стакана заявок
+    private final Map<String, BigDecimal> bestBids = new ConcurrentHashMap<>();
+    private final Map<String, BigDecimal> bestAsks = new ConcurrentHashMap<>();
+    private final Map<String, Long> bestBidQuantities = new ConcurrentHashMap<>();
+    private final Map<String, Long> bestAskQuantities = new ConcurrentHashMap<>();
 
     // Подписчики на обновления котировок (для WebSocket)
     private final Set<Consumer<QuoteData>> quoteSubscribers = new CopyOnWriteArraySet<>();
@@ -65,10 +73,12 @@ public class QuoteScannerService {
     private final AtomicLong totalQuotesSent = new AtomicLong(0);
 
     public QuoteScannerService(QuoteScannerConfig config,
-            InstrumentPairService instrumentPairService, ClosePriceService closePriceService) {
+            InstrumentPairService instrumentPairService, ClosePriceService closePriceService,
+            ClosePriceEveningSessionService closePriceEveningSessionService) {
         this.config = config;
         this.instrumentPairService = instrumentPairService;
         this.closePriceService = closePriceService;
+        this.closePriceEveningSessionService = closePriceEveningSessionService;
     }
 
     @PostConstruct
@@ -89,6 +99,9 @@ public class QuoteScannerService {
         // Загружаем цены закрытия за предыдущий торговый день
         loadClosePrices();
 
+        // Загружаем цены закрытия вечерней сессии за предыдущий торговый день
+        loadEveningClosePrices();
+
         // Запускаем периодическую очистку неактивных подписчиков каждые 30 секунд
         scheduler.scheduleAtFixedRate(this::cleanupInactiveSubscribers, 30, 30, TimeUnit.SECONDS);
 
@@ -107,6 +120,26 @@ public class QuoteScannerService {
             log.info("Loaded {} close prices for previous trading day", loadedClosePrices.size());
         } catch (Exception e) {
             log.error("Error loading close prices", e);
+        }
+    }
+
+    /**
+     * Загружает цены закрытия вечерней сессии за предыдущий торговый день для всех настроенных
+     * инструментов
+     */
+    private void loadEveningClosePrices() {
+        try {
+            log.info("Loading evening close prices for previous trading day...");
+            Map<String, BigDecimal> loadedEveningClosePrices = closePriceEveningSessionService
+                    .loadEveningClosePricesForPreviousDay(config.getInstruments());
+            log.info("Loaded {} evening close prices for previous trading day",
+                    loadedEveningClosePrices.size());
+            if (!loadedEveningClosePrices.isEmpty()) {
+                log.info("Evening close prices loaded for instruments: {}",
+                        loadedEveningClosePrices.keySet());
+            }
+        } catch (Exception e) {
+            log.error("Error loading evening close prices", e);
         }
     }
 
@@ -165,6 +198,16 @@ public class QuoteScannerService {
                 // Получаем цену закрытия за предыдущий торговый день
                 BigDecimal closePrice = closePrices.get(figi);
 
+                // Получаем цену закрытия вечерней сессии за предыдущий торговый день
+                BigDecimal closePriceVS =
+                        closePriceEveningSessionService.getEveningClosePrice(figi);
+
+                // Получаем данные стакана для этого инструмента
+                BigDecimal bestBid = bestBids.getOrDefault(figi, BigDecimal.ZERO);
+                BigDecimal bestAsk = bestAsks.getOrDefault(figi, BigDecimal.ZERO);
+                long bestBidQuantity = bestBidQuantities.getOrDefault(figi, 0L);
+                long bestAskQuantity = bestAskQuantities.getOrDefault(figi, 0L);
+
                 // Создаем данные о котировке
                 QuoteData quoteData = new QuoteData(figi, instrumentNames.getOrDefault(figi, figi), // Используем
                                                                                                     // FIGI
@@ -172,8 +215,13 @@ public class QuoteScannerService {
                                                                                                     // имя
                                                                                                     // не
                                                                                                     // найдено
-                        currentPrice, previousPrice, closePrice, eventTime, 1L, // Для LastPrice
-                                                                                // объем = 1
+                        currentPrice, previousPrice, closePrice, null, closePriceVS, // closePriceOS,
+                                                                                     // closePriceVS
+                        bestBid, bestAsk, bestBidQuantity, bestAskQuantity, eventTime, 1L, // Для
+                                                                                           // LastPrice
+                                                                                           // объем
+                                                                                           // = 1
+                        1L, // totalVolume
                         direction);
 
                 totalQuotesProcessed.incrementAndGet();
@@ -233,12 +281,25 @@ public class QuoteScannerService {
                     direction = "DOWN";
                 }
 
-                // Создаем данные о котировке
                 // Получаем цену закрытия за предыдущий торговый день
                 BigDecimal closePrice = closePrices.get(figi);
 
+                // Получаем цену закрытия вечерней сессии за предыдущий торговый день
+                BigDecimal closePriceVS =
+                        closePriceEveningSessionService.getEveningClosePrice(figi);
+
+                // Получаем данные стакана для этого инструмента
+                BigDecimal bestBid = bestBids.getOrDefault(figi, BigDecimal.ZERO);
+                BigDecimal bestAsk = bestAsks.getOrDefault(figi, BigDecimal.ZERO);
+                long bestBidQuantity = bestBidQuantities.getOrDefault(figi, 0L);
+                long bestAskQuantity = bestAskQuantities.getOrDefault(figi, 0L);
+
+                // Создаем данные о котировке
                 QuoteData quoteData = new QuoteData(figi, instrumentNames.getOrDefault(figi, figi),
-                        currentPrice, previousPrice, closePrice, eventTime, trade.getQuantity(),
+                        currentPrice, previousPrice, closePrice, null, closePriceVS, // closePriceOS,
+                                                                                     // closePriceVS
+                        bestBid, bestAsk, bestBidQuantity, bestAskQuantity, eventTime,
+                        trade.getQuantity(), trade.getQuantity(), // volume, totalVolume
                         direction);
 
                 totalQuotesProcessed.incrementAndGet();
@@ -367,6 +428,82 @@ public class QuoteScannerService {
      */
     public Set<String> getInstruments() {
         return Set.copyOf(config.getInstruments());
+    }
+
+    /**
+     * Обработка данных стакана заявок из T-Invest API
+     */
+    public void processOrderBook(OrderBook orderBook) {
+        processingExecutor.submit(() -> {
+            try {
+                String figi = orderBook.getFigi();
+
+                // Фильтрация по настроенным инструментам
+                if (!config.getInstruments().isEmpty() && !config.getInstruments().contains(figi)) {
+                    log.debug(
+                            "Filtering out OrderBook for instrument {} - not in configured list: {}",
+                            figi, config.getInstruments());
+                    return;
+                }
+
+                log.debug("Processing OrderBook for instrument {} - in configured list: {}", figi,
+                        config.getInstruments());
+
+                // Получаем лучший BID (первая заявка на покупку)
+                BigDecimal bestBid = BigDecimal.ZERO;
+                long bestBidQuantity = 0;
+                if (orderBook.getBidsCount() > 0) {
+                    var bestBidOrder = orderBook.getBids(0);
+                    bestBid = BigDecimal.valueOf(bestBidOrder.getPrice().getUnits()).add(
+                            BigDecimal.valueOf(bestBidOrder.getPrice().getNano()).movePointLeft(9));
+                    bestBidQuantity = bestBidOrder.getQuantity();
+                }
+
+                // Получаем лучший ASK (первая заявка на продажу)
+                BigDecimal bestAsk = BigDecimal.ZERO;
+                long bestAskQuantity = 0;
+                if (orderBook.getAsksCount() > 0) {
+                    var bestAskOrder = orderBook.getAsks(0);
+                    bestAsk = BigDecimal.valueOf(bestAskOrder.getPrice().getUnits()).add(
+                            BigDecimal.valueOf(bestAskOrder.getPrice().getNano()).movePointLeft(9));
+                    bestAskQuantity = bestAskOrder.getQuantity();
+                }
+
+                // Обновляем данные стакана в кеше
+                bestBids.put(figi, bestBid);
+                bestAsks.put(figi, bestAsk);
+                bestBidQuantities.put(figi, bestBidQuantity);
+                bestAskQuantities.put(figi, bestAskQuantity);
+
+                log.debug("Order book processed for FIGI: {}, BID: {} ({}), ASK: {} ({})", figi,
+                        bestBid, bestBidQuantity, bestAsk, bestAskQuantity);
+
+            } catch (Exception e) {
+                log.error("Error processing order book for FIGI: {}", orderBook.getFigi(), e);
+            }
+        });
+    }
+
+    /**
+     * Обработка данных стакана заявок (устаревший метод для совместимости)
+     */
+    public void processOrderBook(String figi, BigDecimal bestBid, BigDecimal bestAsk,
+            long bestBidQuantity, long bestAskQuantity) {
+        try {
+            log.debug("Processing order book for FIGI: {}, BID: {} ({}), ASK: {} ({})", figi,
+                    bestBid, bestBidQuantity, bestAsk, bestAskQuantity);
+
+            // Обновляем данные стакана в кеше
+            bestBids.put(figi, bestBid);
+            bestAsks.put(figi, bestAsk);
+            bestBidQuantities.put(figi, bestBidQuantity);
+            bestAskQuantities.put(figi, bestAskQuantity);
+
+            log.debug("Order book processed for FIGI: {}", figi);
+
+        } catch (Exception e) {
+            log.error("Error processing order book for FIGI: {}", figi, e);
+        }
     }
 
     /**

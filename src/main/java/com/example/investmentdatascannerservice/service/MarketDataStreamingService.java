@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import com.example.investmentdatascannerservice.config.QuoteScannerConfig;
 import io.grpc.stub.StreamObserver;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -21,8 +22,12 @@ import ru.tinkoff.piapi.contract.v1.LastPriceInstrument;
 import ru.tinkoff.piapi.contract.v1.MarketDataRequest;
 import ru.tinkoff.piapi.contract.v1.MarketDataResponse;
 import ru.tinkoff.piapi.contract.v1.MarketDataStreamServiceGrpc;
+import ru.tinkoff.piapi.contract.v1.OrderBook;
+import ru.tinkoff.piapi.contract.v1.OrderBookInstrument;
 import ru.tinkoff.piapi.contract.v1.SubscribeLastPriceRequest;
 import ru.tinkoff.piapi.contract.v1.SubscribeLastPriceResponse;
+import ru.tinkoff.piapi.contract.v1.SubscribeOrderBookRequest;
+import ru.tinkoff.piapi.contract.v1.SubscribeOrderBookResponse;
 import ru.tinkoff.piapi.contract.v1.SubscribeTradesRequest;
 import ru.tinkoff.piapi.contract.v1.SubscribeTradesResponse;
 import ru.tinkoff.piapi.contract.v1.SubscriptionAction;
@@ -45,6 +50,7 @@ public class MarketDataStreamingService {
 
     private final MarketDataStreamServiceGrpc.MarketDataStreamServiceStub streamStub;
     private final QuoteScannerService quoteScannerService;
+    private final QuoteScannerConfig config;
 
     // Планировщик для переподключений
     private final ScheduledExecutorService reconnectScheduler =
@@ -55,13 +61,15 @@ public class MarketDataStreamingService {
     private final AtomicBoolean isConnected = new AtomicBoolean(false);
     private final AtomicLong totalReceived = new AtomicLong(0);
     private final AtomicLong totalTradeReceived = new AtomicLong(0);
+    private final AtomicLong totalOrderBookReceived = new AtomicLong(0);
     private volatile StreamObserver<MarketDataRequest> requestObserver;
 
     public MarketDataStreamingService(
             MarketDataStreamServiceGrpc.MarketDataStreamServiceStub streamStub,
-            QuoteScannerService quoteScannerService) {
+            QuoteScannerService quoteScannerService, QuoteScannerConfig config) {
         this.streamStub = streamStub;
         this.quoteScannerService = quoteScannerService;
+        this.config = config;
     }
 
     /**
@@ -184,6 +192,23 @@ public class MarketDataStreamingService {
             MarketDataRequest tradesSubscribeReq =
                     MarketDataRequest.newBuilder().setSubscribeTradesRequest(tradesReq).build();
 
+            // Подписываемся на стаканы (если включено в конфигурации)
+            MarketDataRequest orderBookSubscribeReq = null;
+            if (config.isEnableOrderBookSubscription()) {
+                log.info("Creating OrderBook subscription request for {} instruments with depth {}",
+                        allFigis.size(), config.getOrderBookDepth());
+                SubscribeOrderBookRequest orderBookReq = SubscribeOrderBookRequest.newBuilder()
+                        .setSubscriptionAction(SubscriptionAction.SUBSCRIPTION_ACTION_SUBSCRIBE)
+                        .addAllInstruments(allFigis.stream()
+                                .map(f -> OrderBookInstrument.newBuilder().setInstrumentId(f)
+                                        .setDepth(config.getOrderBookDepth()).build())
+                                .toList())
+                        .build();
+
+                orderBookSubscribeReq = MarketDataRequest.newBuilder()
+                        .setSubscribeOrderBookRequest(orderBookReq).build();
+            }
+
             StreamObserver<MarketDataResponse> responseObserver = new StreamObserver<>() {
                 @Override
                 public void onNext(MarketDataResponse resp) {
@@ -211,6 +236,18 @@ public class MarketDataStreamingService {
                         return;
                     }
 
+                    if (resp.hasSubscribeOrderBookResponse()) {
+                        SubscribeOrderBookResponse sr = resp.getSubscribeOrderBookResponse();
+                        isConnected.set(true);
+                        log.info("=== ORDER BOOK SUBSCRIPTION RESPONSE ===");
+                        log.info("Total OrderBook subscriptions: {}",
+                                sr.getOrderBookSubscriptionsList().size());
+                        sr.getOrderBookSubscriptionsList().forEach(s -> log.info("  FIGI {} -> {}",
+                                s.getFigi(), s.getSubscriptionStatus()));
+                        log.info("======================================");
+                        return;
+                    }
+
                     if (resp.hasLastPrice()) {
                         log.info("Received last price data from T-Invest API for FIGI: {}",
                                 resp.getLastPrice().getFigi());
@@ -223,6 +260,12 @@ public class MarketDataStreamingService {
                         processTrade(resp.getTrade());
                         // Отправляем данные в сканер котировок
                         quoteScannerService.processTrade(resp.getTrade());
+                    } else if (resp.hasOrderbook()) {
+                        log.info("Received order book data from T-Invest API for FIGI: {}",
+                                resp.getOrderbook().getFigi());
+                        processOrderBook(resp.getOrderbook());
+                        // Отправляем данные в сканер котировок
+                        quoteScannerService.processOrderBook(resp.getOrderbook());
                     } else {
                         log.info("Received unknown response type from T-Invest API: {}", resp);
                     }
@@ -254,7 +297,13 @@ public class MarketDataStreamingService {
             log.info("Sending Trades subscription request to T-Invest API");
             requestObserver.onNext(tradesSubscribeReq);
 
-            log.info("Successfully sent both subscription requests to T-Invest API");
+            // Отправляем подписку на стаканы (если включено)
+            if (orderBookSubscribeReq != null) {
+                log.info("Sending OrderBook subscription request to T-Invest API");
+                requestObserver.onNext(orderBookSubscribeReq);
+            }
+
+            log.info("Successfully sent subscription requests to T-Invest API");
 
         } catch (Exception e) {
             log.error("Error starting market data stream", e);
@@ -344,6 +393,64 @@ public class MarketDataStreamingService {
     }
 
     /**
+     * Высокопроизводительная обработка данных стакана заявок
+     */
+    private void processOrderBook(OrderBook orderBook) {
+        try {
+            totalOrderBookReceived.incrementAndGet();
+
+            Instant eventInstant = Instant.ofEpochSecond(orderBook.getTime().getSeconds(),
+                    orderBook.getTime().getNanos());
+            // Конвертируем время в UTC+3 (московское время)
+            LocalDateTime eventTime = LocalDateTime.ofInstant(eventInstant, ZoneOffset.of("+3"));
+
+            // Получаем лучший BID (первая заявка на покупку)
+            BigDecimal bestBid = BigDecimal.ZERO;
+            long bestBidQuantity = 0;
+            if (orderBook.getBidsCount() > 0) {
+                var bestBidOrder = orderBook.getBids(0);
+                bestBid = BigDecimal.valueOf(bestBidOrder.getPrice().getUnits()).add(
+                        BigDecimal.valueOf(bestBidOrder.getPrice().getNano()).movePointLeft(9));
+                bestBidQuantity = bestBidOrder.getQuantity();
+            }
+
+            // Получаем лучший ASK (первая заявка на продажу)
+            BigDecimal bestAsk = BigDecimal.ZERO;
+            long bestAskQuantity = 0;
+            if (orderBook.getAsksCount() > 0) {
+                var bestAskOrder = orderBook.getAsks(0);
+                bestAsk = BigDecimal.valueOf(bestAskOrder.getPrice().getUnits()).add(
+                        BigDecimal.valueOf(bestAskOrder.getPrice().getNano()).movePointLeft(9));
+                bestAskQuantity = bestAskOrder.getQuantity();
+            }
+
+            log.debug("Processing OrderBook: FIGI={}, Time={}, BestBid={} ({}), BestAsk={} ({})",
+                    orderBook.getFigi(), eventTime, bestBid, bestBidQuantity, bestAsk,
+                    bestAskQuantity);
+
+            // Логируем каждую 100-ю запись для мониторинга частоты
+            if (totalOrderBookReceived.get() % 100 == 0) {
+                log.info("Received {} order books from T-Invest API", totalOrderBookReceived.get());
+            }
+
+            if (log.isDebugEnabled()) {
+                log.debug("Processing order book for {} at {}: BID {} ({}), ASK {} ({})",
+                        orderBook.getFigi(), eventTime, bestBid, bestBidQuantity, bestAsk,
+                        bestAskQuantity);
+            }
+
+            if (log.isTraceEnabled()) {
+                log.trace(
+                        "Processed order book for {} at {}: BID {} ({}), ASK {} ({}), Total Bids: {}, Total Asks: {}",
+                        orderBook.getFigi(), eventTime, bestBid, bestBidQuantity, bestAsk,
+                        bestAskQuantity, orderBook.getBidsCount(), orderBook.getAsksCount());
+            }
+        } catch (Exception e) {
+            log.error("Error processing order book for {}", orderBook.getFigi(), e);
+        }
+    }
+
+    /**
      * Планирование переподключения с экспоненциальной задержкой
      */
     private void scheduleReconnect(long delayMs) {
@@ -364,7 +471,7 @@ public class MarketDataStreamingService {
      */
     public ServiceStats getServiceStats() {
         return new ServiceStats(isRunning.get(), isConnected.get(), totalReceived.get(),
-                totalTradeReceived.get());
+                totalTradeReceived.get(), totalOrderBookReceived.get());
     }
 
     /**
@@ -384,20 +491,22 @@ public class MarketDataStreamingService {
     }
 
     /**
-     * Расширенная статистика сервиса с метриками Trade обработки
+     * Расширенная статистика сервиса с метриками Trade и OrderBook обработки
      */
     public static class ServiceStats {
         private final boolean isRunning;
         private final boolean isConnected;
         private final long totalReceived;
         private final long totalTradeReceived;
+        private final long totalOrderBookReceived;
 
         public ServiceStats(boolean isRunning, boolean isConnected, long totalReceived,
-                long totalTradeReceived) {
+                long totalTradeReceived, long totalOrderBookReceived) {
             this.isRunning = isRunning;
             this.isConnected = isConnected;
             this.totalReceived = totalReceived;
             this.totalTradeReceived = totalTradeReceived;
+            this.totalOrderBookReceived = totalOrderBookReceived;
         }
 
         public boolean isRunning() {
@@ -416,9 +525,14 @@ public class MarketDataStreamingService {
             return totalTradeReceived;
         }
 
-        public long getTotalReceivedAll() {
-            return totalReceived + totalTradeReceived;
+        public long getTotalOrderBookReceived() {
+            return totalOrderBookReceived;
         }
+
+        public long getTotalReceivedAll() {
+            return totalReceived + totalTradeReceived + totalOrderBookReceived;
+        }
+
     }
 
 }
