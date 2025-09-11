@@ -58,6 +58,17 @@ public class QuoteScannerConfig {
      */
     private int maxOrderBookUpdatesPerSecond = 0;
 
+    /**
+     * Включить/выключить тестовый режим (работа вне времени утренней сессии)
+     */
+    private boolean enableTestMode = false;
+
+    /**
+     * Режим сканирования для утреннего сканера true - сканировать все акции из таблицы
+     * invest.shares false - использовать инструменты из конфигурации
+     */
+    private boolean enableSharesMode = true;
+
     // Геттеры и сеттеры
     public List<String> getInstruments() {
         return instruments;
@@ -129,5 +140,21 @@ public class QuoteScannerConfig {
 
     public void setMaxOrderBookUpdatesPerSecond(int maxOrderBookUpdatesPerSecond) {
         this.maxOrderBookUpdatesPerSecond = maxOrderBookUpdatesPerSecond;
+    }
+
+    public boolean isEnableTestMode() {
+        return enableTestMode;
+    }
+
+    public void setEnableTestMode(boolean enableTestMode) {
+        this.enableTestMode = enableTestMode;
+    }
+
+    public boolean isEnableSharesMode() {
+        return enableSharesMode;
+    }
+
+    public void setEnableSharesMode(boolean enableSharesMode) {
+        this.enableSharesMode = enableSharesMode;
     }
 }

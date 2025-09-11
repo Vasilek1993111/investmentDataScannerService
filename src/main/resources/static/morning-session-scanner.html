@@ -309,6 +309,88 @@
                 align-items: stretch;
             }
         }
+
+        .scanner-container {
+            display: grid;
+            gap: 30px;
+            margin-bottom: 30px;
+            max-width: 1600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .scanner-section {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .scanner-section h2 {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+            padding: 15px;
+            border-radius: 10px;
+            color: white;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+        }
+
+        .scanner-section.gainers h2 {
+            background: linear-gradient(45deg, #4CAF50, #45a049);
+        }
+
+        .scanner-section.losers h2 {
+            background: linear-gradient(45deg, #f44336, #d32f2f);
+        }
+
+        .rank {
+            font-weight: bold;
+            font-size: 1.1rem;
+            color: #667eea;
+            margin-right: 8px;
+            display: inline-block;
+            min-width: 30px;
+        }
+
+        .change-percent {
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+
+        .change-percent.positive {
+            color: #2e7d32;
+        }
+
+        .change-percent.negative {
+            color: #c62828;
+        }
+
+        .price-with-percent {
+            font-size: 0.9rem;
+        }
+
+        .price-percent {
+            font-size: 0.9rem;
+            font-weight: normal;
+            opacity: 0.9;
+        }
+
+        .price-percent.positive {
+            color: #2e7d32;
+        }
+
+        .price-percent.negative {
+            color: #c62828;
+        }
+
+        @media (max-width: 1200px) {
+            .scanner-container {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 
@@ -350,58 +432,61 @@
             <div id="connectionStatus" class="status disconnected">Отключено</div>
         </div>
 
-        <div class="content">
-            <h2>📈 Активность утренней сессии</h2>
-
-            <div class="filters">
-                <div class="filter-group">
-                    <label for="volumeFilter">Минимальный объем</label>
-                    <input type="number" id="volumeFilter" placeholder="0" min="0">
-                </div>
-                <div class="filter-group">
-                    <label for="changeFilter">Изменение цены</label>
-                    <select id="changeFilter">
-                        <option value="all">Все</option>
-                        <option value="positive">Рост</option>
-                        <option value="negative">Падение</option>
-                    </select>
-                </div>
-                <div class="filter-group">
-                    <label for="sortBy">Сортировка</label>
-                    <select id="sortBy">
-                        <option value="name" selected>По названию</option>
-                        <option value="volume">По объему</option>
-                        <option value="change">По изменению</option>
-                    </select>
+        <div class="scanner-container">
+            <!-- Растущие бумаги -->
+            <div class="scanner-section gainers">
+                <h2>🚀 Топ-15 растущих относительно ОС</h2>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Инструмент</th>
+                                <th>Текущая</th>
+                                <th>Цена открытия</th>
+                                <th>Цена ОС</th>
+                                <th>Цена ВС</th>
+                                <th>Изменение от ОС %</th>
+                                <th>BID (лоты)</th>
+                                <th>ASK (лоты)</th>
+                                <th>Объем</th>
+                                <th>Время</th>
+                            </tr>
+                        </thead>
+                        <tbody id="gainersTableBody">
+                            <tr>
+                                <td colspan="10" class="no-data">Нет данных</td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Инструмент</th>
-                            <th>FIGI</th>
-                            <th>Цена открытия</th>
-                            <th>Текущая цена</th>
-                            <th>Цена закрытия ОС</th>
-                            <th>Цена закрытия ВС</th>
-                            <th>Изменение от ВС</th>
-                            <th>Изменение от ВС %</th>
-                            <th>Лучший BID (лоты)</th>
-                            <th>Лучший ASK (лоты)</th>
-                            <th>Объем</th>
-                            <th>Общий объем</th>
-                            <th>Направление</th>
-                            <th>Время</th>
-                        </tr>
-                    </thead>
-                    <tbody id="quotesTableBody">
-                        <tr>
-                            <td colspan="14" class="no-data">Нет данных</td>
-                        </tr>
-                    </tbody>
-                </table>
+            <!-- Падающие бумаги -->
+            <div class="scanner-section losers">
+                <h2>📉 Топ-15 падающих относительно ОС</h2>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Инструмент</th>
+                                <th>Текущая</th>
+                                <th>Цена открытия</th>
+                                <th>Цена ОС</th>
+                                <th>Цена ВС</th>
+                                <th>Изменение от ОС %</th>
+                                <th>BID (лоты)</th>
+                                <th>ASK (лоты)</th>
+                                <th>Объем</th>
+                                <th>Время</th>
+                            </tr>
+                        </thead>
+                        <tbody id="losersTableBody">
+                            <tr>
+                                <td colspan="10" class="no-data">Нет данных</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -411,29 +496,32 @@
         const connectBtn = document.getElementById('connectBtn');
         const disconnectBtn = document.getElementById('disconnectBtn');
         const connectionStatus = document.getElementById('connectionStatus');
-        const quotesTableBody = document.getElementById('quotesTableBody');
+        const gainersTableBody = document.getElementById('gainersTableBody');
+        const losersTableBody = document.getElementById('losersTableBody');
         const activeInstruments = document.getElementById('activeInstruments');
         const totalVolume = document.getElementById('totalVolume');
         const updateRate = document.getElementById('updateRate');
         const lastUpdate = document.getElementById('lastUpdate');
         const sessionStatus = document.getElementById('sessionStatus');
 
-        // Фильтры
-        const volumeFilter = document.getElementById('volumeFilter');
-        const changeFilter = document.getElementById('changeFilter');
-        const sortBy = document.getElementById('sortBy');
+        // Фильтры (удалены, так как не используются в утреннем сканере)
 
         // Состояние
         let websocket = null;
         let isConnected = false;
         let quotes = new Map();
+        let gainers = [];
+        let losers = [];
         let updateCount = 0;
         let lastUpdateTime = null;
         let updateTimer = null;
 
         // Время утренней сессии (07:00-09:59 МСК)
-        const MORNING_SESSION_START = 7;
-        const MORNING_SESSION_END = 10;
+        const MORNING_SESSION_START_HOUR = 6;
+        const MORNING_SESSION_START_MINUTE = 50;
+        const MORNING_SESSION_END_HOUR = 9;
+        const MORNING_SESSION_END_MINUTE = 49;
+        const MORNING_SESSION_END_SECOND = 59;
 
         function connect() {
             if (isConnected) return;
@@ -448,9 +536,12 @@
                     connectionStatus.textContent = 'Подключено';
                     connectionStatus.className = 'status connected';
 
-                    // Очищаем таблицу
-                    quotesTableBody.innerHTML = '';
+                    // Очищаем таблицы
+                    gainersTableBody.innerHTML = '<tr><td colspan="11" class="no-data">Нет данных</td></tr>';
+                    losersTableBody.innerHTML = '<tr><td colspan="11" class="no-data">Нет данных</td></tr>';
                     quotes.clear();
+                    gainers = [];
+                    losers = [];
                     updateCount = 0;
 
                     // Запускаем таймер для подсчета скорости обновления
@@ -465,6 +556,7 @@
                 websocket.onmessage = function (event) {
                     try {
                         const quoteData = JSON.parse(event.data);
+                        console.log('WebSocket received data:', quoteData);
                         updateQuote(quoteData);
                     } catch (error) {
                         console.error('Error parsing quote data:', error);
@@ -501,7 +593,6 @@
 
         function updateQuote(quoteData) {
             const figi = quoteData.figi;
-            const isNewQuote = !quotes.has(figi);
             quotes.set(figi, quoteData);
 
             updateCount++;
@@ -512,173 +603,236 @@
             updateTotalVolume();
             lastUpdate.textContent = lastUpdateTime.toLocaleTimeString();
 
-            // Обновляем таблицу стабильно
-            if (isNewQuote) {
-                addQuoteToTable(quoteData);
-            } else {
-                updateQuoteInTable(quoteData);
+            // Обновляем информацию о топ-15 в консоли для отладки
+            if (quotes.size % 10 === 0) { // Логируем каждые 10 обновлений
+                console.log(`Tracking ${quotes.size} instruments, showing top 15 gainers and losers`);
             }
+
+            // Отладочная информация
+            console.log('Received quote:', figi, 'ticker:', quoteData.ticker, 'closePriceOS:', quoteData.closePriceOS, 'closePrice:', quoteData.closePrice, 'currentPrice:', quoteData.currentPrice);
+            console.log('Total quotes in memory:', quotes.size);
+
+            // Обновляем списки растущих и падающих
+            updateTopLists();
         }
 
         function updateTotalVolume() {
             let total = 0;
             quotes.forEach(quote => {
-                total += quote.volume || 0;
+                total += quote.totalVolume || 0;
             });
             totalVolume.textContent = total.toLocaleString();
         }
 
-        function addQuoteToTable(quoteData) {
-            const figi = quoteData.figi;
+        function updateTopLists() {
+            const quotesArray = Array.from(quotes.values());
+            console.log('updateTopLists called with', quotesArray.length, 'quotes');
 
-            // Создаем новую строку
-            const newRow = createQuoteRow(quoteData);
-            newRow.setAttribute('data-figi', figi);
+            // Используем closePrice как fallback для closePriceOS
+            const validQuotes = quotesArray.filter(quote => {
+                const hasOSPrice = quote.closePriceOS && quote.closePriceOS > 0;
+                const hasClosePrice = quote.closePrice && quote.closePrice > 0;
+                const hasCurrentPrice = quote.currentPrice && quote.currentPrice > 0;
 
-            // Находим правильную позицию для алфавитной сортировки
-            const name = (quoteData.instrumentName || quoteData.figi || '').toLowerCase();
-            const existingRows = quotesTableBody.querySelectorAll('tr[data-figi]');
-
-            let insertBeforeRow = null;
-            for (let row of existingRows) {
-                const existingFigi = row.getAttribute('data-figi');
-                const existingQuote = quotes.get(existingFigi);
-                const existingName = (existingQuote.instrumentName || existingQuote.figi || '').toLowerCase();
-
-                if (name.localeCompare(existingName) < 0) {
-                    insertBeforeRow = row;
-                    break;
+                const isValid = (hasOSPrice || hasClosePrice) && hasCurrentPrice;
+                if (!isValid) {
+                    console.log('Invalid quote filtered out:', quote.figi, 'closePriceOS:', quote.closePriceOS, 'closePrice:', quote.closePrice, 'currentPrice:', quote.currentPrice);
                 }
+                return isValid;
+            });
+
+            console.log('Valid quotes for sorting:', validQuotes.length);
+
+            // Сортируем по изменению относительно ОС
+            const sortedQuotes = validQuotes.sort((a, b) => {
+                // Вычисляем изменение относительно ОС (используем closePrice как fallback)
+                const priceOS_A = a.closePriceOS || a.closePrice;
+                const priceOS_B = b.closePriceOS || b.closePrice;
+
+                const changeA = priceOS_A ? ((a.currentPrice - priceOS_A) / priceOS_A) * 100 : 0;
+                const changeB = priceOS_B ? ((b.currentPrice - priceOS_B) / priceOS_B) * 100 : 0;
+                return changeB - changeA; // По убыванию
+            });
+
+            // Разделяем на растущие и падающие (показываем топ-15)
+            gainers = sortedQuotes.filter(quote => {
+                const priceOS = quote.closePriceOS || quote.closePrice;
+                const change = priceOS ? ((quote.currentPrice - priceOS) / priceOS) * 100 : 0;
+                return change > 0;
+            }).slice(0, 15); // Ограничиваем до топ-15 растущих
+
+            // Для падающих сортируем от большего падения к меньшему (отрицательные значения по возрастанию)
+            losers = sortedQuotes.filter(quote => {
+                const priceOS = quote.closePriceOS || quote.closePrice;
+                const change = priceOS ? ((quote.currentPrice - priceOS) / priceOS) * 100 : 0;
+                return change < 0;
+            }).sort((a, b) => {
+                const priceOS_A = a.closePriceOS || a.closePrice;
+                const priceOS_B = b.closePriceOS || b.closePrice;
+                const changeA = priceOS_A ? ((a.currentPrice - priceOS_A) / priceOS_A) * 100 : 0;
+                const changeB = priceOS_B ? ((b.currentPrice - priceOS_B) / priceOS_B) * 100 : 0;
+                return changeA - changeB; // Сортируем по возрастанию (от большего падения к меньшему)
+            }).slice(0, 15); // Ограничиваем до топ-15 падающих
+
+            console.log('Gainers:', gainers.length, 'Losers:', losers.length);
+            console.log('Showing top 15 gainers and top 15 losers out of', validQuotes.length, 'valid quotes');
+
+            // Логируем первые несколько падающих для проверки сортировки
+            if (losers.length > 0) {
+                console.log('Top 3 losers (should be sorted from biggest drop to smallest):');
+                losers.slice(0, 3).forEach((quote, index) => {
+                    const priceOS = quote.closePriceOS || quote.closePrice;
+                    const change = priceOS ? ((quote.currentPrice - priceOS) / priceOS) * 100 : 0;
+                    console.log(`  ${index + 1}. ${quote.ticker || quote.figi}: ${change.toFixed(2)}%`);
+                });
             }
 
-            // Вставляем в правильную позицию
-            if (insertBeforeRow) {
-                quotesTableBody.insertBefore(newRow, insertBeforeRow);
-            } else {
-                quotesTableBody.appendChild(newRow);
-            }
+            // Обновляем таблицы
+            updateGainersTable();
+            updateLosersTable();
         }
 
-        function updateQuoteInTable(quoteData) {
-            const figi = quoteData.figi;
-            const existingRow = quotesTableBody.querySelector(`tr[data-figi="${figi}"]`);
-
-            if (existingRow) {
-                // Обновляем содержимое существующей строки
-                const cells = existingRow.querySelectorAll('td');
-                const priceChangeClass = getPriceChangeClass(quoteData.priceChange);
-                const direction = getDirectionText(quoteData.direction);
-
-                cells[0].innerHTML = `<strong>${quoteData.instrumentName || quoteData.figi}</strong>`;
-                cells[1].innerHTML = `<code>${quoteData.figi}</code>`;
-                cells[2].textContent = formatPrice(quoteData.closePrice);
-                cells[3].className = priceChangeClass;
-                cells[3].textContent = formatPrice(quoteData.currentPrice);
-                cells[4].innerHTML = formatPriceWithChange(quoteData.closePriceOS || quoteData.closePrice, quoteData.currentPrice);
-                cells[5].innerHTML = formatPriceWithChange(quoteData.closePriceVS || quoteData.closePrice, quoteData.currentPrice);
-                cells[6].innerHTML = formatPriceChange(quoteData.closePriceVSChange);
-                cells[7].innerHTML = formatPriceChangePercent(quoteData.closePriceVSChangePercent);
-                cells[8].innerHTML = formatBidAsk(quoteData.bestBid, quoteData.bestBidQuantity || 0);
-                cells[9].innerHTML = formatBidAsk(quoteData.bestAsk, quoteData.bestAskQuantity || 0);
-                cells[10].textContent = (quoteData.volume || 0).toLocaleString();
-                cells[11].textContent = (quoteData.totalVolume || quoteData.volume || 0).toLocaleString();
-                cells[12].textContent = direction;
-                cells[13].textContent = formatTime(quoteData.timestamp);
+        function updateGainersTable() {
+            if (gainers.length === 0) {
+                gainersTableBody.innerHTML = '<tr><td colspan="10" class="no-data">Нет данных</td></tr>';
+                return;
             }
+
+            gainersTableBody.innerHTML = '';
+            gainers.forEach((quote, index) => {
+                const row = createQuoteRow(quote, index + 1, 'gainers');
+                gainersTableBody.appendChild(row);
+            });
         }
 
-        function createQuoteRow(quoteData) {
+        function updateLosersTable() {
+            if (losers.length === 0) {
+                losersTableBody.innerHTML = '<tr><td colspan="10" class="no-data">Нет данных</td></tr>';
+                return;
+            }
+
+            losersTableBody.innerHTML = '';
+            losers.forEach((quote, index) => {
+                const row = createQuoteRow(quote, index + 1, 'losers');
+                losersTableBody.appendChild(row);
+            });
+        }
+
+        // Функции addQuoteToTable и updateQuoteInTable удалены, так как не используются в утреннем сканере
+
+        function createQuoteRow(quoteData, rank = null, type = null) {
             const row = document.createElement('tr');
             const priceChangeClass = getPriceChangeClass(quoteData.priceChange);
-            const direction = getDirectionText(quoteData.direction);
+
+            // Вычисляем изменение относительно ОС (используем closePrice как fallback)
+            const priceOS = quoteData.closePriceOS || quoteData.closePrice;
+            const changeFromOS = priceOS ? (quoteData.currentPrice - priceOS) : 0;
+            const changePercentFromOS = priceOS ? ((quoteData.currentPrice - priceOS) / priceOS) * 100 : 0;
+            const changeClass = changePercentFromOS > 0 ? 'positive' : changePercentFromOS < 0 ? 'negative' : '';
 
             row.innerHTML = `
-                <td><strong>${quoteData.instrumentName || quoteData.figi}</strong></td>
-                <td><code>${quoteData.figi}</code></td>
-                <td>${formatPrice(quoteData.closePrice)}</td>
+                <td><span class="rank">#${rank || ''}</span> <strong>${quoteData.ticker || quoteData.figi}</strong></td>
                 <td class="${priceChangeClass}">${formatPrice(quoteData.currentPrice)}</td>
-                <td>${formatPriceWithChange(quoteData.closePriceOS || quoteData.closePrice, quoteData.currentPrice)}</td>
-                <td>${formatPriceWithChange(quoteData.closePriceVS || quoteData.closePrice, quoteData.currentPrice)}</td>
-                <td>${formatPriceChange(quoteData.closePriceVSChange)}</td>
-                <td>${formatPriceChangePercent(quoteData.closePriceVSChangePercent)}</td>
+                <td>${formatPriceWithPercent(quoteData.openPrice || quoteData.closePrice, quoteData.currentPrice)}</td>
+                <td>${formatPriceWithPercent(priceOS, quoteData.currentPrice)}</td>
+                <td>${formatPriceWithPercent(quoteData.closePriceVS || quoteData.closePrice, quoteData.currentPrice)}</td>
+                <td><span class="change-percent ${changeClass}">${formatPercent(changePercentFromOS)}</span></td>
                 <td>${formatBidAsk(quoteData.bestBid, quoteData.bestBidQuantity || 0)}</td>
                 <td>${formatBidAsk(quoteData.bestAsk, quoteData.bestAskQuantity || 0)}</td>
-                <td>${(quoteData.volume || 0).toLocaleString()}</td>
-                <td>${(quoteData.totalVolume || quoteData.volume || 0).toLocaleString()}</td>
-                <td>${direction}</td>
+                <td>${(quoteData.totalVolume || 0).toLocaleString()}</td>
                 <td class="timestamp">${formatTime(quoteData.timestamp)}</td>
             `;
 
             return row;
         }
 
-        function updateSessionStatus() {
+        async function updateSessionStatus() {
             const now = new Date();
             const moscowTime = new Date(now.getTime() + (3 * 60 * 60 * 1000)); // UTC+3
             const currentHour = moscowTime.getHours();
             const currentMinute = moscowTime.getMinutes();
-            const currentTime = currentHour * 100 + currentMinute;
-            const sessionStartTime = MORNING_SESSION_START * 100; // 07:00
-            const sessionEndTime = MORNING_SESSION_END * 100; // 10:00
+            const currentSecond = moscowTime.getSecond();
 
-            if (currentTime >= sessionStartTime && currentTime < sessionEndTime) {
-                sessionStatus.textContent = `🌅 Утренняя сессия активна (${moscowTime.toLocaleTimeString()})`;
-                sessionStatus.style.background = 'linear-gradient(135deg, #2ecc71, #27ae60)';
-            } else if (currentTime < sessionStartTime) {
-                const timeToStart = sessionStartTime - currentTime;
-                const hours = Math.floor(timeToStart / 100);
-                const minutes = timeToStart % 100;
-                sessionStatus.textContent = `⏰ До начала сессии: ${hours}ч ${minutes}м (${moscowTime.toLocaleTimeString()})`;
-                sessionStatus.style.background = 'linear-gradient(135deg, #f39c12, #e67e22)';
-            } else {
-                sessionStatus.textContent = `Сессия завершена (${moscowTime.toLocaleTimeString()})`;
-                sessionStatus.style.background = 'linear-gradient(135deg, #f093fb, #f5576c)';
-            }
-        }
-
-        function renderQuotesTable() {
-            if (quotes.size === 0) {
-                quotesTableBody.innerHTML = '<tr><td colspan="12" class="no-data">Нет данных</td></tr>';
-                return;
-            }
-
-            // Очищаем таблицу
-            quotesTableBody.innerHTML = '';
-
-            let filteredQuotes = Array.from(quotes.values());
-
-            // Применяем фильтры
-            const minVolume = parseInt(volumeFilter.value) || 0;
-            const changeType = changeFilter.value;
-
-            filteredQuotes = filteredQuotes.filter(quote => {
-                if (quote.volume < minVolume) return false;
-                if (changeType === 'positive' && quote.priceChange <= 0) return false;
-                if (changeType === 'negative' && quote.priceChange >= 0) return false;
-                return true;
-            });
-
-            // Сортируем
-            const sortType = sortBy.value;
-            filteredQuotes.sort((a, b) => {
-                switch (sortType) {
-                    case 'volume':
-                        return (b.volume || 0) - (a.volume || 0);
-                    case 'change':
-                        return (b.priceChange || 0) - (a.priceChange || 0);
-                    case 'name':
-                    default:
-                        return (a.instrumentName || a.figi).localeCompare(b.instrumentName || b.figi);
+            // Проверяем, включен ли тестовый режим
+            let isTestMode = false;
+            try {
+                const response = await fetch('/api/morning-scanner/test-mode');
+                if (response.ok) {
+                    const data = await response.json();
+                    isTestMode = data.testModeEnabled || false;
                 }
-            });
+            } catch (error) {
+                console.warn('Не удалось получить статус тестового режима:', error);
+            }
 
-            // Добавляем отфильтрованные строки
-            filteredQuotes.forEach(quote => {
-                const newRow = createQuoteRow(quote);
-                newRow.setAttribute('data-figi', quote.figi);
-                quotesTableBody.appendChild(newRow);
-            });
+            // Определяем статус сессии (06:50:00 - 09:49:59)
+            let isSessionActive = false;
+            let statusText = '';
+            let statusColor = '';
+
+            if (isTestMode) {
+                // Тестовый режим - всегда активен
+                isSessionActive = true;
+                statusText = `🧪 ТЕСТОВЫЙ РЕЖИМ - Сканер активен (${moscowTime.toLocaleTimeString()})`;
+                statusColor = 'linear-gradient(135deg, #9b59b6, #8e44ad)';
+            } else if (currentHour > MORNING_SESSION_START_HOUR && currentHour < MORNING_SESSION_END_HOUR) {
+                // Полностью в сессии
+                isSessionActive = true;
+                statusText = `🌅 Утренняя сессия активна (${moscowTime.toLocaleTimeString()})`;
+                statusColor = 'linear-gradient(135deg, #2ecc71, #27ae60)';
+            } else if (currentHour === MORNING_SESSION_START_HOUR) {
+                if (currentMinute >= MORNING_SESSION_START_MINUTE) {
+                    // В сессии с 06:50
+                    isSessionActive = true;
+                    statusText = `🌅 Утренняя сессия активна (${moscowTime.toLocaleTimeString()})`;
+                    statusColor = 'linear-gradient(135deg, #2ecc71, #27ae60)';
+                } else {
+                    // До сессии
+                    const timeToStart = new Date(moscowTime);
+                    timeToStart.setHours(MORNING_SESSION_START_HOUR, MORNING_SESSION_START_MINUTE, 0, 0);
+                    const diff = timeToStart - moscowTime;
+                    const hours = Math.floor(diff / (1000 * 60 * 60));
+                    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                    statusText = `⏰ До начала сессии: ${hours}ч ${minutes}м (${moscowTime.toLocaleTimeString()})`;
+                    statusColor = 'linear-gradient(135deg, #f39c12, #e67e22)';
+                }
+            } else if (currentHour === MORNING_SESSION_END_HOUR) {
+                if (currentMinute < MORNING_SESSION_END_MINUTE || (currentMinute === MORNING_SESSION_END_MINUTE && currentSecond <= MORNING_SESSION_END_SECOND)) {
+                    // В сессии до 09:49:59
+                    isSessionActive = true;
+                    statusText = `🌅 Утренняя сессия активна (${moscowTime.toLocaleTimeString()})`;
+                    statusColor = 'linear-gradient(135deg, #2ecc71, #27ae60)';
+                } else {
+                    // После сессии
+                    statusText = `Сессия завершена (${moscowTime.toLocaleTimeString()})`;
+                    statusColor = 'linear-gradient(135deg, #f093fb, #f5576c)';
+                }
+            } else if (currentHour < MORNING_SESSION_START_HOUR) {
+                // До сессии
+                const timeToStart = new Date(moscowTime);
+                timeToStart.setHours(MORNING_SESSION_START_HOUR, MORNING_SESSION_START_MINUTE, 0, 0);
+                const diff = timeToStart - moscowTime;
+                const hours = Math.floor(diff / (1000 * 60 * 60));
+                const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                statusText = `⏰ До начала сессии: ${hours}ч ${minutes}м (${moscowTime.toLocaleTimeString()})`;
+                statusColor = 'linear-gradient(135deg, #f39c12, #e67e22)';
+            } else {
+                // После сессии
+                statusText = `Сессия завершена (${moscowTime.toLocaleTimeString()})`;
+                statusColor = 'linear-gradient(135deg, #f093fb, #f5576c)';
+            }
+
+            sessionStatus.textContent = statusText;
+            sessionStatus.style.background = statusColor;
+
+            // Автоматически отключаем сканер вне времени сессии (только если не тестовый режим)
+            if (!isSessionActive && !isTestMode && websocket && websocket.readyState === WebSocket.OPEN) {
+                disconnect();
+                showMessage('Сканер отключен - вне времени утренней сессии (06:50-09:49)', 'warning');
+            }
         }
+
+        // Функция renderQuotesTable удалена, так как не используется в утреннем сканере
 
         function getPriceChangeClass(priceChange) {
             if (!priceChange) return 'price-neutral';
@@ -699,13 +853,50 @@
         }
 
         function formatPrice(price) {
-            if (!price) return '0.00';
-            return parseFloat(price).toFixed(2);
+            if (!price) return '0';
+            const num = parseFloat(price);
+
+            // Если число очень маленькое (меньше 0.01), показываем больше знаков
+            if (num < 0.01 && num > 0) {
+                return num.toFixed(6); // Показываем до 6 знаков для маленьких чисел
+            }
+
+            // Для обычных чисел показываем до 4 знаков
+            return num.toFixed(4);
         }
 
         function formatPercent(percent) {
             if (!percent) return '0.00%';
-            return parseFloat(percent).toFixed(2) + '%';
+            const num = parseFloat(percent);
+
+            // Если процент очень маленький (меньше 0.01%), показываем больше знаков
+            if (Math.abs(num) < 0.01 && num !== 0) {
+                return num.toFixed(4) + '%'; // Показываем до 4 знаков для маленьких процентов
+            }
+
+            // Для обычных процентов показываем до 2 знаков
+            return num.toFixed(2) + '%';
+        }
+
+        function calculatePriceChangePercent(currentPrice, referencePrice) {
+            if (!currentPrice || !referencePrice || referencePrice <= 0) return 0;
+            return ((currentPrice - referencePrice) / referencePrice) * 100;
+        }
+
+        function formatPriceWithPercent(price, currentPrice) {
+            if (!price) return formatPrice(price);
+            const percent = calculatePriceChangePercent(currentPrice, price);
+
+            // Используем улучшенное форматирование процентов
+            let percentStr;
+            if (Math.abs(percent) < 0.01 && percent !== 0) {
+                percentStr = percent >= 0 ? `+${percent.toFixed(4)}%` : `${percent.toFixed(4)}%`;
+            } else {
+                percentStr = percent >= 0 ? `+${percent.toFixed(2)}%` : `${percent.toFixed(2)}%`;
+            }
+
+            const percentClass = percent > 0 ? 'positive' : percent < 0 ? 'negative' : '';
+            return `${formatPrice(price)} <span class="price-percent ${percentClass}">(${percentStr})</span>`;
         }
 
         function formatTime(timestamp) {
@@ -723,8 +914,16 @@
             const changePercent = (change / priceValue) * 100;
 
             const changeClass = change > 0 ? 'price-up' : change < 0 ? 'price-down' : 'price-neutral';
-            const changeText = change > 0 ? `+${changePercent.toFixed(2)}%` :
-                change < 0 ? `${changePercent.toFixed(2)}%` : '0.00%';
+
+            // Используем улучшенное форматирование процентов
+            let changeText;
+            if (Math.abs(changePercent) < 0.01 && changePercent !== 0) {
+                changeText = change > 0 ? `+${changePercent.toFixed(4)}%` :
+                    change < 0 ? `${changePercent.toFixed(4)}%` : '0.0000%';
+            } else {
+                changeText = change > 0 ? `+${changePercent.toFixed(2)}%` :
+                    change < 0 ? `${changePercent.toFixed(2)}%` : '0.00%';
+            }
 
             return `${formatPrice(price)} <span class="${changeClass}" style="font-size: 0.8em;">(${changeText})</span>`;
         }
@@ -740,7 +939,15 @@
             if (!change || change === 0) return '<span style="color: #999;">--</span>';
             const changeValue = parseFloat(change);
             const changeClass = changeValue > 0 ? 'price-up' : changeValue < 0 ? 'price-down' : 'price-neutral';
-            const changeText = changeValue > 0 ? `+${changeValue.toFixed(2)}` : changeValue.toFixed(2);
+
+            // Используем улучшенное форматирование для маленьких изменений
+            let changeText;
+            if (Math.abs(changeValue) < 0.01 && changeValue !== 0) {
+                changeText = changeValue > 0 ? `+${changeValue.toFixed(6)}` : changeValue.toFixed(6);
+            } else {
+                changeText = changeValue > 0 ? `+${changeValue.toFixed(4)}` : changeValue.toFixed(4);
+            }
+
             return `<span class="${changeClass}">${changeText}</span>`;
         }
 
@@ -748,7 +955,15 @@
             if (!percent || percent === 0) return '<span style="color: #999;">--</span>';
             const percentValue = parseFloat(percent);
             const changeClass = percentValue > 0 ? 'price-up' : percentValue < 0 ? 'price-down' : 'price-neutral';
-            const percentText = percentValue > 0 ? `+${percentValue.toFixed(2)}%` : `${percentValue.toFixed(2)}%`;
+
+            // Используем улучшенное форматирование для маленьких процентов
+            let percentText;
+            if (Math.abs(percentValue) < 0.01 && percentValue !== 0) {
+                percentText = percentValue > 0 ? `+${percentValue.toFixed(4)}%` : `${percentValue.toFixed(4)}%`;
+            } else {
+                percentText = percentValue > 0 ? `+${percentValue.toFixed(2)}%` : `${percentValue.toFixed(2)}%`;
+            }
+
             return `<span class="${changeClass}">${percentText}</span>`;
         }
 
@@ -756,10 +971,7 @@
         connectBtn.addEventListener('click', connect);
         disconnectBtn.addEventListener('click', disconnect);
 
-        // Обработчики фильтров
-        volumeFilter.addEventListener('input', renderQuotesTable);
-        changeFilter.addEventListener('change', renderQuotesTable);
-        sortBy.addEventListener('change', renderQuotesTable);
+        // Обработчики фильтров (удалены, так как не используются в утреннем сканере)
 
         // Обновляем статус сессии каждую минуту
         setInterval(updateSessionStatus, 60000);

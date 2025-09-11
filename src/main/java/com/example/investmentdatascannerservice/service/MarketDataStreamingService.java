@@ -122,22 +122,29 @@ public class MarketDataStreamingService {
 
 
     /**
-     * Получение списка FIGI всех акций и фьючерсов для подписки
+     * Получение списка FIGI всех инструментов для подписки
      * 
-     * @return список FIGI всех акций и фьючерсов разных типов
+     * В режиме shares-mode загружает все акции из таблицы invest.shares В обычном режиме использует
+     * инструменты из конфигурации
+     * 
+     * @return список FIGI всех инструментов для подписки
      */
     private List<String> getAllInstruments() {
-        log.info("Using configured instruments for subscription...");
+        log.info("Getting instruments for subscription...");
 
-        // Используем только настроенные инструменты из конфигурации
-        List<String> configuredInstruments = quoteScannerService.getInstruments().stream().toList();
+        // Используем метод, который учитывает режим shares-mode
+        List<String> instruments = quoteScannerService.getInstrumentsForScanning();
 
         log.info("=== SUBSCRIPTION INSTRUMENTS SUMMARY ===");
-        log.info("Configured instruments: {}", configuredInstruments.size());
-        log.info("Instruments: {}", configuredInstruments);
+        log.info("Total instruments for subscription: {}", instruments.size());
+        if (!instruments.isEmpty()) {
+            log.info("First 5 instruments: {}",
+                    instruments.subList(0, Math.min(5, instruments.size())));
+        }
+        log.info("Shares mode enabled: {}", config.isEnableSharesMode());
         log.info("=========================================");
 
-        return configuredInstruments;
+        return instruments;
     }
 
     /**
@@ -154,12 +161,15 @@ public class MarketDataStreamingService {
         List<String> allFigis = getAllInstruments();
 
         if (allFigis.isEmpty()) {
-            log.warn("No FIGIs found for subscription, retrying in 30 seconds...");
+            log.warn("No instruments found for subscription, retrying in 30 seconds...");
+            log.warn("Check if shares are loaded from database or configuration is correct");
             scheduleReconnect(30);
             return;
         }
 
         log.info("Preparing subscription requests for {} instruments", allFigis.size());
+        log.info("Subscription will include: LastPrice, Trades{}",
+                config.isEnableOrderBookSubscription() ? ", OrderBook" : "");
 
         try {
             // Подписываемся на цены последних сделок

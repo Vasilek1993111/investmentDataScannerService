@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -15,6 +16,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -46,11 +48,15 @@ public class QuoteScannerService {
     private final InstrumentPairService instrumentPairService;
     private final ClosePriceService closePriceService;
     private final ClosePriceEveningSessionService closePriceEveningSessionService;
+    private final ShareService shareService;
 
     // Хранилище последних цен для расчета разниц
     private final Map<String, BigDecimal> lastPrices = new ConcurrentHashMap<>();
     private final Map<String, String> instrumentNames = new ConcurrentHashMap<>();
+    private final Map<String, String> instrumentTickers = new ConcurrentHashMap<>();
     private final Map<String, BigDecimal> closePrices = new ConcurrentHashMap<>();
+    private final Map<String, BigDecimal> openPrices = new ConcurrentHashMap<>();
+    private final Map<String, Long> accumulatedVolumes = new ConcurrentHashMap<>();
 
     // Хранилище данных стакана заявок
     private final Map<String, BigDecimal> bestBids = new ConcurrentHashMap<>();
@@ -61,6 +67,13 @@ public class QuoteScannerService {
     // Подписчики на обновления котировок (для WebSocket)
     private final Set<Consumer<QuoteData>> quoteSubscribers = new CopyOnWriteArraySet<>();
 
+    // Время утренней сессии (Московское время)
+    private static final int MORNING_SESSION_START_HOUR = 6;
+    private static final int MORNING_SESSION_START_MINUTE = 50;
+    private static final int MORNING_SESSION_END_HOUR = 9;
+    private static final int MORNING_SESSION_END_MINUTE = 49;
+    private static final int MORNING_SESSION_END_SECOND = 59;
+
     // Потоки для обработки
     private final ExecutorService processingExecutor =
             Executors.newFixedThreadPool(PROCESSING_THREADS);
@@ -68,17 +81,22 @@ public class QuoteScannerService {
     // Планировщик для периодических задач
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
+    // Флаг активности сканера
+    private volatile boolean isScannerActive = false;
+
     // Статистика
     private final AtomicLong totalQuotesProcessed = new AtomicLong(0);
     private final AtomicLong totalQuotesSent = new AtomicLong(0);
 
     public QuoteScannerService(QuoteScannerConfig config,
             InstrumentPairService instrumentPairService, ClosePriceService closePriceService,
-            ClosePriceEveningSessionService closePriceEveningSessionService) {
+            ClosePriceEveningSessionService closePriceEveningSessionService,
+            ShareService shareService) {
         this.config = config;
         this.instrumentPairService = instrumentPairService;
         this.closePriceService = closePriceService;
         this.closePriceEveningSessionService = closePriceEveningSessionService;
+        this.shareService = shareService;
     }
 
     @PostConstruct
@@ -88,13 +106,33 @@ public class QuoteScannerService {
         log.info("Max quotes per second: {}", config.getMaxQuotesPerSecond());
         log.info("Database saving enabled: {}", config.isEnableDatabaseSaving());
         log.info("WebSocket broadcast enabled: {}", config.isEnableWebSocketBroadcast());
-        log.info("Configured instruments: {}", config.getInstruments().size());
-        log.info("Configured instruments list: {}", config.getInstruments());
-        log.info("Instrument names configured: {}", config.getInstrumentNames().size());
-        log.info("Instrument names: {}", config.getInstrumentNames());
+        // Получаем инструменты для сканирования (из базы данных)
+        List<String> instrumentsForScanning = getInstrumentsForScanning();
+        log.info("Instruments for scanning: {}", instrumentsForScanning.size());
+        if (!instrumentsForScanning.isEmpty()) {
+            log.info("First 5 instruments: {}",
+                    instrumentsForScanning.subList(0, Math.min(5, instrumentsForScanning.size())));
+        }
 
-        // Загружаем имена инструментов из конфигурации
-        instrumentNames.putAll(config.getInstrumentNames());
+        // Загружаем имена инструментов в зависимости от режима
+        Map<String, String> namesToLoad = getInstrumentNamesForScanning();
+        instrumentNames.putAll(namesToLoad);
+        log.info("Loaded {} instrument names into cache", instrumentNames.size());
+
+        // Загружаем тикеры инструментов в зависимости от режима
+        Map<String, String> tickersToLoad = getInstrumentTickersForScanning();
+        instrumentTickers.putAll(tickersToLoad);
+        log.info("Loaded {} tickers into cache", instrumentTickers.size());
+        if (!instrumentTickers.isEmpty()) {
+            log.info("First 5 tickers in cache: {}",
+                    instrumentTickers.entrySet().stream().limit(5)
+                            .map(entry -> entry.getKey() + "=" + entry.getValue())
+                            .collect(Collectors.toList()));
+        }
+
+        // Сбрасываем накопленный объем при инициализации
+        accumulatedVolumes.clear();
+        log.info("Accumulated volumes reset for new session");
 
         // Загружаем цены закрытия за предыдущий торговый день
         loadClosePrices();
@@ -105,35 +143,50 @@ public class QuoteScannerService {
         // Запускаем периодическую очистку неактивных подписчиков каждые 30 секунд
         scheduler.scheduleAtFixedRate(this::cleanupInactiveSubscribers, 30, 30, TimeUnit.SECONDS);
 
+        // Запускаем периодическую проверку времени утренней сессии каждые 10 секунд
+        scheduler.scheduleAtFixedRate(this::startScannerIfSessionTime, 0, 10, TimeUnit.SECONDS);
+
         log.info("=============================================");
     }
 
     /**
-     * Загружает цены закрытия за предыдущий торговый день для всех настроенных инструментов
+     * Загружает цены закрытия за предыдущий торговый день для всех акций из базы данных
      */
     private void loadClosePrices() {
         try {
             log.info("Loading close prices for previous trading day...");
+            // Получаем все FIGI акций из базы данных
+            List<String> allShareFigis = shareService.getAllShareFigis();
             Map<String, BigDecimal> loadedClosePrices =
-                    closePriceService.getClosePricesForPreviousDay(config.getInstruments());
+                    closePriceService.getClosePricesForPreviousDay(allShareFigis);
             closePrices.putAll(loadedClosePrices);
-            log.info("Loaded {} close prices for previous trading day", loadedClosePrices.size());
+            log.info("Loaded {} close prices for previous trading day from {} shares",
+                    loadedClosePrices.size(), allShareFigis.size());
+
+            if (!loadedClosePrices.isEmpty()) {
+                log.info("First 5 close prices: {}",
+                        loadedClosePrices.entrySet().stream().limit(5)
+                                .map(entry -> entry.getKey() + "=" + entry.getValue())
+                                .collect(Collectors.toList()));
+            }
         } catch (Exception e) {
             log.error("Error loading close prices", e);
         }
     }
 
     /**
-     * Загружает цены закрытия вечерней сессии за предыдущий торговый день для всех настроенных
-     * инструментов
+     * Загружает цены закрытия вечерней сессии за предыдущий торговый день для всех акций из базы
+     * данных
      */
     private void loadEveningClosePrices() {
         try {
             log.info("Loading evening close prices for previous trading day...");
+            // Получаем все FIGI акций из базы данных
+            List<String> allShareFigis = shareService.getAllShareFigis();
             Map<String, BigDecimal> loadedEveningClosePrices = closePriceEveningSessionService
-                    .loadEveningClosePricesForPreviousDay(config.getInstruments());
-            log.info("Loaded {} evening close prices for previous trading day",
-                    loadedEveningClosePrices.size());
+                    .loadEveningClosePricesForPreviousDay(allShareFigis);
+            log.info("Loaded {} evening close prices for previous trading day from {} shares",
+                    loadedEveningClosePrices.size(), allShareFigis.size());
             if (!loadedEveningClosePrices.isEmpty()) {
                 log.info("Evening close prices loaded for instruments: {}",
                         loadedEveningClosePrices.keySet());
@@ -156,17 +209,19 @@ public class QuoteScannerService {
      * Обработка данных о последней цене с максимальной производительностью
      */
     public void processLastPrice(LastPrice price) {
+        // Проверяем, активен ли сканер (время утренней сессии)
+        if (!isScannerActive) {
+            log.debug("Scanner is not active, skipping LastPrice for {}", price.getFigi());
+            return;
+        }
+
+        log.debug("Processing LastPrice for FIGI: {}", price.getFigi());
+
         processingExecutor.submit(() -> {
             try {
                 String figi = price.getFigi();
 
-                // Фильтрация по настроенным инструментам
-                if (!config.getInstruments().isEmpty() && !config.getInstruments().contains(figi)) {
-                    log.debug(
-                            "Filtering out LastPrice for instrument {} - not in configured list: {}",
-                            figi, config.getInstruments());
-                    return;
-                }
+                // Фильтрация не нужна - обрабатываем все акции из базы данных
 
                 log.debug("Processing LastPrice for instrument {} - in configured list: {}", figi,
                         config.getInstruments());
@@ -184,6 +239,11 @@ public class QuoteScannerService {
                 // Обновляем последнюю цену
                 lastPrices.put(figi, currentPrice);
 
+                // Если это первая цена за день, сохраняем как цену открытия
+                if (!openPrices.containsKey(figi)) {
+                    openPrices.put(figi, currentPrice);
+                }
+
                 // Определяем направление на основе изменения цены
                 String direction = "NEUTRAL";
                 if (previousPrice != null && previousPrice.compareTo(BigDecimal.ZERO) > 0) {
@@ -195,8 +255,9 @@ public class QuoteScannerService {
                     }
                 }
 
-                // Получаем цену закрытия за предыдущий торговый день
+                // Получаем цену закрытия за предыдущий торговый день (основная сессия)
                 BigDecimal closePrice = closePrices.get(figi);
+                BigDecimal closePriceOS = closePrice; // Используем цену закрытия как цену ОС
 
                 // Получаем цену закрытия вечерней сессии за предыдущий торговый день
                 BigDecimal closePriceVS =
@@ -208,20 +269,33 @@ public class QuoteScannerService {
                 long bestBidQuantity = bestBidQuantities.getOrDefault(figi, 0L);
                 long bestAskQuantity = bestAskQuantities.getOrDefault(figi, 0L);
 
+                // Получаем накопленный объем для этого инструмента
+                long accumulatedVolume = accumulatedVolumes.getOrDefault(figi, 0L);
+
+                // Получаем тикер для инструмента
+                String ticker = instrumentTickers.getOrDefault(figi, figi);
+                String instrumentName = instrumentNames.getOrDefault(figi, figi);
+
+                // Логируем первые несколько инструментов для отладки
+                if (totalQuotesProcessed.get() < 5) {
+                    log.info(
+                            "Creating QuoteData for FIGI: {}, ticker: {}, name: {}, closePrice: {}, closePriceOS: {}",
+                            figi, ticker, instrumentName, closePrice, closePriceOS);
+                }
+
                 // Создаем данные о котировке
-                QuoteData quoteData = new QuoteData(figi, instrumentNames.getOrDefault(figi, figi), // Используем
-                                                                                                    // FIGI
-                                                                                                    // если
-                                                                                                    // имя
-                                                                                                    // не
-                                                                                                    // найдено
-                        currentPrice, previousPrice, closePrice, null, closePriceVS, // closePriceOS,
-                                                                                     // closePriceVS
-                        bestBid, bestAsk, bestBidQuantity, bestAskQuantity, eventTime, 1L, // Для
+                QuoteData quoteData = new QuoteData(figi, ticker, // Используем тикер или FIGI если
+                                                                  // не найден
+                        instrumentName, // Используем имя или FIGI если не найдено
+                        currentPrice, previousPrice, closePrice, openPrices.get(figi), closePriceOS,
+                        closePriceVS, // openPrice, closePriceOS (используем цену закрытия),
+                                      // closePriceVS
+                        bestBid, bestAsk, bestBidQuantity, bestAskQuantity, eventTime, 0L, // Для
                                                                                            // LastPrice
                                                                                            // объем
-                                                                                           // = 1
-                        1L, // totalVolume
+                                                                                           // =
+                                                                                           // 0
+                        accumulatedVolume, // totalVolume (накопленный объем)
                         direction);
 
                 totalQuotesProcessed.incrementAndGet();
@@ -246,16 +320,16 @@ public class QuoteScannerService {
      * Обработка данных о сделке с максимальной производительностью
      */
     public void processTrade(Trade trade) {
+        // Проверяем, активен ли сканер (время утренней сессии)
+        if (!isScannerActive) {
+            return;
+        }
+
         processingExecutor.submit(() -> {
             try {
                 String figi = trade.getFigi();
 
-                // Фильтрация по настроенным инструментам
-                if (!config.getInstruments().isEmpty() && !config.getInstruments().contains(figi)) {
-                    log.debug("Filtering out Trade for instrument {} - not in configured list: {}",
-                            figi, config.getInstruments());
-                    return;
-                }
+                // Фильтрация не нужна - обрабатываем все акции из базы данных
 
                 log.debug("Processing Trade for instrument {} - in configured list: {}", figi,
                         config.getInstruments());
@@ -281,8 +355,9 @@ public class QuoteScannerService {
                     direction = "DOWN";
                 }
 
-                // Получаем цену закрытия за предыдущий торговый день
+                // Получаем цену закрытия за предыдущий торговый день (основная сессия)
                 BigDecimal closePrice = closePrices.get(figi);
+                BigDecimal closePriceOS = closePrice; // Используем цену закрытия как цену ОС
 
                 // Получаем цену закрытия вечерней сессии за предыдущий торговый день
                 BigDecimal closePriceVS =
@@ -294,13 +369,27 @@ public class QuoteScannerService {
                 long bestBidQuantity = bestBidQuantities.getOrDefault(figi, 0L);
                 long bestAskQuantity = bestAskQuantities.getOrDefault(figi, 0L);
 
+                // Накопляем объем за время работы сканера
+                long tradeQuantity = trade.getQuantity();
+                long currentAccumulatedVolume = accumulatedVolumes.getOrDefault(figi, 0L);
+                long newAccumulatedVolume = currentAccumulatedVolume + tradeQuantity;
+                accumulatedVolumes.put(figi, newAccumulatedVolume);
+
                 // Создаем данные о котировке
-                QuoteData quoteData = new QuoteData(figi, instrumentNames.getOrDefault(figi, figi),
-                        currentPrice, previousPrice, closePrice, null, closePriceVS, // closePriceOS,
-                                                                                     // closePriceVS
-                        bestBid, bestAsk, bestBidQuantity, bestAskQuantity, eventTime,
-                        trade.getQuantity(), trade.getQuantity(), // volume, totalVolume
-                        direction);
+                QuoteData quoteData =
+                        new QuoteData(figi, instrumentTickers.getOrDefault(figi, figi), // Используем
+                                                                                        // тикер или
+                                                                                        // FIGI если
+                                                                                        // не найден
+                                instrumentNames.getOrDefault(figi, figi), // Используем имя или FIGI
+                                                                          // если не найдено
+                                currentPrice, previousPrice, closePrice, openPrices.get(figi),
+                                closePriceOS, closePriceVS, // openPrice, closePriceOS (используем
+                                                            // цену закрытия), closePriceVS
+                                bestBid, bestAsk, bestBidQuantity, bestAskQuantity, eventTime,
+                                tradeQuantity, newAccumulatedVolume, // volume (текущая сделка),
+                                                                     // totalVolume (накопленный)
+                                direction);
 
                 totalQuotesProcessed.incrementAndGet();
 
@@ -324,18 +413,18 @@ public class QuoteScannerService {
      * Уведомление всех подписчиков о новой котировке
      */
     private void notifySubscribers(QuoteData quoteData) {
-        log.debug("Notifying {} subscribers about quote data: {}", quoteSubscribers.size(),
-                quoteData);
+        log.info("Notifying {} subscribers about quote data for {}: {}", quoteSubscribers.size(),
+                quoteData.getTicker(), quoteData);
 
         // Проверяем, включена ли WebSocket трансляция
         if (!config.isEnableWebSocketBroadcast()) {
-            log.debug("WebSocket broadcast is disabled, skipping notification");
+            log.warn("WebSocket broadcast is disabled, skipping notification");
             return;
         }
 
         // Если нет подписчиков, не тратим время на обработку
         if (quoteSubscribers.isEmpty()) {
-            log.debug("No subscribers available, skipping notification");
+            log.warn("No subscribers available, skipping notification");
             return;
         }
 
@@ -434,16 +523,16 @@ public class QuoteScannerService {
      * Обработка данных стакана заявок из T-Invest API
      */
     public void processOrderBook(OrderBook orderBook) {
+        // Проверяем, активен ли сканер (время утренней сессии)
+        if (!isScannerActive) {
+            return;
+        }
+
         // Обрабатываем стаканы синхронно для минимальной задержки
         try {
             String figi = orderBook.getFigi();
 
-            // Фильтрация по настроенным инструментам
-            if (!config.getInstruments().isEmpty() && !config.getInstruments().contains(figi)) {
-                log.debug("Filtering out OrderBook for instrument {} - not in configured list: {}",
-                        figi, config.getInstruments());
-                return;
-            }
+            // Фильтрация не нужна - обрабатываем все акции из базы данных
 
             log.debug("Processing OrderBook for instrument {} - in configured list: {}", figi,
                     config.getInstruments());
@@ -499,7 +588,7 @@ public class QuoteScannerService {
                 // Если нет текущей цены, используем среднее между BID и ASK
                 if (bestBid.compareTo(BigDecimal.ZERO) > 0
                         && bestAsk.compareTo(BigDecimal.ZERO) > 0) {
-                    currentPrice = bestBid.add(bestAsk).divide(BigDecimal.valueOf(2), 2,
+                    currentPrice = bestBid.add(bestAsk).divide(BigDecimal.valueOf(2), 9,
                             java.math.RoundingMode.HALF_UP);
                 } else if (bestBid.compareTo(BigDecimal.ZERO) > 0) {
                     currentPrice = bestBid;
@@ -513,8 +602,9 @@ public class QuoteScannerService {
             // Получаем предыдущую цену
             BigDecimal previousPrice = lastPrices.get(figi);
 
-            // Получаем цену закрытия
+            // Получаем цену закрытия (основная сессия)
             BigDecimal closePrice = closePrices.get(figi);
+            BigDecimal closePriceOS = closePrice; // Используем цену закрытия как цену ОС
 
             // Получаем цену закрытия вечерней сессии
             BigDecimal closePriceVS = closePriceEveningSessionService.getEveningClosePrice(figi);
@@ -530,10 +620,22 @@ public class QuoteScannerService {
                 }
             }
 
+            // Получаем накопленный объем для этого инструмента
+            long accumulatedVolume = accumulatedVolumes.getOrDefault(figi, 0L);
+
             // Создаем данные о котировке с обновленным стаканом
-            QuoteData quoteData = new QuoteData(figi, instrumentNames.getOrDefault(figi, figi),
-                    currentPrice, previousPrice, closePrice, null, closePriceVS, bestBid, bestAsk,
-                    bestBidQuantity, bestAskQuantity, LocalDateTime.now(), 0L, 0L, direction);
+            QuoteData quoteData = new QuoteData(figi, instrumentTickers.getOrDefault(figi, figi), // Используем
+                                                                                                  // тикер
+                                                                                                  // или
+                                                                                                  // FIGI
+                                                                                                  // если
+                                                                                                  // не
+                                                                                                  // найден
+                    instrumentNames.getOrDefault(figi, figi), // Используем имя или FIGI если не
+                                                              // найдено
+                    currentPrice, previousPrice, closePrice, openPrices.get(figi), closePriceOS,
+                    closePriceVS, bestBid, bestAsk, bestBidQuantity, bestAskQuantity,
+                    LocalDateTime.now(), 0L, accumulatedVolume, direction);
 
             // Отправляем всем подписчикам
             notifySubscribers(quoteData);
@@ -600,5 +702,132 @@ public class QuoteScannerService {
         public int getTrackedInstruments() {
             return trackedInstruments;
         }
+    }
+
+    /**
+     * Проверяет, находится ли текущее время в рамках утренней сессии
+     */
+    private boolean isMorningSessionTime() {
+        // Если включен тестовый режим, всегда возвращаем true
+        if (config.isEnableTestMode()) {
+            return true;
+        }
+
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.of("+3")); // Московское время
+        int currentHour = now.getHour();
+        int currentMinute = now.getMinute();
+        int currentSecond = now.getSecond();
+
+        // Проверяем, что время между 06:50:00 и 09:49:59
+        if (currentHour > MORNING_SESSION_START_HOUR && currentHour < MORNING_SESSION_END_HOUR) {
+            return true;
+        }
+
+        if (currentHour == MORNING_SESSION_START_HOUR) {
+            return currentMinute >= MORNING_SESSION_START_MINUTE;
+        }
+
+        if (currentHour == MORNING_SESSION_END_HOUR) {
+            return currentMinute < MORNING_SESSION_END_MINUTE
+                    || (currentMinute == MORNING_SESSION_END_MINUTE
+                            && currentSecond <= MORNING_SESSION_END_SECOND);
+        }
+
+        return false;
+    }
+
+    /**
+     * Запускает сканер, если время утренней сессии
+     */
+    public void startScannerIfSessionTime() {
+        if (isMorningSessionTime()) {
+            if (!isScannerActive) {
+                if (config.isEnableTestMode()) {
+                    log.info(
+                            "Starting scanner - TEST MODE ENABLED (ignoring session time restrictions)");
+                } else {
+                    log.info("Starting scanner - morning session time detected");
+                }
+                isScannerActive = true;
+            }
+        } else {
+            if (isScannerActive) {
+                if (config.isEnableTestMode()) {
+                    log.info("Scanner remains active - TEST MODE ENABLED");
+                } else {
+                    log.info("Stopping scanner - outside morning session time");
+                    isScannerActive = false;
+                }
+            }
+        }
+    }
+
+    /**
+     * Проверяет, активен ли сканер
+     */
+    public boolean isScannerActive() {
+        return isScannerActive;
+    }
+
+    /**
+     * Получить инструменты для сканирования
+     * 
+     * Всегда загружает все акции из таблицы invest.shares. Режим shares-mode определяет только
+     * дополнительные настройки отображения.
+     */
+    public List<String> getInstrumentsForScanning() {
+        // Всегда загружаем все акции из базы данных
+        List<String> shareFigis = shareService.getAllShareFigis();
+
+        if (config.isEnableSharesMode()) {
+            log.info("Using shares mode: {} instruments from database", shareFigis.size());
+        } else {
+            log.info("Using config mode: {} instruments from database", shareFigis.size());
+        }
+
+        if (shareFigis.isEmpty()) {
+            log.warn("No shares found in database! Check if table invest.shares has data");
+        } else {
+            log.info("First 5 instruments: {}",
+                    shareFigis.subList(0, Math.min(5, shareFigis.size())));
+        }
+
+        return shareFigis;
+    }
+
+    /**
+     * Получить имена инструментов для сканирования
+     * 
+     * Всегда загружает имена из таблицы invest.shares.
+     */
+    public Map<String, String> getInstrumentNamesForScanning() {
+        // Всегда загружаем имена из базы данных
+        Map<String, String> shareNames = shareService.getShareNames();
+
+        if (config.isEnableSharesMode()) {
+            log.info("Using shares names: {} names from database", shareNames.size());
+        } else {
+            log.info("Using config mode names: {} names from database", shareNames.size());
+        }
+
+        return shareNames;
+    }
+
+    /**
+     * Получить тикеры инструментов для сканирования
+     * 
+     * Всегда загружает тикеры из таблицы invest.shares.
+     */
+    public Map<String, String> getInstrumentTickersForScanning() {
+        // Всегда загружаем тикеры из базы данных
+        Map<String, String> shareTickers = shareService.getShareTickers();
+
+        if (config.isEnableSharesMode()) {
+            log.info("Using shares tickers: {} tickers from database", shareTickers.size());
+        } else {
+            log.info("Using config mode tickers: {} tickers from database", shareTickers.size());
+        }
+
+        return shareTickers;
     }
 }

@@ -5,6 +5,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import com.example.investmentdatascannerservice.config.QuoteScannerConfig;
 import com.example.investmentdatascannerservice.service.QuoteScannerService;
 
 /**
@@ -15,9 +16,12 @@ import com.example.investmentdatascannerservice.service.QuoteScannerService;
 public class QuoteScannerController {
 
     private final QuoteScannerService quoteScannerService;
+    private final QuoteScannerConfig config;
 
-    public QuoteScannerController(QuoteScannerService quoteScannerService) {
+    public QuoteScannerController(QuoteScannerService quoteScannerService,
+            QuoteScannerConfig config) {
         this.quoteScannerService = quoteScannerService;
+        this.config = config;
     }
 
     /**
@@ -54,5 +58,14 @@ public class QuoteScannerController {
                 .ok(Map.of("instruments", quoteScannerService.getAvailableInstruments(), "names",
                         quoteScannerService.getAvailableInstrumentNames(), "count",
                         quoteScannerService.getAvailableInstruments().size()));
+    }
+
+    /**
+     * Получить статус тестового режима
+     */
+    @GetMapping("/test-mode")
+    public ResponseEntity<Map<String, Object>> getTestModeStatus() {
+        return ResponseEntity.ok(Map.of("testModeEnabled", config.isEnableTestMode(),
+                "scannerActive", quoteScannerService.isScannerActive()));
     }
 }

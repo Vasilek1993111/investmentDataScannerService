@@ -7,18 +7,14 @@ import org.springframework.stereotype.Repository;
 import com.example.investmentdatascannerservice.entity.ShareEntity;
 
 /**
- * Repository для работы с акциями
- * 
- * Предоставляет методы для поиска и получения информации о торговых инструментах типа "акция".
+ * Repository для работы с таблицей invest.shares
  */
 @Repository
 public interface ShareRepository extends JpaRepository<ShareEntity, String> {
 
     /**
-     * Возвращает все уникальные FIGI из таблицы акций
-     * 
-     * @return список уникальных FIGI акций
+     * Получить все акции
      */
-    @Query("SELECT DISTINCT s.figi FROM ShareEntity s")
-    List<String> findAllDistinctFigi();
+    @Query("SELECT s FROM ShareEntity s ORDER BY s.ticker")
+    List<ShareEntity> findAllShares();
 }

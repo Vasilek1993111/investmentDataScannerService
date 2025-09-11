@@ -10,12 +10,14 @@ import com.fasterxml.jackson.annotation.JsonFormat;
  */
 public class QuoteData {
     private final String figi;
+    private final String ticker;
     private final String instrumentName;
     private final BigDecimal currentPrice;
     private final BigDecimal previousPrice;
     private final BigDecimal priceChange;
     private final BigDecimal priceChangePercent;
     private final BigDecimal closePrice; // Цена закрытия за предыдущий день
+    private final BigDecimal openPrice; // Цена открытия
     private final BigDecimal closePriceChange; // Изменение от цены закрытия
     private final BigDecimal closePriceChangePercent; // Изменение в % от основной сессии
     private final BigDecimal closePriceOS; // Цена закрытия основной сессии
@@ -32,28 +34,31 @@ public class QuoteData {
     private final long totalVolume; // Общий объем
     private final String direction;
 
-    public QuoteData(String figi, String instrumentName, BigDecimal currentPrice,
+    public QuoteData(String figi, String ticker, String instrumentName, BigDecimal currentPrice,
             BigDecimal previousPrice, LocalDateTime timestamp, long volume, String direction) {
-        this(figi, instrumentName, currentPrice, previousPrice, null, timestamp, volume, direction);
+        this(figi, ticker, instrumentName, currentPrice, previousPrice, null, timestamp, volume,
+                direction);
     }
 
-    public QuoteData(String figi, String instrumentName, BigDecimal currentPrice,
+    public QuoteData(String figi, String ticker, String instrumentName, BigDecimal currentPrice,
             BigDecimal previousPrice, BigDecimal closePrice, LocalDateTime timestamp, long volume,
             String direction) {
-        this(figi, instrumentName, currentPrice, previousPrice, closePrice, null, null, null, null,
-                0, 0, timestamp, volume, volume, direction);
+        this(figi, ticker, instrumentName, currentPrice, previousPrice, closePrice, null, null,
+                null, null, null, 0, 0, timestamp, volume, volume, direction);
     }
 
-    public QuoteData(String figi, String instrumentName, BigDecimal currentPrice,
-            BigDecimal previousPrice, BigDecimal closePrice, BigDecimal closePriceOS,
-            BigDecimal closePriceVS, BigDecimal bestBid, BigDecimal bestAsk, long bestBidQuantity,
-            long bestAskQuantity, LocalDateTime timestamp, long volume, long totalVolume,
-            String direction) {
+    public QuoteData(String figi, String ticker, String instrumentName, BigDecimal currentPrice,
+            BigDecimal previousPrice, BigDecimal closePrice, BigDecimal openPrice,
+            BigDecimal closePriceOS, BigDecimal closePriceVS, BigDecimal bestBid,
+            BigDecimal bestAsk, long bestBidQuantity, long bestAskQuantity, LocalDateTime timestamp,
+            long volume, long totalVolume, String direction) {
         this.figi = figi;
+        this.ticker = ticker;
         this.instrumentName = instrumentName;
         this.currentPrice = currentPrice;
         this.previousPrice = previousPrice;
         this.closePrice = closePrice;
+        this.openPrice = openPrice;
         this.closePriceOS = closePriceOS;
         this.closePriceVS = closePriceVS;
         this.bestBid = bestBid;
@@ -104,6 +109,10 @@ public class QuoteData {
         return figi;
     }
 
+    public String getTicker() {
+        return ticker;
+    }
+
     public String getInstrumentName() {
         return instrumentName;
     }
@@ -138,6 +147,10 @@ public class QuoteData {
 
     public BigDecimal getClosePrice() {
         return closePrice;
+    }
+
+    public BigDecimal getOpenPrice() {
+        return openPrice;
     }
 
     public BigDecimal getClosePriceChange() {

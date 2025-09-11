@@ -4,36 +4,86 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 
 /**
- * Entity для хранения информации об акциях
- * 
- * Представляет справочную информацию о торговых инструментах типа "акция" с основными
- * характеристиками.
+ * Entity для таблицы invest.shares
  */
 @Entity
 @Table(name = "shares", schema = "invest")
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
 public class ShareEntity {
 
     @Id
-    @Column(nullable = false, length = 50)
+    @Column(name = "figi", nullable = false, length = 50)
     private String figi;
 
-    @Column(nullable = false, length = 20)
+    @Column(name = "ticker", nullable = false, length = 20)
     private String ticker;
 
-    @Column(nullable = false, length = 100)
+    @Column(name = "name", nullable = false, length = 100)
     private String name;
 
-    @Column(nullable = false, length = 10)
+    @Column(name = "currency", nullable = false, length = 10)
     private String currency;
 
-    @Column(nullable = false, length = 50)
+    @Column(name = "exchange", nullable = false, length = 50)
     private String exchange;
+
+    // Конструкторы
+    public ShareEntity() {}
+
+    public ShareEntity(String figi, String ticker, String name, String currency, String exchange) {
+        this.figi = figi;
+        this.ticker = ticker;
+        this.name = name;
+        this.currency = currency;
+        this.exchange = exchange;
+    }
+
+    // Геттеры и сеттеры
+    public String getFigi() {
+        return figi;
+    }
+
+    public void setFigi(String figi) {
+        this.figi = figi;
+    }
+
+    public String getTicker() {
+        return ticker;
+    }
+
+    public void setTicker(String ticker) {
+        this.ticker = ticker;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getCurrency() {
+        return currency;
+    }
+
+    public void setCurrency(String currency) {
+        this.currency = currency;
+    }
+
+    public String getExchange() {
+        return exchange;
+    }
+
+    public void setExchange(String exchange) {
+        this.exchange = exchange;
+    }
+
+    @Override
+    public String toString() {
+        return "ShareEntity{" + "figi='" + figi + '\'' + ", ticker='" + ticker + '\'' + ", name='"
+                + name + '\'' + ", currency='" + currency + '\'' + ", exchange='" + exchange + '\''
+                + '}';
+    }
 }

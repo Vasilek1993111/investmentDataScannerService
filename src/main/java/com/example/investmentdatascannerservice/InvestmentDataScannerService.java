@@ -8,7 +8,7 @@ import com.example.investmentdatascannerservice.config.InstrumentPairConfig;
 import com.example.investmentdatascannerservice.config.QuoteScannerConfig;
 
 /**
- * Главный класс приложения Investment Data Scanner Service
+ * Jg Главный класс приложения Investment Data Scanner Service
  * 
  * Сервис для сканирования и обработки инвестиционных данных в реальном времени с использованием
  * T-Invest API, PostgreSQL и gRPC.
