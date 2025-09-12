@@ -48,11 +48,13 @@ public class QuoteScannerService {
     private final InstrumentPairService instrumentPairService;
     private final ClosePriceService closePriceService;
     private final ClosePriceEveningSessionService closePriceEveningSessionService;
+    private final SharesAggregatedDataService sharesAggregatedDataService;
     private final ShareService shareService;
 
     // Хранилище последних цен для расчета разниц
     private final Map<String, BigDecimal> lastPrices = new ConcurrentHashMap<>();
     private final Map<String, String> instrumentNames = new ConcurrentHashMap<>();
+    private final Map<String, BigDecimal> avgVolumeMorningMap = new ConcurrentHashMap<>();
     private final Map<String, String> instrumentTickers = new ConcurrentHashMap<>();
     private final Map<String, BigDecimal> closePrices = new ConcurrentHashMap<>();
     private final Map<String, BigDecimal> openPrices = new ConcurrentHashMap<>();
@@ -91,11 +93,12 @@ public class QuoteScannerService {
     public QuoteScannerService(QuoteScannerConfig config,
             InstrumentPairService instrumentPairService, ClosePriceService closePriceService,
             ClosePriceEveningSessionService closePriceEveningSessionService,
-            ShareService shareService) {
+            SharesAggregatedDataService sharesAggregatedDataService, ShareService shareService) {
         this.config = config;
         this.instrumentPairService = instrumentPairService;
         this.closePriceService = closePriceService;
         this.closePriceEveningSessionService = closePriceEveningSessionService;
+        this.sharesAggregatedDataService = sharesAggregatedDataService;
         this.shareService = shareService;
     }
 
@@ -140,6 +143,9 @@ public class QuoteScannerService {
         // Загружаем цены закрытия вечерней сессии за предыдущий торговый день
         loadEveningClosePrices();
 
+        // Загружаем средние утренние объемы
+        loadAvgVolumeMorning();
+
         // Запускаем периодическую очистку неактивных подписчиков каждые 30 секунд
         scheduler.scheduleAtFixedRate(this::cleanupInactiveSubscribers, 30, 30, TimeUnit.SECONDS);
 
@@ -171,6 +177,31 @@ public class QuoteScannerService {
             }
         } catch (Exception e) {
             log.error("Error loading close prices", e);
+        }
+    }
+
+    /**
+     * Загружает средние утренние объемы для всех акций из базы данных
+     */
+    private void loadAvgVolumeMorning() {
+        try {
+            log.info("Loading average morning volumes...");
+            // Получаем все FIGI акций из базы данных
+            List<String> allShareFigis = shareService.getAllShareFigis();
+            Map<String, BigDecimal> loadedAvgVolumes =
+                    sharesAggregatedDataService.getAvgVolumeMorningMap(allShareFigis);
+            avgVolumeMorningMap.putAll(loadedAvgVolumes);
+            log.info("Loaded {} average morning volumes from {} shares", loadedAvgVolumes.size(),
+                    allShareFigis.size());
+
+            if (!loadedAvgVolumes.isEmpty()) {
+                log.info("First 5 average morning volumes: {}",
+                        loadedAvgVolumes.entrySet().stream().limit(5)
+                                .map(entry -> entry.getKey() + "=" + entry.getValue())
+                                .collect(Collectors.toList()));
+            }
+        } catch (Exception e) {
+            log.error("Error loading average morning volumes", e);
         }
     }
 
@@ -296,7 +327,7 @@ public class QuoteScannerService {
                                                                                            // =
                                                                                            // 0
                         accumulatedVolume, // totalVolume (накопленный объем)
-                        direction);
+                        direction, avgVolumeMorningMap.get(figi)); // avgVolumeMorning
 
                 totalQuotesProcessed.incrementAndGet();
 
@@ -389,7 +420,7 @@ public class QuoteScannerService {
                                 bestBid, bestAsk, bestBidQuantity, bestAskQuantity, eventTime,
                                 tradeQuantity, newAccumulatedVolume, // volume (текущая сделка),
                                                                      // totalVolume (накопленный)
-                                direction);
+                                direction, avgVolumeMorningMap.get(figi)); // avgVolumeMorning
 
                 totalQuotesProcessed.incrementAndGet();
 
@@ -635,7 +666,8 @@ public class QuoteScannerService {
                                                               // найдено
                     currentPrice, previousPrice, closePrice, openPrices.get(figi), closePriceOS,
                     closePriceVS, bestBid, bestAsk, bestBidQuantity, bestAskQuantity,
-                    LocalDateTime.now(), 0L, accumulatedVolume, direction);
+                    LocalDateTime.now(), 0L, accumulatedVolume, direction,
+                    avgVolumeMorningMap.get(figi)); // avgVolumeMorning
 
             // Отправляем всем подписчикам
             notifySubscribers(quoteData);

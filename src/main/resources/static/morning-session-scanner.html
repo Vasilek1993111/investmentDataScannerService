@@ -449,12 +449,13 @@
                                 <th>BID (лоты)</th>
                                 <th>ASK (лоты)</th>
                                 <th>Объем</th>
+                                <th>Средний объем</th>
                                 <th>Время</th>
                             </tr>
                         </thead>
                         <tbody id="gainersTableBody">
                             <tr>
-                                <td colspan="10" class="no-data">Нет данных</td>
+                                <td colspan="11" class="no-data">Нет данных</td>
                             </tr>
                         </tbody>
                     </table>
@@ -477,12 +478,13 @@
                                 <th>BID (лоты)</th>
                                 <th>ASK (лоты)</th>
                                 <th>Объем</th>
+                                <th>Средний объем</th>
                                 <th>Время</th>
                             </tr>
                         </thead>
                         <tbody id="losersTableBody">
                             <tr>
-                                <td colspan="10" class="no-data">Нет данных</td>
+                                <td colspan="11" class="no-data">Нет данных</td>
                             </tr>
                         </tbody>
                     </table>
@@ -740,6 +742,7 @@
                 <td>${formatBidAsk(quoteData.bestBid, quoteData.bestBidQuantity || 0)}</td>
                 <td>${formatBidAsk(quoteData.bestAsk, quoteData.bestAskQuantity || 0)}</td>
                 <td>${(quoteData.totalVolume || 0).toLocaleString()}</td>
+                <td>${formatAvgVolume(quoteData.avgVolumeMorning)}</td>
                 <td class="timestamp">${formatTime(quoteData.timestamp)}</td>
             `;
 
@@ -876,6 +879,20 @@
 
             // Для обычных процентов показываем до 2 знаков
             return num.toFixed(2) + '%';
+        }
+
+        function formatAvgVolume(avgVolume) {
+            if (!avgVolume) return '-';
+            const num = parseFloat(avgVolume);
+
+            // Форматируем объем с разделителями тысяч
+            if (num >= 1000000) {
+                return (num / 1000000).toFixed(1) + 'M';
+            } else if (num >= 1000) {
+                return (num / 1000).toFixed(1) + 'K';
+            } else {
+                return num.toFixed(0);
+            }
         }
 
         function calculatePriceChangePercent(currentPrice, referencePrice) {
