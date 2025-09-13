@@ -124,15 +124,15 @@ public class MarketDataStreamingService {
     /**
      * Получение списка FIGI всех инструментов для подписки
      * 
-     * В режиме shares-mode загружает все акции из таблицы invest.shares В обычном режиме использует
-     * инструменты из конфигурации
+     * В режиме shares-mode загружает все акции из таблицы invest.shares и индексы из
+     * invest.indicatives В обычном режиме использует инструменты из конфигурации
      * 
      * @return список FIGI всех инструментов для подписки
      */
     private List<String> getAllInstruments() {
         log.info("Getting instruments for subscription...");
 
-        // Используем метод, который учитывает режим shares-mode
+        // Используем метод, который учитывает режим shares-mode и включает indicatives
         List<String> instruments = quoteScannerService.getInstrumentsForScanning();
 
         log.info("=== SUBSCRIPTION INSTRUMENTS SUMMARY ===");
@@ -145,6 +145,25 @@ public class MarketDataStreamingService {
         log.info("=========================================");
 
         return instruments;
+    }
+
+    /**
+     * Получение списка FIGI только акций для подписки на стаканы
+     * 
+     * @return список FIGI акций для подписки на стаканы
+     */
+    private List<String> getSharesForOrderBook() {
+        log.info("Getting shares for order book subscription...");
+
+        // Получаем только акции из базы данных
+        List<String> shareFigis = quoteScannerService.getShareService().getAllShareFigis();
+
+        log.info("Shares for order book subscription: {}", shareFigis.size());
+        if (!shareFigis.isEmpty()) {
+            log.info("First 5 shares: {}", shareFigis.subList(0, Math.min(5, shareFigis.size())));
+        }
+
+        return shareFigis;
     }
 
     /**
@@ -169,7 +188,7 @@ public class MarketDataStreamingService {
 
         log.info("Preparing subscription requests for {} instruments", allFigis.size());
         log.info("Subscription will include: LastPrice, Trades{}",
-                config.isEnableOrderBookSubscription() ? ", OrderBook" : "");
+                config.isEnableOrderBookSubscription() ? ", OrderBook (shares only)" : "");
 
         try {
             // Подписываемся на цены последних сделок
@@ -202,14 +221,15 @@ public class MarketDataStreamingService {
             MarketDataRequest tradesSubscribeReq =
                     MarketDataRequest.newBuilder().setSubscribeTradesRequest(tradesReq).build();
 
-            // Подписываемся на стаканы (если включено в конфигурации)
+            // Подписываемся на стаканы только для акций (если включено в конфигурации)
             MarketDataRequest orderBookSubscribeReq = null;
             if (config.isEnableOrderBookSubscription()) {
-                log.info("Creating OrderBook subscription request for {} instruments with depth {}",
-                        allFigis.size(), config.getOrderBookDepth());
+                List<String> sharesForOrderBook = getSharesForOrderBook();
+                log.info("Creating OrderBook subscription request for {} shares with depth {}",
+                        sharesForOrderBook.size(), config.getOrderBookDepth());
                 SubscribeOrderBookRequest orderBookReq = SubscribeOrderBookRequest.newBuilder()
                         .setSubscriptionAction(SubscriptionAction.SUBSCRIPTION_ACTION_SUBSCRIBE)
-                        .addAllInstruments(allFigis.stream()
+                        .addAllInstruments(sharesForOrderBook.stream()
                                 .map(f -> OrderBookInstrument.newBuilder().setInstrumentId(f)
                                         .setDepth(config.getOrderBookDepth()).build())
                                 .toList())

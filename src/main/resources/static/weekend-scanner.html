@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Сканер утренней сессии</title>
+    <title>Сканер выходного дня</title>
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
@@ -333,7 +333,6 @@
             font-size: 0.8rem;
         }
 
-
         .filters {
             display: flex;
             gap: 15px;
@@ -424,7 +423,6 @@
             background: linear-gradient(45deg, #f44336, #d32f2f);
         }
 
-
         .rank {
             font-weight: bold;
             font-size: 1.1rem;
@@ -476,8 +474,8 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🌅 Сканер утренней сессии</h1>
-            <p>Мониторинг активности инструментов в начале торгового дня</p>
+            <h1>🌅 Сканер выходного дня</h1>
+            <p>Мониторинг активности инструментов в выходные дни</p>
         </div>
 
         <!-- Полоска с индексами -->
@@ -486,7 +484,6 @@
                 <!-- Индексы будут добавлены динамически -->
             </div>
         </div>
-
 
         <div class="stats-grid">
             <div class="stat-card">
@@ -513,7 +510,6 @@
             <a href="/" class="btn btn-primary">← На главную</a>
             <div id="connectionStatus" class="status disconnected">Отключено</div>
         </div>
-
 
         <div class="scanner-container">
             <!-- Растущие бумаги -->
@@ -591,7 +587,7 @@
         // Элементы для полоски индексов
         const indicesContainer = document.getElementById('indicesContainer');
 
-        // Фильтры (удалены, так как не используются в утреннем сканере)
+        // Фильтры (удалены, так как не используются в выходном сканере)
 
         // Состояние
         let websocket = null;
@@ -614,12 +610,8 @@
             { figi: 'BBG004730ZJ9', name: 'LKOH', displayName: 'LKOH' }
         ];
 
-        // Время утренней сессии (07:00-09:59 МСК)
-        const MORNING_SESSION_START_HOUR = 6;
-        const MORNING_SESSION_START_MINUTE = 50;
-        const MORNING_SESSION_END_HOUR = 9;
-        const MORNING_SESSION_END_MINUTE = 49;
-        const MORNING_SESSION_END_SECOND = 59;
+        // Время выходного дня (всегда активно)
+        const WEEKEND_MODE = true;
 
         function connect() {
             if (isConnected) return;
@@ -642,7 +634,6 @@
                     losers = [];
                     updateCount = 0;
 
-
                     // Инициализируем полоску индексов
                     initializeIndicesBar();
 
@@ -652,7 +643,7 @@
                         updateCount = 0;
                     }, 1000);
 
-                    updateSessionStatus();
+                    updateWeekendStatus();
                 };
 
                 websocket.onmessage = function (event) {
@@ -728,7 +719,6 @@
             });
             totalVolume.textContent = total.toLocaleString();
         }
-
 
         // Функции для полоски индексов
         function initializeIndicesBar() {
@@ -899,8 +889,6 @@
             });
         }
 
-        // Функции addQuoteToTable и updateQuoteInTable удалены, так как не используются в утреннем сканере
-
         function createQuoteRow(quoteData, rank = null, type = null) {
             const row = document.createElement('tr');
             const priceChangeClass = getPriceChangeClass(quoteData.priceChange);
@@ -921,98 +909,20 @@
                 <td>${formatBidAsk(quoteData.bestBid, quoteData.bestBidQuantity || 0)}</td>
                 <td>${formatBidAsk(quoteData.bestAsk, quoteData.bestAskQuantity || 0)}</td>
                 <td>${(quoteData.totalVolume || 0).toLocaleString()}</td>
-                <td>${formatAvgVolume(quoteData.avgVolumeMorning)}</td>
+                <td>${formatAvgVolume(quoteData.avgVolumeWeekend)}</td>
                 <td class="timestamp">${formatTime(quoteData.timestamp)}</td>
             `;
 
             return row;
         }
 
-        async function updateSessionStatus() {
+        async function updateWeekendStatus() {
             const now = new Date();
             const moscowTime = new Date(now.getTime() + (3 * 60 * 60 * 1000)); // UTC+3
-            const currentHour = moscowTime.getHours();
-            const currentMinute = moscowTime.getMinutes();
-            const currentSecond = moscowTime.getSecond();
 
-            // Проверяем, включен ли тестовый режим
-            let isTestMode = false;
-            try {
-                const response = await fetch('/api/morning-scanner/test-mode');
-                if (response.ok) {
-                    const data = await response.json();
-                    isTestMode = data.testModeEnabled || false;
-                }
-            } catch (error) {
-                console.warn('Не удалось получить статус тестового режима:', error);
-            }
-
-            // Определяем статус сессии (06:50:00 - 09:49:59)
-            let isSessionActive = false;
-            let statusText = '';
-            let statusColor = '';
-
-            if (isTestMode) {
-                // Тестовый режим - всегда активен
-                isSessionActive = true;
-                statusText = `🧪 ТЕСТОВЫЙ РЕЖИМ - Сканер активен (${moscowTime.toLocaleTimeString()})`;
-                statusColor = 'linear-gradient(135deg, #9b59b6, #8e44ad)';
-            } else if (currentHour > MORNING_SESSION_START_HOUR && currentHour < MORNING_SESSION_END_HOUR) {
-                // Полностью в сессии
-                isSessionActive = true;
-                statusText = `🌅 Утренняя сессия активна (${moscowTime.toLocaleTimeString()})`;
-                statusColor = 'linear-gradient(135deg, #2ecc71, #27ae60)';
-            } else if (currentHour === MORNING_SESSION_START_HOUR) {
-                if (currentMinute >= MORNING_SESSION_START_MINUTE) {
-                    // В сессии с 06:50
-                    isSessionActive = true;
-                    statusText = `🌅 Утренняя сессия активна (${moscowTime.toLocaleTimeString()})`;
-                    statusColor = 'linear-gradient(135deg, #2ecc71, #27ae60)';
-                } else {
-                    // До сессии
-                    const timeToStart = new Date(moscowTime);
-                    timeToStart.setHours(MORNING_SESSION_START_HOUR, MORNING_SESSION_START_MINUTE, 0, 0);
-                    const diff = timeToStart - moscowTime;
-                    const hours = Math.floor(diff / (1000 * 60 * 60));
-                    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-                    statusText = `⏰ До начала сессии: ${hours}ч ${minutes}м (${moscowTime.toLocaleTimeString()})`;
-                    statusColor = 'linear-gradient(135deg, #f39c12, #e67e22)';
-                }
-            } else if (currentHour === MORNING_SESSION_END_HOUR) {
-                if (currentMinute < MORNING_SESSION_END_MINUTE || (currentMinute === MORNING_SESSION_END_MINUTE && currentSecond <= MORNING_SESSION_END_SECOND)) {
-                    // В сессии до 09:49:59
-                    isSessionActive = true;
-                    statusText = `🌅 Утренняя сессия активна (${moscowTime.toLocaleTimeString()})`;
-                    statusColor = 'linear-gradient(135deg, #2ecc71, #27ae60)';
-                } else {
-                    // После сессии
-                    statusText = `Сессия завершена (${moscowTime.toLocaleTimeString()})`;
-                    statusColor = 'linear-gradient(135deg, #f093fb, #f5576c)';
-                }
-            } else if (currentHour < MORNING_SESSION_START_HOUR) {
-                // До сессии
-                const timeToStart = new Date(moscowTime);
-                timeToStart.setHours(MORNING_SESSION_START_HOUR, MORNING_SESSION_START_MINUTE, 0, 0);
-                const diff = timeToStart - moscowTime;
-                const hours = Math.floor(diff / (1000 * 60 * 60));
-                const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-                statusText = `⏰ До начала сессии: ${hours}ч ${minutes}м (${moscowTime.toLocaleTimeString()})`;
-                statusColor = 'linear-gradient(135deg, #f39c12, #e67e22)';
-            } else {
-                // После сессии
-                statusText = `Сессия завершена (${moscowTime.toLocaleTimeString()})`;
-                statusColor = 'linear-gradient(135deg, #f093fb, #f5576c)';
-            }
-
-
-            // Автоматически отключаем сканер вне времени сессии (только если не тестовый режим)
-            if (!isSessionActive && !isTestMode && websocket && websocket.readyState === WebSocket.OPEN) {
-                disconnect();
-                showMessage('Сканер отключен - вне времени утренней сессии (06:50-09:49)', 'warning');
-            }
+            // В выходном режиме всегда показываем активное состояние
+            console.log('Weekend scanner mode - always active');
         }
-
-        // Функция renderQuotesTable удалена, так как не используется в утреннем сканере
 
         function getPriceChangeClass(priceChange) {
             if (!priceChange) return 'price-neutral';
@@ -1165,11 +1075,7 @@
         connectBtn.addEventListener('click', connect);
         disconnectBtn.addEventListener('click', disconnect);
 
-        // Обработчики фильтров (удалены, так как не используются в утреннем сканере)
-
-        // Обновляем статус сессии каждую минуту
-        setInterval(updateSessionStatus, 60000);
-        updateSessionStatus();
+        // Обработчики фильтров (удалены, так как не используются в выходном сканере)
 
         // Инициализируем полоску индексов при загрузке
         initializeIndicesBar();

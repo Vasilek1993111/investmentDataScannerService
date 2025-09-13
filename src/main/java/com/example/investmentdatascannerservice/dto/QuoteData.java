@@ -33,26 +33,28 @@ public class QuoteData {
     private final long volume;
     private final long totalVolume; // Общий объем
     private final BigDecimal avgVolumeMorning; // Средний утренний объем
+    private final BigDecimal avgVolumeWeekend; // Средний объем выходного дня
     private final String direction;
 
     public QuoteData(String figi, String ticker, String instrumentName, BigDecimal currentPrice,
             BigDecimal previousPrice, LocalDateTime timestamp, long volume, String direction) {
         this(figi, ticker, instrumentName, currentPrice, previousPrice, null, null, null, null,
-                null, null, 0, 0, timestamp, volume, volume, direction, null);
+                null, null, 0, 0, timestamp, volume, volume, direction, null, null);
     }
 
     public QuoteData(String figi, String ticker, String instrumentName, BigDecimal currentPrice,
             BigDecimal previousPrice, BigDecimal closePrice, LocalDateTime timestamp, long volume,
             String direction) {
         this(figi, ticker, instrumentName, currentPrice, previousPrice, closePrice, null, null,
-                null, null, null, 0, 0, timestamp, volume, volume, direction, null);
+                null, null, null, 0, 0, timestamp, volume, volume, direction, null, null);
     }
 
     public QuoteData(String figi, String ticker, String instrumentName, BigDecimal currentPrice,
             BigDecimal previousPrice, BigDecimal closePrice, BigDecimal openPrice,
             BigDecimal closePriceOS, BigDecimal closePriceVS, BigDecimal bestBid,
             BigDecimal bestAsk, long bestBidQuantity, long bestAskQuantity, LocalDateTime timestamp,
-            long volume, long totalVolume, String direction, BigDecimal avgVolumeMorning) {
+            long volume, long totalVolume, String direction, BigDecimal avgVolumeMorning,
+            BigDecimal avgVolumeWeekend) {
         this.figi = figi;
         this.ticker = ticker;
         this.instrumentName = instrumentName;
@@ -70,6 +72,7 @@ public class QuoteData {
         this.volume = volume;
         this.totalVolume = totalVolume;
         this.avgVolumeMorning = avgVolumeMorning;
+        this.avgVolumeWeekend = avgVolumeWeekend;
         this.direction = direction;
 
         // Вычисляем разницу в цене от предыдущей цены
@@ -201,6 +204,10 @@ public class QuoteData {
 
     public BigDecimal getAvgVolumeMorning() {
         return avgVolumeMorning;
+    }
+
+    public BigDecimal getAvgVolumeWeekend() {
+        return avgVolumeWeekend;
     }
 
     @Override

@@ -59,6 +59,28 @@ public class SharesAggregatedDataService {
     }
 
     /**
+     * Получить средние объемы выходного дня для списка FIGI
+     */
+    public Map<String, BigDecimal> getAvgVolumeWeekendMap(List<String> figis) {
+        Map<String, BigDecimal> volumeMap = new HashMap<>();
+        try {
+            List<SharesAggregatedDataEntity> dataList =
+                    sharesAggregatedDataRepository.findByFigiIn(figis);
+            for (SharesAggregatedDataEntity data : dataList) {
+                if (data.getAvgVolumeWeekend() != null) {
+                    volumeMap.put(data.getFigi(), data.getAvgVolumeWeekend());
+                }
+            }
+            logger.info("Загружено {} записей с данными по объемам выходного дня из {} запрошенных",
+                    volumeMap.size(), figis.size());
+        } catch (Exception e) {
+            logger.error("Ошибка при загрузке средних объемов выходного дня: {}", e.getMessage(),
+                    e);
+        }
+        return volumeMap;
+    }
+
+    /**
      * Получить все данные с утренними объемами
      */
     public List<SharesAggregatedDataEntity> getAllWithMorningVolume() {

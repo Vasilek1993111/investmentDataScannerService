@@ -1,6 +1,7 @@
 package com.example.investmentdatascannerservice.service;
 
 import java.math.BigDecimal;
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -50,11 +51,15 @@ public class QuoteScannerService {
     private final ClosePriceEveningSessionService closePriceEveningSessionService;
     private final SharesAggregatedDataService sharesAggregatedDataService;
     private final ShareService shareService;
+    private final IndicativeService indicativeService;
 
     // Хранилище последних цен для расчета разниц
     private final Map<String, BigDecimal> lastPrices = new ConcurrentHashMap<>();
     private final Map<String, String> instrumentNames = new ConcurrentHashMap<>();
     private final Map<String, BigDecimal> avgVolumeMorningMap = new ConcurrentHashMap<>();
+
+    // Кэш для средних объемов выходного дня
+    private final Map<String, BigDecimal> avgVolumeWeekendMap = new ConcurrentHashMap<>();
     private final Map<String, String> instrumentTickers = new ConcurrentHashMap<>();
     private final Map<String, BigDecimal> closePrices = new ConcurrentHashMap<>();
     private final Map<String, BigDecimal> openPrices = new ConcurrentHashMap<>();
@@ -76,6 +81,11 @@ public class QuoteScannerService {
     private static final int MORNING_SESSION_END_MINUTE = 49;
     private static final int MORNING_SESSION_END_SECOND = 59;
 
+    // Время сессий выходного дня (суббота и воскресенье, Московское время)
+    private static final int WEEKEND_SESSION_START_HOUR = 2;
+    private static final int WEEKEND_SESSION_END_HOUR = 23;
+    private static final int WEEKEND_SESSION_END_MINUTE = 50;
+
     // Потоки для обработки
     private final ExecutorService processingExecutor =
             Executors.newFixedThreadPool(PROCESSING_THREADS);
@@ -93,13 +103,15 @@ public class QuoteScannerService {
     public QuoteScannerService(QuoteScannerConfig config,
             InstrumentPairService instrumentPairService, ClosePriceService closePriceService,
             ClosePriceEveningSessionService closePriceEveningSessionService,
-            SharesAggregatedDataService sharesAggregatedDataService, ShareService shareService) {
+            SharesAggregatedDataService sharesAggregatedDataService, ShareService shareService,
+            IndicativeService indicativeService) {
         this.config = config;
         this.instrumentPairService = instrumentPairService;
         this.closePriceService = closePriceService;
         this.closePriceEveningSessionService = closePriceEveningSessionService;
         this.sharesAggregatedDataService = sharesAggregatedDataService;
         this.shareService = shareService;
+        this.indicativeService = indicativeService;
     }
 
     @PostConstruct
@@ -145,6 +157,9 @@ public class QuoteScannerService {
 
         // Загружаем средние утренние объемы
         loadAvgVolumeMorning();
+
+        // Загружаем средние объемы выходного дня
+        loadAvgVolumeWeekend();
 
         // Запускаем периодическую очистку неактивных подписчиков каждые 30 секунд
         scheduler.scheduleAtFixedRate(this::cleanupInactiveSubscribers, 30, 30, TimeUnit.SECONDS);
@@ -202,6 +217,31 @@ public class QuoteScannerService {
             }
         } catch (Exception e) {
             log.error("Error loading average morning volumes", e);
+        }
+    }
+
+    /**
+     * Загружает средние объемы выходного дня для всех акций из базы данных
+     */
+    private void loadAvgVolumeWeekend() {
+        try {
+            log.info("Loading average weekend volumes...");
+            // Получаем все FIGI акций из базы данных
+            List<String> allShareFigis = shareService.getAllShareFigis();
+            Map<String, BigDecimal> loadedAvgVolumes =
+                    sharesAggregatedDataService.getAvgVolumeWeekendMap(allShareFigis);
+            avgVolumeWeekendMap.putAll(loadedAvgVolumes);
+            log.info("Loaded {} average weekend volumes from {} shares", loadedAvgVolumes.size(),
+                    allShareFigis.size());
+
+            if (!loadedAvgVolumes.isEmpty()) {
+                log.info("First 5 average weekend volumes: {}",
+                        loadedAvgVolumes.entrySet().stream().limit(5)
+                                .map(entry -> entry.getKey() + "=" + entry.getValue())
+                                .collect(Collectors.toList()));
+            }
+        } catch (Exception e) {
+            log.error("Error loading average weekend volumes", e);
         }
     }
 
@@ -327,7 +367,8 @@ public class QuoteScannerService {
                                                                                            // =
                                                                                            // 0
                         accumulatedVolume, // totalVolume (накопленный объем)
-                        direction, avgVolumeMorningMap.get(figi)); // avgVolumeMorning
+                        direction, avgVolumeMorningMap.get(figi), avgVolumeWeekendMap.get(figi)); // avgVolumeMorning,
+                                                                                                  // avgVolumeWeekend
 
                 totalQuotesProcessed.incrementAndGet();
 
@@ -400,27 +441,33 @@ public class QuoteScannerService {
                 long bestBidQuantity = bestBidQuantities.getOrDefault(figi, 0L);
                 long bestAskQuantity = bestAskQuantities.getOrDefault(figi, 0L);
 
-                // Накопляем объем за время работы сканера
+                // Накопляем объем за время работы сканера только во время сессий выходного дня
                 long tradeQuantity = trade.getQuantity();
                 long currentAccumulatedVolume = accumulatedVolumes.getOrDefault(figi, 0L);
-                long newAccumulatedVolume = currentAccumulatedVolume + tradeQuantity;
-                accumulatedVolumes.put(figi, newAccumulatedVolume);
+                long newAccumulatedVolume = currentAccumulatedVolume;
+
+                // Добавляем объем только если сейчас сессия выходного дня
+                if (isWeekendSessionTime()) {
+                    newAccumulatedVolume = currentAccumulatedVolume + tradeQuantity;
+                    accumulatedVolumes.put(figi, newAccumulatedVolume);
+                }
 
                 // Создаем данные о котировке
-                QuoteData quoteData =
-                        new QuoteData(figi, instrumentTickers.getOrDefault(figi, figi), // Используем
-                                                                                        // тикер или
-                                                                                        // FIGI если
-                                                                                        // не найден
-                                instrumentNames.getOrDefault(figi, figi), // Используем имя или FIGI
-                                                                          // если не найдено
-                                currentPrice, previousPrice, closePrice, openPrices.get(figi),
-                                closePriceOS, closePriceVS, // openPrice, closePriceOS (используем
-                                                            // цену закрытия), closePriceVS
-                                bestBid, bestAsk, bestBidQuantity, bestAskQuantity, eventTime,
-                                tradeQuantity, newAccumulatedVolume, // volume (текущая сделка),
-                                                                     // totalVolume (накопленный)
-                                direction, avgVolumeMorningMap.get(figi)); // avgVolumeMorning
+                QuoteData quoteData = new QuoteData(figi,
+                        instrumentTickers.getOrDefault(figi, figi), // Используем
+                                                                    // тикер или
+                                                                    // FIGI если
+                                                                    // не найден
+                        instrumentNames.getOrDefault(figi, figi), // Используем имя или FIGI
+                                                                  // если не найдено
+                        currentPrice, previousPrice, closePrice, openPrices.get(figi), closePriceOS,
+                        closePriceVS, // openPrice, closePriceOS (используем
+                                      // цену закрытия), closePriceVS
+                        bestBid, bestAsk, bestBidQuantity, bestAskQuantity, eventTime,
+                        tradeQuantity, newAccumulatedVolume, // volume (текущая сделка),
+                                                             // totalVolume (накопленный)
+                        direction, avgVolumeMorningMap.get(figi), avgVolumeWeekendMap.get(figi)); // avgVolumeMorning,
+                                                                                                  // avgVolumeWeekend
 
                 totalQuotesProcessed.incrementAndGet();
 
@@ -667,7 +714,8 @@ public class QuoteScannerService {
                     currentPrice, previousPrice, closePrice, openPrices.get(figi), closePriceOS,
                     closePriceVS, bestBid, bestAsk, bestBidQuantity, bestAskQuantity,
                     LocalDateTime.now(), 0L, accumulatedVolume, direction,
-                    avgVolumeMorningMap.get(figi)); // avgVolumeMorning
+                    avgVolumeMorningMap.get(figi), avgVolumeWeekendMap.get(figi)); // avgVolumeMorning,
+                                                                                   // avgVolumeWeekend
 
             // Отправляем всем подписчикам
             notifySubscribers(quoteData);
@@ -769,6 +817,41 @@ public class QuoteScannerService {
     }
 
     /**
+     * Проверяет, является ли текущее время сессией выходного дня (суббота и воскресенье)
+     */
+    private boolean isWeekendSessionTime() {
+        // Если включен тестовый режим, всегда возвращаем true
+        if (config.isEnableTestMode()) {
+            return true;
+        }
+
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.of("+3")); // Московское время
+        DayOfWeek dayOfWeek = now.getDayOfWeek();
+        int currentHour = now.getHour();
+        int currentMinute = now.getMinute();
+
+        // Проверяем, что это суббота или воскресенье
+        if (dayOfWeek != DayOfWeek.SATURDAY && dayOfWeek != DayOfWeek.SUNDAY) {
+            return false;
+        }
+
+        // Проверяем, что время между 02:00 и 23:50
+        if (currentHour > WEEKEND_SESSION_START_HOUR && currentHour < WEEKEND_SESSION_END_HOUR) {
+            return true;
+        }
+
+        if (currentHour == WEEKEND_SESSION_START_HOUR) {
+            return currentMinute >= 0; // 02:00 и далее
+        }
+
+        if (currentHour == WEEKEND_SESSION_END_HOUR) {
+            return currentMinute <= WEEKEND_SESSION_END_MINUTE; // до 23:50
+        }
+
+        return false;
+    }
+
+    /**
      * Запускает сканер, если время утренней сессии
      */
     public void startScannerIfSessionTime() {
@@ -795,6 +878,32 @@ public class QuoteScannerService {
     }
 
     /**
+     * Запускает сканер, если время сессии выходного дня
+     */
+    public void startScannerIfWeekendSessionTime() {
+        if (isWeekendSessionTime()) {
+            if (!isScannerActive) {
+                if (config.isEnableTestMode()) {
+                    log.info(
+                            "Starting weekend scanner - TEST MODE ENABLED (ignoring session time restrictions)");
+                } else {
+                    log.info("Starting weekend scanner - weekend session time detected");
+                }
+                isScannerActive = true;
+            }
+        } else {
+            if (isScannerActive) {
+                if (config.isEnableTestMode()) {
+                    log.info("Weekend scanner remains active - TEST MODE ENABLED");
+                } else {
+                    log.info("Stopping weekend scanner - outside weekend session time");
+                    isScannerActive = false;
+                }
+            }
+        }
+    }
+
+    /**
      * Проверяет, активен ли сканер
      */
     public boolean isScannerActive() {
@@ -802,64 +911,122 @@ public class QuoteScannerService {
     }
 
     /**
+     * Проверяет, является ли текущее время сессией выходного дня (публичный метод)
+     */
+    public boolean checkWeekendSessionTime() {
+        return isWeekendSessionTime();
+    }
+
+    /**
+     * Останавливает сканер принудительно
+     */
+    public void stopScanner() {
+        isScannerActive = false;
+        log.info("Scanner stopped manually");
+    }
+
+    /**
      * Получить инструменты для сканирования
      * 
-     * Всегда загружает все акции из таблицы invest.shares. Режим shares-mode определяет только
-     * дополнительные настройки отображения.
+     * Загружает все акции из таблицы invest.shares и индексы из таблицы invest.indicatives. Режим
+     * shares-mode определяет только дополнительные настройки отображения.
      */
     public List<String> getInstrumentsForScanning() {
-        // Всегда загружаем все акции из базы данных
+        // Загружаем все акции из базы данных
         List<String> shareFigis = shareService.getAllShareFigis();
 
+        // Загружаем все индексы из базы данных
+        List<String> indicativeFigis = indicativeService.getAllIndicativeFigis();
+
+        // Объединяем списки
+        List<String> allFigis = new java.util.ArrayList<>();
+        allFigis.addAll(shareFigis);
+        allFigis.addAll(indicativeFigis);
+
         if (config.isEnableSharesMode()) {
-            log.info("Using shares mode: {} instruments from database", shareFigis.size());
+            log.info(
+                    "Using shares mode: {} shares + {} indicatives = {} total instruments from database",
+                    shareFigis.size(), indicativeFigis.size(), allFigis.size());
         } else {
-            log.info("Using config mode: {} instruments from database", shareFigis.size());
+            log.info(
+                    "Using config mode: {} shares + {} indicatives = {} total instruments from database",
+                    shareFigis.size(), indicativeFigis.size(), allFigis.size());
         }
 
-        if (shareFigis.isEmpty()) {
-            log.warn("No shares found in database! Check if table invest.shares has data");
+        if (allFigis.isEmpty()) {
+            log.warn(
+                    "No instruments found in database! Check if tables invest.shares and invest.indicatives have data");
         } else {
-            log.info("First 5 instruments: {}",
-                    shareFigis.subList(0, Math.min(5, shareFigis.size())));
+            log.info("First 5 instruments: {}", allFigis.subList(0, Math.min(5, allFigis.size())));
         }
 
-        return shareFigis;
+        return allFigis;
     }
 
     /**
      * Получить имена инструментов для сканирования
      * 
-     * Всегда загружает имена из таблицы invest.shares.
+     * Загружает имена из таблиц invest.shares и invest.indicatives.
      */
     public Map<String, String> getInstrumentNamesForScanning() {
-        // Всегда загружаем имена из базы данных
+        // Загружаем имена акций из базы данных
         Map<String, String> shareNames = shareService.getShareNames();
 
+        // Загружаем имена индексов из базы данных
+        Map<String, String> indicativeNames = indicativeService.getIndicativeNames();
+
+        // Объединяем карты
+        Map<String, String> allNames = new java.util.HashMap<>();
+        allNames.putAll(shareNames);
+        allNames.putAll(indicativeNames);
+
         if (config.isEnableSharesMode()) {
-            log.info("Using shares names: {} names from database", shareNames.size());
+            log.info(
+                    "Using shares names: {} shares + {} indicatives = {} total names from database",
+                    shareNames.size(), indicativeNames.size(), allNames.size());
         } else {
-            log.info("Using config mode names: {} names from database", shareNames.size());
+            log.info(
+                    "Using config mode names: {} shares + {} indicatives = {} total names from database",
+                    shareNames.size(), indicativeNames.size(), allNames.size());
         }
 
-        return shareNames;
+        return allNames;
     }
 
     /**
      * Получить тикеры инструментов для сканирования
      * 
-     * Всегда загружает тикеры из таблицы invest.shares.
+     * Загружает тикеры из таблиц invest.shares и invest.indicatives.
      */
     public Map<String, String> getInstrumentTickersForScanning() {
-        // Всегда загружаем тикеры из базы данных
+        // Загружаем тикеры акций из базы данных
         Map<String, String> shareTickers = shareService.getShareTickers();
 
+        // Загружаем тикеры индексов из базы данных
+        Map<String, String> indicativeTickers = indicativeService.getIndicativeTickers();
+
+        // Объединяем карты
+        Map<String, String> allTickers = new java.util.HashMap<>();
+        allTickers.putAll(shareTickers);
+        allTickers.putAll(indicativeTickers);
+
         if (config.isEnableSharesMode()) {
-            log.info("Using shares tickers: {} tickers from database", shareTickers.size());
+            log.info(
+                    "Using shares tickers: {} shares + {} indicatives = {} total tickers from database",
+                    shareTickers.size(), indicativeTickers.size(), allTickers.size());
         } else {
-            log.info("Using config mode tickers: {} tickers from database", shareTickers.size());
+            log.info(
+                    "Using config mode tickers: {} shares + {} indicatives = {} total tickers from database",
+                    shareTickers.size(), indicativeTickers.size(), allTickers.size());
         }
 
-        return shareTickers;
+        return allTickers;
+    }
+
+    /**
+     * Получить ShareService для доступа к акциям
+     */
+    public ShareService getShareService() {
+        return shareService;
     }
 }
