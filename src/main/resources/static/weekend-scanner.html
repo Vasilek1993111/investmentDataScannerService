@@ -275,6 +275,116 @@
             background: #c82333;
         }
 
+        /* Стили для встроенной сортировки */
+        .sorting-controls-inline {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px 25px;
+            margin: 20px 0;
+            border-radius: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);
+            display: flex;
+            gap: 25px;
+            align-items: end;
+            flex-wrap: wrap;
+            position: relative;
+            backdrop-filter: blur(10px);
+        }
+
+        .sorting-controls-inline::before {
+            content: "🎯 Настройки сортировки";
+            position: absolute;
+            top: -12px;
+            left: 20px;
+            background: linear-gradient(135deg, #ff6b6b, #ffa500);
+            padding: 4px 12px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: #fff;
+            border-radius: 20px;
+            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        }
+
+        .sort-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-width: 160px;
+        }
+
+        .sort-group label {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #fff;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+            margin-bottom: 2px;
+        }
+
+        .sort-select {
+            padding: 12px 16px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 12px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.95);
+            cursor: pointer;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            min-width: 160px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .sort-select:focus {
+            outline: none;
+            border-color: #ff6b6b;
+            box-shadow: 0 0 0 4px rgba(255, 107, 107, 0.3), 0 8px 25px rgba(255, 107, 107, 0.2);
+            transform: translateY(-2px) scale(1.02);
+        }
+
+        .sort-select:hover {
+            border-color: #ffa500;
+            box-shadow: 0 6px 20px rgba(255, 165, 0, 0.3);
+            transform: translateY(-2px) scale(1.02);
+        }
+
+        .sort-select option {
+            padding: 10px;
+            background: #fff;
+            color: #333;
+            font-weight: 600;
+        }
+
+        /* Специальные стили для разных типов полей */
+        .sort-group:nth-child(1) .sort-select {
+            background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%);
+            border-color: #ff6b6b;
+        }
+
+        .sort-group:nth-child(2) .sort-select {
+            background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+            border-color: #4ecdc4;
+        }
+
+        .sort-group:nth-child(3) .sort-select {
+            background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
+            border-color: #ffa500;
+        }
+
+        @media (max-width: 768px) {
+            .sorting-controls-inline {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 15px;
+            }
+
+            .sort-group {
+                min-width: auto;
+            }
+        }
+
         /* Стили для подсветки изменений в полоске индексов */
         .index-value.price-up {
             color: #28a745;
@@ -659,10 +769,41 @@
             <div id="connectionStatus" class="status disconnected">Отключено</div>
         </div>
 
+
         <div class="scanner-container">
             <!-- Растущие бумаги -->
             <div class="scanner-section gainers">
-                <h2>🚀 Топ-15 растущих относительно ОС</h2>
+                <h2 id="gainersTitle">🚀 Топ-15 растущих относительно ОС</h2>
+
+                <!-- Настройки сортировки для растущих акций -->
+                <div class="sorting-controls-inline">
+                    <div class="sort-group">
+                        <label for="gainersSortBy">Сортировать по:</label>
+                        <select id="gainersSortBy" class="sort-select">
+                            <option value="changeOS">Изменение от ОС %</option>
+                            <option value="priceVS">Изменение от ВС %</option>
+                        </select>
+                    </div>
+                    <div class="sort-group">
+                        <label for="gainersSortOrder">Порядок:</label>
+                        <select id="gainersSortOrder" class="sort-select">
+                            <option value="desc">Сначала самые растущие</option>
+                            <option value="asc">Сначала менее растущие</option>
+                            <option value="volume_desc">Наибольший объем</option>
+                            <option value="volume_asc">Наименьший объем</option>
+                        </select>
+                    </div>
+                    <div class="sort-group">
+                        <label for="gainersMaxResults">Показать:</label>
+                        <select id="gainersMaxResults" class="sort-select">
+                            <option value="5">Топ-5</option>
+                            <option value="10">Топ-10</option>
+                            <option value="15">Топ-15</option>
+                            <option value="20">Топ-20</option>
+                        </select>
+                    </div>
+                </div>
+
                 <div class="table-container">
                     <table>
                         <thead>
@@ -690,7 +831,37 @@
 
             <!-- Падающие бумаги -->
             <div class="scanner-section losers">
-                <h2>📉 Топ-15 падающих относительно ОС</h2>
+                <h2 id="losersTitle">📉 Топ-15 падающих относительно ОС</h2>
+
+                <!-- Настройки сортировки для падающих акций -->
+                <div class="sorting-controls-inline">
+                    <div class="sort-group">
+                        <label for="losersSortBy">Сортировать по:</label>
+                        <select id="losersSortBy" class="sort-select">
+                            <option value="changeOS">Изменение от ОС %</option>
+                            <option value="priceVS">Изменение от ВС %</option>
+                        </select>
+                    </div>
+                    <div class="sort-group">
+                        <label for="losersSortOrder">Порядок:</label>
+                        <select id="losersSortOrder" class="sort-select">
+                            <option value="desc">Сначала самые падающие</option>
+                            <option value="asc">Сначала менее падающие</option>
+                            <option value="volume_desc">Наибольший объем</option>
+                            <option value="volume_asc">Наименьший объем</option>
+                        </select>
+                    </div>
+                    <div class="sort-group">
+                        <label for="losersMaxResults">Показать:</label>
+                        <select id="losersMaxResults" class="sort-select">
+                            <option value="5">Топ-5</option>
+                            <option value="10">Топ-10</option>
+                            <option value="15">Топ-15</option>
+                            <option value="20">Топ-20</option>
+                        </select>
+                    </div>
+                </div>
+
                 <div class="table-container">
                     <table>
                         <thead>
@@ -787,6 +958,16 @@
             { name: 'XPD', displayName: 'XPD' },
             { name: 'XPT', displayName: 'XPT' }
         ];
+
+        // Настройки сортировки для растущих акций
+        let gainersSortBy = 'changeOS';
+        let gainersSortOrder = 'desc';
+        let gainersMaxResults = 15;
+
+        // Настройки сортировки для падающих акций
+        let losersSortBy = 'changeOS';
+        let losersSortOrder = 'desc';
+        let losersMaxResults = 15;
 
         // Время выходного дня (всегда активно)
         const WEEKEND_MODE = true;
@@ -1014,53 +1195,242 @@
 
             console.log('Valid quotes for sorting:', validQuotes.length);
 
-            // Сортируем по изменению относительно ОС
-            const sortedQuotes = validQuotes.sort((a, b) => {
-                // Вычисляем изменение относительно ОС (используем closePrice как fallback)
-                const priceOS_A = a.closePriceOS || a.closePrice;
-                const priceOS_B = b.closePriceOS || b.closePrice;
-
-                const changeA = priceOS_A ? ((a.currentPrice - priceOS_A) / priceOS_A) * 100 : 0;
-                const changeB = priceOS_B ? ((b.currentPrice - priceOS_B) / priceOS_B) * 100 : 0;
-                return changeB - changeA; // По убыванию
+            // Сначала разделяем на растущие и падающие по изменению от ОС
+            const gainersQuotes = validQuotes.filter(quote => {
+                const priceOS = quote.closePriceOS || quote.closePrice;
+                if (!priceOS || priceOS <= 0) return false; // Только инструменты с валидной ценой ОС
+                const change = ((quote.currentPrice - priceOS) / priceOS) * 100;
+                return change > 0;
             });
 
-            // Разделяем на растущие и падающие (показываем топ-15)
-            gainers = sortedQuotes.filter(quote => {
+            const losersQuotes = validQuotes.filter(quote => {
                 const priceOS = quote.closePriceOS || quote.closePrice;
-                const change = priceOS ? ((quote.currentPrice - priceOS) / priceOS) * 100 : 0;
-                return change > 0;
-            }).slice(0, 15); // Ограничиваем до топ-15 растущих
-
-            // Для падающих сортируем от большего падения к меньшему (отрицательные значения по возрастанию)
-            losers = sortedQuotes.filter(quote => {
-                const priceOS = quote.closePriceOS || quote.closePrice;
-                const change = priceOS ? ((quote.currentPrice - priceOS) / priceOS) * 100 : 0;
+                if (!priceOS || priceOS <= 0) return false; // Только инструменты с валидной ценой ОС
+                const change = ((quote.currentPrice - priceOS) / priceOS) * 100;
                 return change < 0;
-            }).sort((a, b) => {
-                const priceOS_A = a.closePriceOS || a.closePrice;
-                const priceOS_B = b.closePriceOS || b.closePrice;
-                const changeA = priceOS_A ? ((a.currentPrice - priceOS_A) / priceOS_A) * 100 : 0;
-                const changeB = priceOS_B ? ((b.currentPrice - priceOS_B) / priceOS_B) * 100 : 0;
-                return changeA - changeB; // Сортируем по возрастанию (от большего падения к меньшему)
-            }).slice(0, 15); // Ограничиваем до топ-15 падающих
+            });
+
+            // Применяем сортировку к каждой группе отдельно
+            gainers = sortQuotesAdvanced([...gainersQuotes], gainersSortBy, gainersSortOrder).slice(0, gainersMaxResults);
+
+            // Для падающих акций используем специальную функцию с правильной логикой
+            losers = sortLosersQuotes([...losersQuotes], losersSortBy, losersSortOrder).slice(0, losersMaxResults);
 
             console.log('Gainers:', gainers.length, 'Losers:', losers.length);
-            console.log('Showing top 15 gainers and top 15 losers out of', validQuotes.length, 'valid quotes');
-
-            // Логируем первые несколько падающих для проверки сортировки
-            if (losers.length > 0) {
-                console.log('Top 3 losers (should be sorted from biggest drop to smallest):');
-                losers.slice(0, 3).forEach((quote, index) => {
-                    const priceOS = quote.closePriceOS || quote.closePrice;
-                    const change = priceOS ? ((quote.currentPrice - priceOS) / priceOS) * 100 : 0;
-                    console.log(`  ${index + 1}. ${quote.ticker || quote.figi}: ${change.toFixed(2)}%`);
-                });
-            }
+            console.log(`Showing top ${gainersMaxResults} gainers (${gainersSortBy}, ${gainersSortOrder}) and top ${losersMaxResults} losers (${losersSortBy}, ${losersSortOrder})`);
 
             // Обновляем таблицы
             updateGainersTable();
             updateLosersTable();
+        }
+
+        // Функции сортировки
+        function updateSortingSettings() {
+            // Обновляем настройки для растущих акций
+            gainersSortBy = document.getElementById('gainersSortBy').value;
+            gainersSortOrder = document.getElementById('gainersSortOrder').value;
+            gainersMaxResults = parseInt(document.getElementById('gainersMaxResults').value);
+
+            // Обновляем настройки для падающих акций
+            losersSortBy = document.getElementById('losersSortBy').value;
+            losersSortOrder = document.getElementById('losersSortOrder').value;
+            losersMaxResults = parseInt(document.getElementById('losersMaxResults').value);
+
+            // Обновляем заголовки таблиц
+            updateTableTitles();
+
+            // Пересчитываем и обновляем таблицы
+            updateTopLists();
+        }
+
+        function updateTableTitles() {
+            const gainersTitle = document.getElementById('gainersTitle');
+            const losersTitle = document.getElementById('losersTitle');
+
+            // Заголовок для растущих акций
+            let gainersSortText = '';
+            if (gainersSortOrder === 'volume_desc' || gainersSortOrder === 'volume_asc') {
+                gainersSortText = 'по объему';
+            } else {
+                switch (gainersSortBy) {
+                    case 'changeOS':
+                        gainersSortText = 'относительно ОС';
+                        break;
+                    case 'priceVS':
+                        gainersSortText = 'по изменению от ВС';
+                        break;
+                }
+            }
+            let gainersOrderText = '';
+            if (gainersSortOrder === 'desc') {
+                gainersOrderText = 'самые растущие';
+            } else if (gainersSortOrder === 'asc') {
+                gainersOrderText = 'менее растущие';
+            } else if (gainersSortOrder === 'volume_desc') {
+                gainersOrderText = 'наибольший объем';
+            } else if (gainersSortOrder === 'volume_asc') {
+                gainersOrderText = 'наименьший объем';
+            }
+            const gainersResultsText = `Топ-${gainersMaxResults}`;
+            gainersTitle.textContent = `🚀 ${gainersResultsText} растущих (${gainersSortText}, ${gainersOrderText})`;
+
+            // Заголовок для падающих акций
+            let losersSortText = '';
+            if (losersSortOrder === 'volume_desc' || losersSortOrder === 'volume_asc') {
+                losersSortText = 'по объему';
+            } else {
+                switch (losersSortBy) {
+                    case 'changeOS':
+                        losersSortText = 'относительно ОС';
+                        break;
+                    case 'priceVS':
+                        losersSortText = 'по изменению от ВС';
+                        break;
+                }
+            }
+            let losersOrderText = '';
+            if (losersSortOrder === 'desc') {
+                losersOrderText = 'самые падающие';
+            } else if (losersSortOrder === 'asc') {
+                losersOrderText = 'менее падающие';
+            } else if (losersSortOrder === 'volume_desc') {
+                losersOrderText = 'наибольший объем';
+            } else if (losersSortOrder === 'volume_asc') {
+                losersOrderText = 'наименьший объем';
+            }
+            const losersResultsText = `Топ-${losersMaxResults}`;
+            losersTitle.textContent = `📉 ${losersResultsText} падающих (${losersSortText}, ${losersOrderText})`;
+        }
+
+        function sortQuotes(quotes, sortBy, sortOrder) {
+            return quotes.sort((a, b) => {
+                let valueA, valueB;
+
+                switch (sortBy) {
+                    case 'changeOS':
+                        const priceOS_A = a.closePriceOS || a.closePrice;
+                        const priceOS_B = b.closePriceOS || b.closePrice;
+                        valueA = priceOS_A ? ((a.currentPrice - priceOS_A) / priceOS_A) * 100 : 0;
+                        valueB = priceOS_B ? ((b.currentPrice - priceOS_B) / priceOS_B) * 100 : 0;
+                        break;
+                    case 'priceVS':
+                        // Сортируем по процентному изменению от цены ВС
+                        const priceVS_A = a.closePriceVS || a.closePrice;
+                        const priceVS_B = b.closePriceVS || b.closePrice;
+                        if (!priceVS_A || priceVS_A <= 0) valueA = 0;
+                        else valueA = ((a.currentPrice - priceVS_A) / priceVS_A) * 100;
+                        if (!priceVS_B || priceVS_B <= 0) valueB = 0;
+                        else valueB = ((b.currentPrice - priceVS_B) / priceVS_B) * 100;
+                        break;
+                    default:
+                        valueA = 0;
+                        valueB = 0;
+                }
+
+                if (sortOrder === 'desc') {
+                    return valueB - valueA;
+                } else {
+                    return valueA - valueB;
+                }
+            });
+        }
+
+        function sortLosersQuotes(quotes, sortBy, sortOrder) {
+            return quotes.sort((a, b) => {
+                let valueA, valueB;
+
+                // Если sortOrder содержит volume, принудительно сортируем по объему
+                if (sortOrder === 'volume_desc' || sortOrder === 'volume_asc') {
+                    // Используем totalVolume (накопленный объем) для сортировки
+                    valueA = a.totalVolume || 0;
+                    valueB = b.totalVolume || 0;
+
+                    if (sortOrder === 'volume_desc') {
+                        return valueB - valueA; // по убыванию объема (наибольший объем сверху)
+                    } else {
+                        return valueA - valueB; // по возрастанию объема (наименьший объем сверху)
+                    }
+                }
+
+                // Обычная сортировка по выбранному критерию
+                switch (sortBy) {
+                    case 'changeOS':
+                        const priceOS_A = a.closePriceOS || a.closePrice;
+                        const priceOS_B = b.closePriceOS || b.closePrice;
+                        valueA = priceOS_A ? ((a.currentPrice - priceOS_A) / priceOS_A) * 100 : 0;
+                        valueB = priceOS_B ? ((b.currentPrice - priceOS_B) / priceOS_B) * 100 : 0;
+                        break;
+                    case 'priceVS':
+                        // Сортируем по процентному изменению от цены ВС
+                        const priceVS_A = a.closePriceVS || a.closePrice;
+                        const priceVS_B = b.closePriceVS || b.closePrice;
+                        if (!priceVS_A || priceVS_A <= 0) valueA = 0;
+                        else valueA = ((a.currentPrice - priceVS_A) / priceVS_A) * 100;
+                        if (!priceVS_B || priceVS_B <= 0) valueB = 0;
+                        else valueB = ((b.currentPrice - priceVS_B) / priceVS_B) * 100;
+                        break;
+                    default:
+                        valueA = 0;
+                        valueB = 0;
+                }
+
+                // Для падающих акций логика: 
+                // "desc" (самые падающие) = от меньшего к большему (-10%, -5%, -2%) - самые отрицательные сверху
+                // "asc" (менее падающие) = от большего к меньшему (-2%, -5%, -10%) - менее отрицательные сверху
+                if (sortOrder === 'desc') {
+                    return valueA - valueB; // от меньшего к большему (самые отрицательные сверху)
+                } else {
+                    return valueB - valueA; // от большего к меньшему (менее отрицательные сверху)
+                }
+            });
+        }
+
+        function sortQuotesAdvanced(quotes, sortBy, sortOrder) {
+            return quotes.sort((a, b) => {
+                let valueA, valueB;
+
+                // Если sortOrder содержит volume, принудительно сортируем по объему
+                if (sortOrder === 'volume_desc' || sortOrder === 'volume_asc') {
+                    // Используем totalVolume (накопленный объем) для сортировки
+                    valueA = a.totalVolume || 0;
+                    valueB = b.totalVolume || 0;
+
+
+                    if (sortOrder === 'volume_desc') {
+                        return valueB - valueA; // по убыванию объема (наибольший объем сверху)
+                    } else {
+                        return valueA - valueB; // по возрастанию объема (наименьший объем сверху)
+                    }
+                }
+
+                // Обычная сортировка по выбранному критерию
+                switch (sortBy) {
+                    case 'changeOS':
+                        const priceOS_A = a.closePriceOS || a.closePrice;
+                        const priceOS_B = b.closePriceOS || b.closePrice;
+                        valueA = priceOS_A ? ((a.currentPrice - priceOS_A) / priceOS_A) * 100 : 0;
+                        valueB = priceOS_B ? ((b.currentPrice - priceOS_B) / priceOS_B) * 100 : 0;
+                        break;
+                    case 'priceVS':
+                        // Сортируем по процентному изменению от цены ВС
+                        const priceVS_A = a.closePriceVS || a.closePrice;
+                        const priceVS_B = b.closePriceVS || b.closePrice;
+                        if (!priceVS_A || priceVS_A <= 0) valueA = 0;
+                        else valueA = ((a.currentPrice - priceVS_A) / priceVS_A) * 100;
+                        if (!priceVS_B || priceVS_B <= 0) valueB = 0;
+                        else valueB = ((b.currentPrice - priceVS_B) / priceVS_B) * 100;
+                        break;
+                    default:
+                        valueA = 0;
+                        valueB = 0;
+                }
+
+                if (sortOrder === 'desc') {
+                    return valueB - valueA;
+                } else {
+                    return valueA - valueB;
+                }
+            });
         }
 
         function updateGainersTable() {
@@ -1273,6 +1643,16 @@
         // Обработчики событий
         connectBtn.addEventListener('click', connect);
         disconnectBtn.addEventListener('click', disconnect);
+
+        // Обработчики сортировки для растущих акций
+        document.getElementById('gainersSortBy').addEventListener('change', updateSortingSettings);
+        document.getElementById('gainersSortOrder').addEventListener('change', updateSortingSettings);
+        document.getElementById('gainersMaxResults').addEventListener('change', updateSortingSettings);
+
+        // Обработчики сортировки для падающих акций
+        document.getElementById('losersSortBy').addEventListener('change', updateSortingSettings);
+        document.getElementById('losersSortOrder').addEventListener('change', updateSortingSettings);
+        document.getElementById('losersMaxResults').addEventListener('change', updateSortingSettings);
 
         // Обработчики фильтров (удалены, так как не используются в выходном сканере)
 
