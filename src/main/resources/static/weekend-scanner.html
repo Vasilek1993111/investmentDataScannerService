@@ -140,6 +140,152 @@
             background: rgba(0, 0, 0, 0.3);
         }
 
+        /* Стили для модального окна управления индексами */
+        .modal {
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            margin: auto;
+            padding: 0;
+            border: 1px solid #888;
+            border-radius: 8px;
+            width: 80%;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px 8px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 1.5rem;
+        }
+
+        .close {
+            color: white;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        .close:hover {
+            opacity: 0.7;
+        }
+
+        .modal-body {
+            padding: 20px;
+        }
+
+        .add-index-section {
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+        }
+
+        .indices-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .index-item-manage {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            margin-bottom: 8px;
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+        }
+
+        .index-info {
+            flex: 1;
+        }
+
+        .index-name {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .index-figi {
+            font-size: 12px;
+            color: #666;
+            font-family: monospace;
+        }
+
+        .btn-remove {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .btn-remove:hover {
+            background: #c82333;
+        }
+
+        /* Стили для подсветки изменений в полоске индексов */
+        .index-value.price-up {
+            color: #28a745;
+            font-weight: bold;
+        }
+
+        .index-value.price-down {
+            color: #dc3545;
+            font-weight: bold;
+        }
+
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -507,6 +653,8 @@
         <div class="controls">
             <button id="connectBtn" class="btn btn-primary">Подключиться</button>
             <button id="disconnectBtn" class="btn btn-danger" disabled>Отключиться</button>
+            <button id="manageIndicesBtn" class="btn btn-secondary" onclick="toggleIndexManagement()">Управление
+                индексами</button>
             <a href="/" class="btn btn-primary">← На главную</a>
             <div id="connectionStatus" class="status disconnected">Отключено</div>
         </div>
@@ -521,7 +669,6 @@
                             <tr>
                                 <th>Инструмент</th>
                                 <th>Текущая</th>
-                                <th>Цена открытия</th>
                                 <th>Цена ОС</th>
                                 <th>Цена ВС</th>
                                 <th>Изменение от ОС %</th>
@@ -550,7 +697,6 @@
                             <tr>
                                 <th>Инструмент</th>
                                 <th>Текущая</th>
-                                <th>Цена открытия</th>
                                 <th>Цена ОС</th>
                                 <th>Цена ВС</th>
                                 <th>Изменение от ОС %</th>
@@ -567,6 +713,37 @@
                             </tr>
                         </tbody>
                     </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно для управления индексами -->
+    <div id="indexManagementModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Управление индексами</h2>
+                <span class="close" onclick="toggleIndexManagement()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="add-index-section">
+                    <h3>Добавить новый индекс</h3>
+                    <div class="form-group">
+                        <label for="newIndexTicker">Ticker:</label>
+                        <input type="text" id="newIndexTicker" placeholder="XAG">
+                    </div>
+                    <div class="form-group">
+                        <label for="newIndexDisplayName">Display Name:</label>
+                        <input type="text" id="newIndexDisplayName" placeholder="XAG">
+                    </div>
+                    <button onclick="addIndex()" class="btn btn-primary">Добавить</button>
+                </div>
+
+                <div class="current-indices-section">
+                    <h3>Текущие индексы</h3>
+                    <div id="currentIndicesList" class="indices-list">
+                        <!-- Список индексов будет загружен динамически -->
+                    </div>
                 </div>
             </div>
         </div>
@@ -599,15 +776,16 @@
         let lastUpdateTime = null;
         let updateTimer = null;
 
-        // Индексы для полоски
+        // Индексы для полоски (динамический список)
         let indices = new Map();
-        const INDICES_CONFIG = [
-            { figi: 'BBG00KDWPPW3', name: 'IMOEX2', displayName: 'IMOEX2' },
-            { figi: 'BBG004730N9', name: 'IMOEX', displayName: 'IMOEX' },
-            { figi: 'BBG004730Z0', name: 'RTSI', displayName: 'RTSI' },
-            { figi: 'BBG00H6ZJ3S3', name: 'SBER', displayName: 'SBER' },
-            { figi: 'BBG004730JJ5', name: 'GAZP', displayName: 'GAZP' },
-            { figi: 'BBG004730ZJ9', name: 'LKOH', displayName: 'LKOH' }
+        let INDICES_CONFIG = [
+            { name: 'IMOEX2', displayName: 'IMOEX2' },
+            { name: 'IMOEX', displayName: 'IMOEX' },
+            { name: 'RTSI', displayName: 'RTSI' },
+            { name: 'XAG', displayName: 'XAG' },
+            { name: 'XAU', displayName: 'XAU' },
+            { name: 'XPD', displayName: 'XPD' },
+            { name: 'XPT', displayName: 'XPT' }
         ];
 
         // Время выходного дня (всегда активно)
@@ -726,14 +904,14 @@
             INDICES_CONFIG.forEach(config => {
                 const indexElement = createIndexElement(config);
                 indicesContainer.appendChild(indexElement);
-                indices.set(config.figi, { ...config, element: indexElement, data: null });
+                indices.set(config.name, { ...config, element: indexElement, data: null });
             });
         }
 
         function createIndexElement(config) {
             const div = document.createElement('div');
             div.className = 'index-item';
-            div.id = `index-${config.figi}`;
+            div.id = `index-${config.name}`;
 
             div.innerHTML = `
                 <div class="index-name">${config.displayName}</div>
@@ -746,8 +924,8 @@
         }
 
         function updateIndicesBar(quoteData) {
-            const figi = quoteData.figi;
-            const indexInfo = indices.get(figi);
+            const ticker = quoteData.ticker;
+            const indexInfo = indices.get(ticker);
 
             if (!indexInfo) return;
 
@@ -763,6 +941,10 @@
                 timeElement.textContent = '--:--';
                 return;
             }
+
+            // Получаем предыдущую цену для сравнения
+            const previousPrice = indexInfo.data ? indexInfo.data.currentPrice : null;
+            const currentPrice = quoteData.currentPrice;
 
             // Обновляем значение
             valueElement.textContent = formatPrice(quoteData.currentPrice);
@@ -781,6 +963,24 @@
             } else {
                 changeElement.textContent = '--';
                 changeElement.className = 'index-change neutral';
+            }
+
+            // Добавляем подсветку изменений
+            if (previousPrice && previousPrice !== currentPrice) {
+                // Удаляем предыдущие классы подсветки
+                valueElement.classList.remove('price-up', 'price-down');
+
+                // Добавляем новый класс подсветки
+                if (currentPrice > previousPrice) {
+                    valueElement.classList.add('price-up');
+                } else if (currentPrice < previousPrice) {
+                    valueElement.classList.add('price-down');
+                }
+
+                // Убираем класс подсветки через 2 секунды
+                setTimeout(() => {
+                    valueElement.classList.remove('price-up', 'price-down');
+                }, 2000);
             }
 
             // Обновляем время
@@ -902,7 +1102,6 @@
             row.innerHTML = `
                 <td><span class="rank">#${rank || ''}</span> <strong>${quoteData.ticker || quoteData.figi}</strong></td>
                 <td class="${priceChangeClass}">${formatPrice(quoteData.currentPrice)}</td>
-                <td>${formatPriceWithPercent(quoteData.openPrice || quoteData.closePrice, quoteData.currentPrice)}</td>
                 <td>${formatPriceWithPercent(priceOS, quoteData.currentPrice)}</td>
                 <td>${formatPriceWithPercent(quoteData.closePriceVS || quoteData.closePrice, quoteData.currentPrice)}</td>
                 <td><span class="change-percent ${changeClass}">${formatPercent(changePercentFromOS)}</span></td>
@@ -1079,6 +1278,160 @@
 
         // Инициализируем полоску индексов при загрузке
         initializeIndicesBar();
+
+        // Функции для управления индексами
+        function toggleIndexManagement() {
+            const modal = document.getElementById('indexManagementModal');
+            if (modal.style.display === 'none') {
+                modal.style.display = 'flex';
+                loadCurrentIndices();
+            } else {
+                modal.style.display = 'none';
+            }
+        }
+
+        function loadCurrentIndices() {
+            fetch('/api/weekend-scanner/indices')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        displayCurrentIndices(data.indices);
+                    } else {
+                        console.error('Ошибка загрузки индексов:', data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка при загрузке индексов:', error);
+                });
+        }
+
+        function displayCurrentIndices(indicesList) {
+            const container = document.getElementById('currentIndicesList');
+            container.innerHTML = '';
+
+            indicesList.forEach(index => {
+                const indexItem = document.createElement('div');
+                indexItem.className = 'index-item-manage';
+                indexItem.innerHTML = `
+                    <div class="index-info">
+                        <div class="index-name">${index.displayName}</div>
+                        <div class="index-figi">${index.name}</div>
+                    </div>
+                    <button class="btn-remove" onclick="removeIndex('${index.name}')">Удалить</button>
+                `;
+                container.appendChild(indexItem);
+            });
+        }
+
+        function addIndex() {
+            const name = document.getElementById('newIndexTicker').value.trim();
+            const displayName = document.getElementById('newIndexDisplayName').value.trim() || name;
+
+            if (!name) {
+                alert('Пожалуйста, заполните Ticker');
+                return;
+            }
+
+            fetch('/api/weekend-scanner/indices/add', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    name: name,
+                    displayName: displayName
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Очищаем форму
+                        document.getElementById('newIndexTicker').value = '';
+                        document.getElementById('newIndexDisplayName').value = '';
+
+                        // Обновляем список
+                        loadCurrentIndices();
+
+                        // Обновляем полоску индексов
+                        updateIndicesFromServer();
+
+                        alert('Индекс успешно добавлен!');
+                    } else {
+                        alert('Ошибка: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка при добавлении индекса:', error);
+                    alert('Ошибка при добавлении индекса');
+                });
+        }
+
+        function removeIndex(name) {
+            if (!confirm(`Вы уверены, что хотите удалить индекс "${name}"?`)) {
+                return;
+            }
+
+            fetch('/api/weekend-scanner/indices/remove', {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    name: name
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Обновляем список
+                        loadCurrentIndices();
+
+                        // Обновляем полоску индексов
+                        updateIndicesFromServer();
+
+                        alert('Индекс успешно удален!');
+                    } else {
+                        alert('Ошибка: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка при удалении индекса:', error);
+                    alert('Ошибка при удалении индекса');
+                });
+        }
+
+        function updateIndicesFromServer() {
+            fetch('/api/weekend-scanner/indices')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Обновляем локальную конфигурацию
+                        INDICES_CONFIG = data.indices;
+
+                        // Пересоздаем полоску индексов
+                        const indicesContainer = document.getElementById('indicesContainer');
+                        indicesContainer.innerHTML = '';
+                        indices.clear();
+
+                        INDICES_CONFIG.forEach(config => {
+                            const indexElement = createIndexElement(config);
+                            indicesContainer.appendChild(indexElement);
+                            indices.set(config.name, { ...config, element: indexElement, data: null });
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка при обновлении индексов:', error);
+                });
+        }
+
+        // Закрытие модального окна при клике вне его
+        window.onclick = function (event) {
+            const modal = document.getElementById('indexManagementModal');
+            if (event.target === modal) {
+                modal.style.display = 'none';
+            }
+        }
     </script>
 </body>
 

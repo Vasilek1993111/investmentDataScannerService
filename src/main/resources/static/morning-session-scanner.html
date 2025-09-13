@@ -121,6 +121,17 @@
             margin-top: 2px;
         }
 
+        /* Стили для подсветки изменений в полоске индексов */
+        .index-value.price-up {
+            color: #28a745;
+            font-weight: bold;
+        }
+
+        .index-value.price-down {
+            color: #dc3545;
+            font-weight: bold;
+        }
+
         /* Стили для скролла */
         .indices-bar::-webkit-scrollbar {
             height: 6px;
@@ -774,6 +785,10 @@
                 return;
             }
 
+            // Получаем предыдущую цену для сравнения
+            const previousPrice = indexInfo.data ? indexInfo.data.currentPrice : null;
+            const currentPrice = quoteData.currentPrice;
+
             // Обновляем значение
             valueElement.textContent = formatPrice(quoteData.currentPrice);
 
@@ -791,6 +806,24 @@
             } else {
                 changeElement.textContent = '--';
                 changeElement.className = 'index-change neutral';
+            }
+
+            // Добавляем подсветку изменений
+            if (previousPrice && previousPrice !== currentPrice) {
+                // Удаляем предыдущие классы подсветки
+                valueElement.classList.remove('price-up', 'price-down');
+
+                // Добавляем новый класс подсветки
+                if (currentPrice > previousPrice) {
+                    valueElement.classList.add('price-up');
+                } else if (currentPrice < previousPrice) {
+                    valueElement.classList.add('price-down');
+                }
+
+                // Убираем класс подсветки через 2 секунды
+                setTimeout(() => {
+                    valueElement.classList.remove('price-up', 'price-down');
+                }, 2000);
             }
 
             // Обновляем время

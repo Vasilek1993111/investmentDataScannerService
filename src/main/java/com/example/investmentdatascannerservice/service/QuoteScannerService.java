@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -61,6 +62,9 @@ public class QuoteScannerService {
     // Кэш для средних объемов выходного дня
     private final Map<String, BigDecimal> avgVolumeWeekendMap = new ConcurrentHashMap<>();
     private final Map<String, String> instrumentTickers = new ConcurrentHashMap<>();
+
+    // Динамический список индексов для полоски
+    private final List<IndexConfig> dynamicIndices = new CopyOnWriteArrayList<>();
     private final Map<String, BigDecimal> closePrices = new ConcurrentHashMap<>();
     private final Map<String, BigDecimal> openPrices = new ConcurrentHashMap<>();
     private final Map<String, Long> accumulatedVolumes = new ConcurrentHashMap<>();
@@ -161,6 +165,9 @@ public class QuoteScannerService {
         // Загружаем средние объемы выходного дня
         loadAvgVolumeWeekend();
 
+        // Инициализируем список индексов по умолчанию
+        initializeDefaultIndices();
+
         // Запускаем периодическую очистку неактивных подписчиков каждые 30 секунд
         scheduler.scheduleAtFixedRate(this::cleanupInactiveSubscribers, 30, 30, TimeUnit.SECONDS);
 
@@ -243,6 +250,22 @@ public class QuoteScannerService {
         } catch (Exception e) {
             log.error("Error loading average weekend volumes", e);
         }
+    }
+
+    /**
+     * Инициализирует список индексов по умолчанию
+     */
+    private void initializeDefaultIndices() {
+        dynamicIndices.clear();
+        dynamicIndices.add(new IndexConfig("BBG00KDWPPW3", "IMOEX2", "IMOEX2"));
+        dynamicIndices.add(new IndexConfig("BBG004730N9", "IMOEX", "IMOEX"));
+        dynamicIndices.add(new IndexConfig("BBG004730Z0", "RTSI", "RTSI"));
+        dynamicIndices.add(new IndexConfig("BBG0013HGFT4", "XAG", "XAG"));
+        dynamicIndices.add(new IndexConfig("BBG0013HJJ31", "XAU", "XAU"));
+        dynamicIndices.add(new IndexConfig("BBG0013HGJ36", "XPD", "XPD"));
+        dynamicIndices.add(new IndexConfig("BBG0013HGJ44", "XPT", "XPT"));
+
+        log.info("Initialized {} default indices", dynamicIndices.size());
     }
 
     /**
@@ -923,6 +946,88 @@ public class QuoteScannerService {
     public void stopScanner() {
         isScannerActive = false;
         log.info("Scanner stopped manually");
+    }
+
+    /**
+     * Получить текущий список индексов
+     */
+    public List<Map<String, String>> getCurrentIndices() {
+        return dynamicIndices.stream().map(config -> {
+            Map<String, String> index = new HashMap<>();
+            index.put("name", config.ticker);
+            index.put("displayName", config.displayName);
+            return index;
+        }).collect(Collectors.toList());
+    }
+
+    /**
+     * Добавить новый индекс (старый метод с FIGI)
+     */
+    public boolean addIndex(String figi, String ticker, String displayName) {
+        // Проверяем, не существует ли уже индекс с таким ticker
+        boolean exists = dynamicIndices.stream().anyMatch(config -> config.ticker.equals(ticker));
+
+        if (exists) {
+            log.warn("Index with ticker '{}' already exists", ticker);
+            return false;
+        }
+
+        // Добавляем новый индекс
+        IndexConfig newIndex = new IndexConfig(figi, ticker, displayName);
+        dynamicIndices.add(newIndex);
+
+        log.info("Added new index: {} (FIGI: {})", ticker, figi);
+        return true;
+    }
+
+    /**
+     * Добавить новый индекс (только по тикеру)
+     */
+    public boolean addIndex(String name, String displayName) {
+        // Проверяем, не существует ли уже индекс с таким ticker
+        boolean exists = dynamicIndices.stream().anyMatch(config -> config.ticker.equals(name));
+
+        if (exists) {
+            log.warn("Index with ticker '{}' already exists", name);
+            return false;
+        }
+
+        // Добавляем новый индекс (используем name как figi для совместимости)
+        IndexConfig newIndex = new IndexConfig(name, name, displayName);
+        dynamicIndices.add(newIndex);
+
+        log.info("Added new index: {} (displayName: {})", name, displayName);
+        return true;
+    }
+
+    /**
+     * Удалить индекс по ticker
+     */
+    public boolean removeIndex(String ticker) {
+        boolean removed = dynamicIndices.removeIf(config -> config.ticker.equals(ticker));
+
+        if (removed) {
+            log.info("Removed index: {}", ticker);
+        } else {
+            log.warn("Index with ticker '{}' not found", ticker);
+        }
+
+        return removed;
+    }
+
+    /**
+     * Класс для конфигурации индекса
+     */
+    public static class IndexConfig {
+        public final String figi;
+        public final String ticker;
+        public final String displayName;
+
+        public IndexConfig(String figi, String ticker, String displayName) {
+            this.figi = figi;
+            this.ticker = ticker;
+            this.displayName = displayName;
+        }
     }
 
     /**

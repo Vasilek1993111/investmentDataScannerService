@@ -5,8 +5,10 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.example.investmentdatascannerservice.service.QuoteScannerService;
@@ -105,6 +107,101 @@ public class WeekendScannerController {
         response.put("isWeekendSession", isWeekendSession);
         response.put("message", isWeekendSession ? "Сейчас время сессии выходного дня"
                 : "Сейчас не время сессии выходного дня");
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Получить текущий список индексов
+     */
+    @GetMapping("/indices")
+    public ResponseEntity<Map<String, Object>> getIndices() {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            // Получаем список индексов из QuoteScannerService
+            // Пока возвращаем статический список, позже можно сделать динамическим
+            response.put("success", true);
+            response.put("indices", quoteScannerService.getCurrentIndices());
+            response.put("message", "Список индексов получен");
+        } catch (Exception e) {
+            response.put("success", false);
+            response.put("message", "Ошибка при получении списка индексов: " + e.getMessage());
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Добавить новый индекс
+     */
+    @PostMapping("/indices/add")
+    public ResponseEntity<Map<String, Object>> addIndex(@RequestBody Map<String, String> request) {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            String name = request.get("name");
+            String displayName = request.get("displayName");
+
+            if (name == null || name.trim().isEmpty()) {
+                response.put("success", false);
+                response.put("message", "Необходимо указать ticker");
+                return ResponseEntity.badRequest().body(response);
+            }
+
+            if (displayName == null || displayName.trim().isEmpty()) {
+                displayName = name;
+            }
+
+            boolean added = quoteScannerService.addIndex(name, displayName);
+
+            if (added) {
+                response.put("success", true);
+                response.put("message", "Индекс " + name + " успешно добавлен");
+            } else {
+                response.put("success", false);
+                response.put("message", "Индекс " + name + " уже существует");
+            }
+
+        } catch (Exception e) {
+            response.put("success", false);
+            response.put("message", "Ошибка при добавлении индекса: " + e.getMessage());
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Удалить индекс по name
+     */
+    @DeleteMapping("/indices/remove")
+    public ResponseEntity<Map<String, Object>> removeIndex(
+            @RequestBody Map<String, String> request) {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            String name = request.get("name");
+
+            if (name == null || name.trim().isEmpty()) {
+                response.put("success", false);
+                response.put("message", "Необходимо указать name индекса");
+                return ResponseEntity.badRequest().body(response);
+            }
+
+            boolean removed = quoteScannerService.removeIndex(name);
+
+            if (removed) {
+                response.put("success", true);
+                response.put("message", "Индекс " + name + " успешно удален");
+            } else {
+                response.put("success", false);
+                response.put("message", "Индекс " + name + " не найден");
+            }
+
+        } catch (Exception e) {
+            response.put("success", false);
+            response.put("message", "Ошибка при удалении индекса: " + e.getMessage());
+        }
 
         return ResponseEntity.ok(response);
     }
