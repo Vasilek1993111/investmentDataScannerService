@@ -2,28 +2,48 @@
 
 Этот документ описывает, как запустить Investment Data Scanner Service в Docker контейнере с подключением к существующей базе данных.
 
+> **⚠️ ВАЖНО: Безопасность**
+>
+> - Никогда не коммитьте реальные токены и пароли в репозиторий
+> - Используйте файл `.env` для хранения чувствительных данных
+> - Убедитесь, что файл `.env` добавлен в `.gitignore`
+
 ## Предварительные требования
 
 - Docker
 - Docker Compose
 - Tinkoff API токен
-- **Существующая база данных PostgreSQL на порту 5434** с данными и схемой
+- **Существующая база данных PostgreSQL на порту 5434** с данными и схемой `invest`
 
 ## Быстрый старт
 
-1. **Скопируйте файл с переменными окружения:**
+1. **Создайте файл `.env` на основе примера:**
 
    ```bash
-   cp env.example .env
+   # Создайте файл .env с примером конфигурации
+   cat > .env << 'EOF'
+   # Tinkoff API Configuration
+   TINKOFF_API_TOKEN=your_actual_tinkoff_token_here
+
+   # Database Configuration
+   DB_URL=jdbc:postgresql://host.docker.internal:5434/postgres?currentSchema=invest
+   DB_USERNAME=postgres
+   DB_PASSWORD=your_db_password_here
+
+   # Application Configuration
+   SERVER_PORT=8085
+   APP_TIMEZONE=Europe/Moscow
+   EOF
    ```
 
 2. **Отредактируйте файл `.env` и укажите ваш Tinkoff API токен и данные БД:**
 
    ```bash
+   # ⚠️ ЗАМЕНИТЕ НА РЕАЛЬНЫЕ ЗНАЧЕНИЯ:
    TINKOFF_API_TOKEN=your_actual_tinkoff_token_here
-   DB_URL=jdbc:postgresql://localhost:5434/investment_scanner?currentSchema=invest
-   DB_USERNAME=your_db_username
-   DB_PASSWORD=your_db_password
+   DB_URL=jdbc:postgresql://host.docker.internal:5434/postgres?currentSchema=invest
+   DB_USERNAME=postgres
+   DB_PASSWORD=your_db_password_here
    ```
 
 3. **Запустите приложение:**
@@ -94,22 +114,23 @@ docker-compose logs -f postgres
 
 Основные переменные окружения можно настроить в файле `.env`:
 
-- `TINKOFF_API_TOKEN` - токен для Tinkoff API
+- `TINKOFF_API_TOKEN` - токен для Tinkoff API (⚠️ **ОБЯЗАТЕЛЬНО** замените на реальный)
+- `DB_URL` - URL подключения к базе данных
+- `DB_USERNAME` - имя пользователя БД
+- `DB_PASSWORD` - пароль БД (⚠️ **ОБЯЗАТЕЛЬНО** замените на реальный)
 - `SERVER_PORT` - порт приложения (по умолчанию 8085)
 - `APP_TIMEZONE` - временная зона (по умолчанию Europe/Moscow)
 
 ### База данных
 
-База данных PostgreSQL автоматически создается с:
+Приложение подключается к внешней базе данных PostgreSQL с:
 
 - Схемой `invest`
 - Необходимыми таблицами
 - Тестовыми данными
 - Индексами для оптимизации
 
-### Персистентность данных
-
-Данные базы данных сохраняются в Docker volume `postgres_data`.
+**Важно:** Убедитесь, что база данных PostgreSQL запущена на порту 5434 и содержит схему `invest` с необходимыми таблицами.
 
 ## Мониторинг и отладка
 
@@ -134,7 +155,11 @@ docker-compose logs -f investment-scanner
 Для подключения к базе данных извне:
 
 ```bash
-docker exec -it investment-scanner-db psql -U scanner_user -d investment_scanner
+# Если база данных запущена в Docker
+docker exec -it postgres_container_name psql -U postgres -d postgres
+
+# Или если подключаетесь к внешней базе данных
+psql -h localhost -p 5434 -U postgres -d postgres
 ```
 
 ## Разработка
@@ -151,10 +176,10 @@ docker exec -it investment-scanner-db psql -U scanner_user -d investment_scanner
 
    ```bash
    # Установите переменные окружения
-   export DB_URL=jdbc:postgresql://localhost:5432/investment_scanner?currentSchema=invest
-   export DB_USERNAME=scanner_user
-   export DB_PASSWORD=scanner_password
-   export TINKOFF_API_TOKEN=your_token
+   export DB_URL=jdbc:postgresql://localhost:5434/postgres?currentSchema=invest
+   export DB_USERNAME=postgres
+   export DB_PASSWORD=your_db_password_here
+   export TINKOFF_API_TOKEN=your_tinkoff_token_here
 
    # Запустите приложение
    ./mvnw spring-boot:run
@@ -183,15 +208,20 @@ docker exec -it investment-scanner-db psql -U scanner_user -d investment_scanner
 
 ### Проблемы с подключением к базе данных
 
-1. Проверьте, что база данных запущена:
+1. Проверьте, что внешняя база данных PostgreSQL запущена на порту 5434:
 
    ```bash
-   docker-compose ps postgres
+   # Проверьте, что порт 5434 доступен
+   netstat -an | grep 5434
+
+   # Или попробуйте подключиться
+   psql -h localhost -p 5434 -U postgres -d postgres
    ```
 
-2. Проверьте логи базы данных:
-   ```bash
-   docker-compose logs postgres
+2. Убедитесь, что в базе данных существует схема `invest`:
+
+   ```sql
+   \dn invest
    ```
 
 ### Проблемы с Tinkoff API
@@ -214,7 +244,8 @@ ports:
 ┌─────────────────────┐    ┌─────────────────────┐
 │   Investment        │    │   PostgreSQL        │
 │   Scanner App       │◄───┤   Database          │
-│   (Port 8085)       │    │   (Port 5432)       │
+│   (Port 8085)       │    │   (Port 5434)       │
+│   Docker Container  │    │   External Host     │
 └─────────────────────┘    └─────────────────────┘
            │
            ▼
@@ -226,7 +257,18 @@ ports:
 
 ## Безопасность
 
+### Рекомендации по безопасности
+
+- **Никогда не коммитьте реальные токены и пароли** в репозиторий
+- Используйте файл `.env` для хранения чувствительных данных
+- Убедитесь, что файл `.env` добавлен в `.gitignore`
+- Регулярно обновляйте токены и пароли
+- Используйте сильные пароли для базы данных
+
+### Технические меры безопасности
+
 - Приложение запускается под непривилегированным пользователем
 - База данных изолирована в отдельной сети
 - Чувствительные данные передаются через переменные окружения
 - Health checks для мониторинга состояния сервисов
+- Circuit breaker для защиты от сбоев внешних сервисов
