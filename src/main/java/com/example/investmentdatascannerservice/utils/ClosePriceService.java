@@ -1,4 +1,4 @@
-package com.example.investmentdatascannerservice.service;
+package com.example.investmentdatascannerservice.utils;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;

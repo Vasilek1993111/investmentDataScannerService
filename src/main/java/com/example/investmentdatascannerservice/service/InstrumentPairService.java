@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import com.example.investmentdatascannerservice.config.InstrumentPairConfig;
 import com.example.investmentdatascannerservice.dto.InstrumentPair;
 import com.example.investmentdatascannerservice.dto.PairComparisonResult;
+import com.example.investmentdatascannerservice.utils.InstrumentCacheService;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 
@@ -37,9 +38,8 @@ public class InstrumentPairService {
     // Хранилище пар инструментов
     private final Map<String, InstrumentPair> instrumentPairs = new ConcurrentHashMap<>();
 
-    // Хранилище последних цен для каждого инструмента
-    private final Map<String, BigDecimal> lastPrices = new ConcurrentHashMap<>();
-    private final Map<String, String> instrumentNames = new ConcurrentHashMap<>();
+    // Инструмент кэш сервис для работы с данными инструментов
+    private final InstrumentCacheService instrumentCacheService;
 
     // Подписчики на обновления результатов сравнения
     private final Set<Consumer<PairComparisonResult>> comparisonSubscribers =
@@ -56,8 +56,10 @@ public class InstrumentPairService {
     private final AtomicLong totalComparisonsProcessed = new AtomicLong(0);
     private final AtomicLong totalComparisonsSent = new AtomicLong(0);
 
-    public InstrumentPairService(InstrumentPairConfig config) {
+    public InstrumentPairService(InstrumentPairConfig config,
+            InstrumentCacheService instrumentCacheService) {
         this.config = config;
+        this.instrumentCacheService = instrumentCacheService;
     }
 
     @PostConstruct
@@ -144,10 +146,10 @@ public class InstrumentPairService {
 
         processingExecutor.submit(() -> {
             try {
-                // Обновляем последнюю цену
-                lastPrices.put(figi, price);
+                // Обновляем последнюю цену в кэше
+                instrumentCacheService.setLastPrice(figi, price);
                 log.debug("Updated price for {}: {}. Total prices stored: {}", figi, price,
-                        lastPrices.size());
+                        instrumentCacheService.getTrackedInstruments().size());
 
                 // Находим все пары, содержащие этот инструмент
                 int pairsFound = 0;
@@ -178,8 +180,8 @@ public class InstrumentPairService {
      */
     private void calculateAndNotifyComparison(InstrumentPair pair, LocalDateTime timestamp) {
         try {
-            BigDecimal firstPrice = lastPrices.get(pair.firstInstrument());
-            BigDecimal secondPrice = lastPrices.get(pair.secondInstrument());
+            BigDecimal firstPrice = instrumentCacheService.getLastPrice(pair.firstInstrument());
+            BigDecimal secondPrice = instrumentCacheService.getLastPrice(pair.secondInstrument());
 
             log.debug("Calculating comparison for pair {}: first={} ({}), second={} ({})",
                     pair.pairId(), firstPrice, pair.firstInstrument(), secondPrice,
@@ -271,7 +273,7 @@ public class InstrumentPairService {
      * Установка имен инструментов
      */
     public void setInstrumentNames(Map<String, String> names) {
-        instrumentNames.putAll(names);
+        instrumentCacheService.loadInstrumentNames(names);
         log.info("Updated instrument names: {} instruments", names.size());
     }
 
@@ -283,16 +285,18 @@ public class InstrumentPairService {
         return Map.of("totalComparisonsProcessed", totalComparisonsProcessed.get(),
                 "totalComparisonsSent", totalComparisonsSent.get(), "activeSubscribers",
                 comparisonSubscribers.size(), "trackedPairs", instrumentPairs.size(),
-                "trackedInstruments", lastPrices.size(), "pairs", instrumentPairs.keySet());
+                "trackedInstruments", instrumentCacheService.getTrackedInstruments().size(),
+                "pairs", instrumentPairs.keySet());
     }
 
     /**
      * Получение текущих цен в виде Map для REST API
      */
     public Map<String, Object> getCurrentPrices() {
-        return Map.of("prices", Map.copyOf(lastPrices), "instrumentNames",
-                Map.copyOf(instrumentNames), "pairs", instrumentPairs.values(), "count",
-                lastPrices.size());
+        return Map.of("prices", instrumentCacheService.getAvailableInstruments(), "instrumentNames",
+                instrumentCacheService.getAvailableInstrumentNames(), "pairs",
+                instrumentPairs.values(), "count",
+                instrumentCacheService.getTrackedInstruments().size());
     }
 
     /**

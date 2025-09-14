@@ -132,7 +132,8 @@ public class MarketDataStreamingService {
     private List<String> getAllInstruments() {
         log.info("Getting instruments for subscription...");
 
-        // Используем метод, который учитывает режим shares-mode и включает indicatives
+        // Используем метод, который учитывает режим shares-mode и включает indicatives +
+        // динамические индексы
         List<String> instruments = quoteScannerService.getInstrumentsForScanning();
 
         log.info("=== SUBSCRIPTION INSTRUMENTS SUMMARY ===");

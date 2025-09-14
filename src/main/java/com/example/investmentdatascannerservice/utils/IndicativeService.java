@@ -1,4 +1,4 @@
-package com.example.investmentdatascannerservice.service;
+package com.example.investmentdatascannerservice.utils;
 
 import java.util.List;
 import java.util.Map;
