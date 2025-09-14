@@ -317,8 +317,8 @@ public class QuoteScannerService {
 
                 // Фильтрация не нужна - обрабатываем все акции из базы данных
 
-                log.debug("Processing LastPrice for instrument {} - in configured list: {}", figi,
-                        config.getInstruments());
+                log.debug("Processing LastPrice for instrument {} - shares mode: {}", figi,
+                        config.isEnableSharesMode());
                 Instant eventInstant = Instant.ofEpochSecond(price.getTime().getSeconds(),
                         price.getTime().getNanos());
                 LocalDateTime eventTime =
@@ -426,8 +426,8 @@ public class QuoteScannerService {
 
                 // Фильтрация не нужна - обрабатываем все акции из базы данных
 
-                log.debug("Processing Trade for instrument {} - in configured list: {}", figi,
-                        config.getInstruments());
+                log.debug("Processing Trade for instrument {} - shares mode: {}", figi,
+                        config.isEnableSharesMode());
                 Instant eventInstant = Instant.ofEpochSecond(trade.getTime().getSeconds(),
                         trade.getTime().getNanos());
                 LocalDateTime eventTime =
@@ -587,7 +587,7 @@ public class QuoteScannerService {
     public Map<String, Object> getStats() {
         return Map.of("totalQuotesProcessed", totalQuotesProcessed.get(), "totalQuotesSent",
                 totalQuotesSent.get(), "activeSubscribers", quoteSubscribers.size(),
-                "trackedInstruments", lastPrices.size(), "instruments", config.getInstruments(),
+                "trackedInstruments", lastPrices.size(), "sharesMode", config.isEnableSharesMode(),
                 "availableInstruments", lastPrices.size());
     }
 
@@ -617,7 +617,7 @@ public class QuoteScannerService {
      * Получение списка отслеживаемых инструментов
      */
     public Set<String> getInstruments() {
-        return Set.copyOf(config.getInstruments());
+        return Set.copyOf(lastPrices.keySet());
     }
 
     /**
@@ -635,8 +635,8 @@ public class QuoteScannerService {
 
             // Фильтрация не нужна - обрабатываем все акции из базы данных
 
-            log.debug("Processing OrderBook for instrument {} - in configured list: {}", figi,
-                    config.getInstruments());
+            log.debug("Processing OrderBook for instrument {} - shares mode: {}", figi,
+                    config.isEnableSharesMode());
 
             // Получаем лучший BID (первая заявка на покупку)
             BigDecimal bestBid = BigDecimal.ZERO;

@@ -4,12 +4,14 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.Data;
 
 /**
  * Entity для таблицы invest.shares
  */
 @Entity
 @Table(name = "shares", schema = "invest")
+@Data
 public class ShareEntity {
 
     @Id
@@ -37,53 +39,5 @@ public class ShareEntity {
         this.name = name;
         this.currency = currency;
         this.exchange = exchange;
-    }
-
-    // Геттеры и сеттеры
-    public String getFigi() {
-        return figi;
-    }
-
-    public void setFigi(String figi) {
-        this.figi = figi;
-    }
-
-    public String getTicker() {
-        return ticker;
-    }
-
-    public void setTicker(String ticker) {
-        this.ticker = ticker;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public String getCurrency() {
-        return currency;
-    }
-
-    public void setCurrency(String currency) {
-        this.currency = currency;
-    }
-
-    public String getExchange() {
-        return exchange;
-    }
-
-    public void setExchange(String exchange) {
-        this.exchange = exchange;
-    }
-
-    @Override
-    public String toString() {
-        return "ShareEntity{" + "figi='" + figi + '\'' + ", ticker='" + ticker + '\'' + ", name='"
-                + name + '\'' + ", currency='" + currency + '\'' + ", exchange='" + exchange + '\''
-                + '}';
     }
 }

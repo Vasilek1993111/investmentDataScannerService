@@ -3,11 +3,13 @@ package com.example.investmentdatascannerservice.dto;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import com.fasterxml.jackson.annotation.JsonFormat;
+import lombok.Getter;
 
 /**
  * DTO для хранения данных о котировке инструмента Оптимизирован для максимальной производительности
  * и минимальных задержек
  */
+@Getter
 public class QuoteData {
     private final String figi;
     private final String ticker;
@@ -107,107 +109,6 @@ public class QuoteData {
             this.closePriceVSChange = BigDecimal.ZERO;
             this.closePriceVSChangePercent = BigDecimal.ZERO;
         }
-    }
-
-    // Геттеры
-    public String getFigi() {
-        return figi;
-    }
-
-    public String getTicker() {
-        return ticker;
-    }
-
-    public String getInstrumentName() {
-        return instrumentName;
-    }
-
-    public BigDecimal getCurrentPrice() {
-        return currentPrice;
-    }
-
-    public BigDecimal getPreviousPrice() {
-        return previousPrice;
-    }
-
-    public BigDecimal getPriceChange() {
-        return priceChange;
-    }
-
-    public BigDecimal getPriceChangePercent() {
-        return priceChangePercent;
-    }
-
-    public LocalDateTime getTimestamp() {
-        return timestamp;
-    }
-
-    public long getVolume() {
-        return volume;
-    }
-
-    public String getDirection() {
-        return direction;
-    }
-
-    public BigDecimal getClosePrice() {
-        return closePrice;
-    }
-
-    public BigDecimal getOpenPrice() {
-        return openPrice;
-    }
-
-    public BigDecimal getClosePriceChange() {
-        return closePriceChange;
-    }
-
-    public BigDecimal getClosePriceChangePercent() {
-        return closePriceChangePercent;
-    }
-
-    public BigDecimal getClosePriceOS() {
-        return closePriceOS;
-    }
-
-    public BigDecimal getClosePriceVS() {
-        return closePriceVS;
-    }
-
-    public BigDecimal getClosePriceVSChange() {
-        return closePriceVSChange;
-    }
-
-    public BigDecimal getClosePriceVSChangePercent() {
-        return closePriceVSChangePercent;
-    }
-
-    public BigDecimal getBestBid() {
-        return bestBid;
-    }
-
-    public BigDecimal getBestAsk() {
-        return bestAsk;
-    }
-
-    public long getTotalVolume() {
-        return totalVolume;
-    }
-
-    public long getBestBidQuantity() {
-        return bestBidQuantity;
-    }
-
-    public long getBestAskQuantity() {
-        return bestAskQuantity;
-    }
-
-    public BigDecimal getAvgVolumeMorning() {
-        return avgVolumeMorning;
-    }
-
-    public BigDecimal getAvgVolumeWeekend() {
-        return avgVolumeWeekend;
     }
 
     @Override

@@ -91,9 +91,9 @@ public class InstrumentPairService {
                         pairConfig.getFirstInstrument(), pairConfig.getSecondInstrument(),
                         pairConfig.getFirstInstrumentName(), pairConfig.getSecondInstrumentName());
 
-                instrumentPairs.put(pair.getPairId(), pair);
-                log.info("Loaded pair from config: {} ({} vs {})", pair.getPairId(),
-                        pair.getFirstInstrumentName(), pair.getSecondInstrumentName());
+                instrumentPairs.put(pair.pairId(), pair);
+                log.info("Loaded pair from config: {} ({} vs {})", pair.pairId(),
+                        pair.firstInstrumentName(), pair.secondInstrumentName());
             } else {
                 log.warn("Skipping invalid pair configuration: {}", pairConfig);
             }
@@ -115,7 +115,7 @@ public class InstrumentPairService {
      * Добавление пары инструментов для сравнения
      */
     public void addInstrumentPair(InstrumentPair pair) {
-        instrumentPairs.put(pair.getPairId(), pair);
+        instrumentPairs.put(pair.pairId(), pair);
         log.info("Added instrument pair: {}", pair);
     }
 
@@ -152,12 +152,12 @@ public class InstrumentPairService {
                 // Находим все пары, содержащие этот инструмент
                 int pairsFound = 0;
                 for (InstrumentPair pair : instrumentPairs.values()) {
-                    if (pair.getFirstInstrument().equals(figi)
-                            || pair.getSecondInstrument().equals(figi)) {
+                    if (pair.firstInstrument().equals(figi)
+                            || pair.secondInstrument().equals(figi)) {
                         pairsFound++;
                         log.debug("Found pair {} containing instrument {}: first={}, second={}",
-                                pair.getPairId(), figi, pair.getFirstInstrument(),
-                                pair.getSecondInstrument());
+                                pair.pairId(), figi, pair.firstInstrument(),
+                                pair.secondInstrument());
                         calculateAndNotifyComparison(pair, timestamp);
                     }
                 }
@@ -178,16 +178,16 @@ public class InstrumentPairService {
      */
     private void calculateAndNotifyComparison(InstrumentPair pair, LocalDateTime timestamp) {
         try {
-            BigDecimal firstPrice = lastPrices.get(pair.getFirstInstrument());
-            BigDecimal secondPrice = lastPrices.get(pair.getSecondInstrument());
+            BigDecimal firstPrice = lastPrices.get(pair.firstInstrument());
+            BigDecimal secondPrice = lastPrices.get(pair.secondInstrument());
 
             log.debug("Calculating comparison for pair {}: first={} ({}), second={} ({})",
-                    pair.getPairId(), firstPrice, pair.getFirstInstrument(), secondPrice,
-                    pair.getSecondInstrument());
+                    pair.pairId(), firstPrice, pair.firstInstrument(), secondPrice,
+                    pair.secondInstrument());
 
             // Проверяем, что у нас есть цены для обоих инструментов
             if (firstPrice == null || secondPrice == null) {
-                log.debug("Missing prices for pair {}: first={}, second={}", pair.getPairId(),
+                log.debug("Missing prices for pair {}: first={}, second={}", pair.pairId(),
                         firstPrice, secondPrice);
                 return;
             }
@@ -209,10 +209,10 @@ public class InstrumentPairService {
             }
 
             // Создаем результат сравнения
-            PairComparisonResult result = new PairComparisonResult(pair.getPairId(),
-                    pair.getFirstInstrument(), pair.getSecondInstrument(),
-                    pair.getFirstInstrumentName(), pair.getSecondInstrumentName(), firstPrice,
-                    secondPrice, delta, deltaPercent, direction, timestamp, true);
+            PairComparisonResult result = new PairComparisonResult(pair.pairId(),
+                    pair.firstInstrument(), pair.secondInstrument(), pair.firstInstrumentName(),
+                    pair.secondInstrumentName(), firstPrice, secondPrice, delta, deltaPercent,
+                    direction, timestamp, true);
 
             totalComparisonsProcessed.incrementAndGet();
 
@@ -224,7 +224,7 @@ public class InstrumentPairService {
             }
 
         } catch (Exception e) {
-            log.error("Error calculating comparison for pair {}", pair.getPairId(), e);
+            log.error("Error calculating comparison for pair {}", pair.pairId(), e);
         }
     }
 

@@ -4,6 +4,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.Data;
 
 /**
  * Entity для таблицы invest.indicatives Представляет не торгуемые индексы, по которым нужно
@@ -11,6 +12,7 @@ import jakarta.persistence.Table;
  */
 @Entity
 @Table(name = "indicatives", schema = "invest")
+@Data
 public class IndicativeEntity {
 
     @Id
@@ -56,87 +58,5 @@ public class IndicativeEntity {
         this.sellAvailableFlag = sellAvailableFlag;
         this.ticker = ticker;
         this.uid = uid;
-    }
-
-    // Геттеры и сеттеры
-    public String getFigi() {
-        return figi;
-    }
-
-    public void setFigi(String figi) {
-        this.figi = figi;
-    }
-
-    public Boolean getBuyAvailableFlag() {
-        return buyAvailableFlag;
-    }
-
-    public void setBuyAvailableFlag(Boolean buyAvailableFlag) {
-        this.buyAvailableFlag = buyAvailableFlag;
-    }
-
-    public String getClassCode() {
-        return classCode;
-    }
-
-    public void setClassCode(String classCode) {
-        this.classCode = classCode;
-    }
-
-    public String getCurrency() {
-        return currency;
-    }
-
-    public void setCurrency(String currency) {
-        this.currency = currency;
-    }
-
-    public String getExchange() {
-        return exchange;
-    }
-
-    public void setExchange(String exchange) {
-        this.exchange = exchange;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public Boolean getSellAvailableFlag() {
-        return sellAvailableFlag;
-    }
-
-    public void setSellAvailableFlag(Boolean sellAvailableFlag) {
-        this.sellAvailableFlag = sellAvailableFlag;
-    }
-
-    public String getTicker() {
-        return ticker;
-    }
-
-    public void setTicker(String ticker) {
-        this.ticker = ticker;
-    }
-
-    public String getUid() {
-        return uid;
-    }
-
-    public void setUid(String uid) {
-        this.uid = uid;
-    }
-
-    @Override
-    public String toString() {
-        return "IndicativeEntity{" + "figi='" + figi + '\'' + ", buyAvailableFlag="
-                + buyAvailableFlag + ", classCode='" + classCode + '\'' + ", currency='" + currency
-                + '\'' + ", exchange='" + exchange + '\'' + ", name='" + name + '\''
-                + ", sellAvailableFlag=" + sellAvailableFlag + ", ticker='" + ticker + '\''
-                + ", uid='" + uid + '\'' + '}';
     }
 }

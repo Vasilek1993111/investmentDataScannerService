@@ -8,6 +8,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.IdClass;
 import jakarta.persistence.Table;
+import lombok.Data;
 
 /**
  * Entity для таблицы цен закрытия вечерней сессии
@@ -18,6 +19,7 @@ import jakarta.persistence.Table;
 @Entity
 @Table(name = "close_prices_evening_session", schema = "invest")
 @IdClass(ClosePriceEveningSessionKey.class)
+@Data
 public class ClosePriceEveningSessionEntity {
 
     @Id
@@ -62,70 +64,5 @@ public class ClosePriceEveningSessionEntity {
         this.currency = currency;
         this.exchange = exchange;
         this.createdAt = LocalDateTime.now();
-    }
-
-    // Геттеры и сеттеры
-    public LocalDate getPriceDate() {
-        return priceDate;
-    }
-
-    public void setPriceDate(LocalDate priceDate) {
-        this.priceDate = priceDate;
-    }
-
-    public String getFigi() {
-        return figi;
-    }
-
-    public void setFigi(String figi) {
-        this.figi = figi;
-    }
-
-    public BigDecimal getClosePrice() {
-        return closePrice;
-    }
-
-    public void setClosePrice(BigDecimal closePrice) {
-        this.closePrice = closePrice;
-    }
-
-    public String getInstrumentType() {
-        return instrumentType;
-    }
-
-    public void setInstrumentType(String instrumentType) {
-        this.instrumentType = instrumentType;
-    }
-
-    public String getCurrency() {
-        return currency;
-    }
-
-    public void setCurrency(String currency) {
-        this.currency = currency;
-    }
-
-    public String getExchange() {
-        return exchange;
-    }
-
-    public void setExchange(String exchange) {
-        this.exchange = exchange;
-    }
-
-    public LocalDateTime getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(LocalDateTime createdAt) {
-        this.createdAt = createdAt;
-    }
-
-    @Override
-    public String toString() {
-        return "ClosePriceEveningSessionEntity{" + "priceDate=" + priceDate + ", figi='" + figi
-                + '\'' + ", closePrice=" + closePrice + ", instrumentType='" + instrumentType + '\''
-                + ", currency='" + currency + '\'' + ", exchange='" + exchange + '\''
-                + ", createdAt=" + createdAt + '}';
     }
 }

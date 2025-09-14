@@ -6,9 +6,11 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.Data;
 
 @Entity
 @Table(name = "shares_aggregated_data")
+@Data
 public class SharesAggregatedDataEntity {
 
     @Id
@@ -52,79 +54,5 @@ public class SharesAggregatedDataEntity {
         this.lastCalculated = lastCalculated;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
-    }
-
-    // Геттеры и сеттеры
-    public String getFigi() {
-        return figi;
-    }
-
-    public void setFigi(String figi) {
-        this.figi = figi;
-    }
-
-    public BigDecimal getAvgVolumeMorning() {
-        return avgVolumeMorning;
-    }
-
-    public void setAvgVolumeMorning(BigDecimal avgVolumeMorning) {
-        this.avgVolumeMorning = avgVolumeMorning;
-    }
-
-    public BigDecimal getAvgVolumeWeekend() {
-        return avgVolumeWeekend;
-    }
-
-    public void setAvgVolumeWeekend(BigDecimal avgVolumeWeekend) {
-        this.avgVolumeWeekend = avgVolumeWeekend;
-    }
-
-    public Integer getTotalTradingDays() {
-        return totalTradingDays;
-    }
-
-    public void setTotalTradingDays(Integer totalTradingDays) {
-        this.totalTradingDays = totalTradingDays;
-    }
-
-    public Integer getTotalWeekendDays() {
-        return totalWeekendDays;
-    }
-
-    public void setTotalWeekendDays(Integer totalWeekendDays) {
-        this.totalWeekendDays = totalWeekendDays;
-    }
-
-    public LocalDateTime getLastCalculated() {
-        return lastCalculated;
-    }
-
-    public void setLastCalculated(LocalDateTime lastCalculated) {
-        this.lastCalculated = lastCalculated;
-    }
-
-    public LocalDateTime getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(LocalDateTime createdAt) {
-        this.createdAt = createdAt;
-    }
-
-    public LocalDateTime getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public void setUpdatedAt(LocalDateTime updatedAt) {
-        this.updatedAt = updatedAt;
-    }
-
-    @Override
-    public String toString() {
-        return "SharesAggregatedDataEntity{" + "figi='" + figi + '\'' + ", avgVolumeMorning="
-                + avgVolumeMorning + ", avgVolumeWeekend=" + avgVolumeWeekend
-                + ", totalTradingDays=" + totalTradingDays + ", totalWeekendDays="
-                + totalWeekendDays + ", lastCalculated=" + lastCalculated + ", createdAt="
-                + createdAt + ", updatedAt=" + updatedAt + '}';
     }
 }
