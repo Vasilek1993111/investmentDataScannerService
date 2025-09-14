@@ -1,17 +1,12 @@
 package com.example.investmentdatascannerservice.service;
 
 import java.math.BigDecimal;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CopyOnWriteArraySet;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -29,80 +24,76 @@ import com.example.investmentdatascannerservice.utils.InstrumentCacheService;
 import com.example.investmentdatascannerservice.utils.SessionTimeService;
 import com.example.investmentdatascannerservice.utils.ShareService;
 import com.example.investmentdatascannerservice.utils.SharesAggregatedDataService;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import ru.tinkoff.piapi.contract.v1.LastPrice;
 import ru.tinkoff.piapi.contract.v1.OrderBook;
 import ru.tinkoff.piapi.contract.v1.Trade;
-import ru.tinkoff.piapi.contract.v1.TradeDirection;
 
 /**
- * Высокопроизводительный сервис для сканирования котировок в реальном времени
+ * Рефакторированный высокопроизводительный сервис для сканирования котировок
  * 
- * Обеспечивает получение котировок через STREAM, расчет разниц между ценами и передачу данных в
- * браузер с минимальными задержками. Сохранение в БД не выполняется для максимальной
- * производительности.
+ * Использует разделение ответственности и делегирует обработку специализированным сервисам для
+ * максимальной производительности и поддерживаемости
  */
 @Service
 public class QuoteScannerService {
 
     private static final Logger log = LoggerFactory.getLogger(QuoteScannerService.class);
 
-    // Конфигурация производительности
-    private static final int PROCESSING_THREADS = Runtime.getRuntime().availableProcessors() * 2;
-
+    // Основные сервисы
     private final QuoteScannerConfig config;
+    private final MarketDataProcessor marketDataProcessor;
+    private final NotificationService notificationService;
+    private final InstrumentCacheService instrumentCacheService;
+    private final SessionTimeService sessionTimeService;
     private final InstrumentPairService instrumentPairService;
+    private final MeterRegistry meterRegistry;
+
+    // Вспомогательные сервисы для инициализации
     private final ClosePriceService closePriceService;
     private final ClosePriceEveningSessionService closePriceEveningSessionService;
     private final SharesAggregatedDataService sharesAggregatedDataService;
     private final ShareService shareService;
-    private final SessionTimeService sessionTimeService;
-    private final InstrumentCacheService instrumentCacheService;
 
     // Динамический список индексов для полоски
     private final List<IndexConfig> dynamicIndices = new CopyOnWriteArrayList<>();
 
-    // Подписчики на обновления котировок (для WebSocket)
-    private final Set<Consumer<QuoteData>> quoteSubscribers = new CopyOnWriteArraySet<>();
-
-
-    // Потоки для обработки
-    private final ExecutorService processingExecutor =
-            Executors.newFixedThreadPool(PROCESSING_THREADS);
-
     // Планировщик для периодических задач
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-
-    // Флаг активности сканера
-    private volatile boolean isScannerActive = false;
 
     // Статистика
     private final AtomicLong totalQuotesProcessed = new AtomicLong(0);
     private final AtomicLong totalQuotesSent = new AtomicLong(0);
 
-    public QuoteScannerService(QuoteScannerConfig config,
-            InstrumentPairService instrumentPairService, ClosePriceService closePriceService,
+    public QuoteScannerService(QuoteScannerConfig config, MarketDataProcessor marketDataProcessor,
+            NotificationService notificationService, InstrumentCacheService instrumentCacheService,
+            SessionTimeService sessionTimeService, InstrumentPairService instrumentPairService,
+            MeterRegistry meterRegistry, ClosePriceService closePriceService,
             ClosePriceEveningSessionService closePriceEveningSessionService,
-            SharesAggregatedDataService sharesAggregatedDataService, ShareService shareService,
-            SessionTimeService sessionTimeService, InstrumentCacheService instrumentCacheService) {
+            SharesAggregatedDataService sharesAggregatedDataService, ShareService shareService) {
         this.config = config;
+        this.marketDataProcessor = marketDataProcessor;
+        this.notificationService = notificationService;
+        this.instrumentCacheService = instrumentCacheService;
+        this.sessionTimeService = sessionTimeService;
         this.instrumentPairService = instrumentPairService;
+        this.meterRegistry = meterRegistry;
         this.closePriceService = closePriceService;
         this.closePriceEveningSessionService = closePriceEveningSessionService;
         this.sharesAggregatedDataService = sharesAggregatedDataService;
         this.shareService = shareService;
-        this.sessionTimeService = sessionTimeService;
-        this.instrumentCacheService = instrumentCacheService;
     }
 
     @PostConstruct
     public void init() {
-        log.info("=== QUOTE SCANNER SERVICE INITIALIZATION ===");
-        log.info("Initializing QuoteScannerService with {} processing threads", PROCESSING_THREADS);
+        log.info("=== REFACTORED QUOTE SCANNER SERVICE INITIALIZATION ===");
+        log.info("Initializing refactored QuoteScannerService with specialized components");
         log.info("Max quotes per second: {}", config.getMaxQuotesPerSecond());
         log.info("Database saving enabled: {}", config.isEnableDatabaseSaving());
         log.info("WebSocket broadcast enabled: {}", config.isEnableWebSocketBroadcast());
+
         // Получаем инструменты для сканирования (из базы данных)
         List<String> instrumentsForScanning = instrumentCacheService.getInstrumentsForScanning();
         log.info("Instruments for scanning: {}", instrumentsForScanning.size());
@@ -139,6 +130,7 @@ public class QuoteScannerService {
         // Запускаем периодическую проверку времени утренней сессии каждые 10 секунд
         scheduler.scheduleAtFixedRate(this::startScannerIfSessionTime, 0, 10, TimeUnit.SECONDS);
 
+        log.info("Refactored QuoteScannerService initialized successfully");
         log.info("=============================================");
     }
 
@@ -257,294 +249,58 @@ public class QuoteScannerService {
 
     @PreDestroy
     public void shutdown() {
-        log.info("Shutting down QuoteScannerService...");
+        log.info("Shutting down refactored QuoteScannerService...");
         scheduler.shutdown();
-        processingExecutor.shutdown();
-        log.info("QuoteScannerService shutdown completed. Total processed: {} quotes",
+        log.info("Refactored QuoteScannerService shutdown completed. Total processed: {} quotes",
                 totalQuotesProcessed.get());
     }
 
     /**
-     * Обработка данных о последней цене с максимальной производительностью
+     * Обработка данных о последней цене - делегируем MarketDataProcessor
      */
     public void processLastPrice(LastPrice price) {
-        // Проверяем, активен ли сканер (время утренней сессии)
-        if (!isScannerActive) {
-            log.debug("Scanner is not active, skipping LastPrice for {}", price.getFigi());
-            return;
-        }
-
-        log.debug("Processing LastPrice for FIGI: {}", price.getFigi());
-
-        processingExecutor.submit(() -> {
-            try {
-                String figi = price.getFigi();
-
-                // Фильтрация не нужна - обрабатываем все акции из базы данных
-
-                log.debug("Processing LastPrice for instrument {} - shares mode: {}", figi,
-                        config.isEnableSharesMode());
-                Instant eventInstant = Instant.ofEpochSecond(price.getTime().getSeconds(),
-                        price.getTime().getNanos());
-                LocalDateTime eventTime =
-                        LocalDateTime.ofInstant(eventInstant, ZoneOffset.of("+3"));
-
-                BigDecimal currentPrice = BigDecimal.valueOf(price.getPrice().getUnits())
-                        .add(BigDecimal.valueOf(price.getPrice().getNano()).movePointLeft(9));
-
-                // Получаем предыдущую цену для расчета разницы
-                BigDecimal previousPrice = instrumentCacheService.getLastPrice(figi);
-
-                // Обновляем последнюю цену
-                instrumentCacheService.setLastPrice(figi, currentPrice);
-
-                // Если это первая цена за день, сохраняем как цену открытия
-                if (instrumentCacheService.getOpenPrice(figi) == null) {
-                    instrumentCacheService.setOpenPrice(figi, currentPrice);
-                }
-
-                // Определяем направление на основе изменения цены
-                String direction = "NEUTRAL";
-                if (previousPrice != null && previousPrice.compareTo(BigDecimal.ZERO) > 0) {
-                    int comparison = currentPrice.compareTo(previousPrice);
-                    if (comparison > 0) {
-                        direction = "UP";
-                    } else if (comparison < 0) {
-                        direction = "DOWN";
-                    }
-                }
-
-                // Получаем цену закрытия за предыдущий торговый день (основная сессия)
-                BigDecimal closePrice = instrumentCacheService.getClosePrice(figi);
-                BigDecimal closePriceOS = closePrice; // Используем цену закрытия как цену ОС
-
-                // Получаем цену закрытия вечерней сессии за предыдущий торговый день
-                BigDecimal closePriceVS =
-                        closePriceEveningSessionService.getEveningClosePrice(figi);
-
-                // Получаем данные стакана для этого инструмента
-                BigDecimal bestBid = instrumentCacheService.getBestBid(figi);
-                BigDecimal bestAsk = instrumentCacheService.getBestAsk(figi);
-                long bestBidQuantity = instrumentCacheService.getBestBidQuantity(figi);
-                long bestAskQuantity = instrumentCacheService.getBestAskQuantity(figi);
-
-                // Получаем накопленный объем для этого инструмента
-                long accumulatedVolume = instrumentCacheService.getAccumulatedVolume(figi);
-
-                // Получаем тикер для инструмента
-                String ticker = instrumentCacheService.getInstrumentTicker(figi, figi);
-                String instrumentName = instrumentCacheService.getInstrumentName(figi, figi);
-
-                // Логируем первые несколько инструментов для отладки
-                if (totalQuotesProcessed.get() < 5) {
-                    log.info(
-                            "Creating QuoteData for FIGI: {}, ticker: {}, name: {}, closePrice: {}, closePriceOS: {}",
-                            figi, ticker, instrumentName, closePrice, closePriceOS);
-                }
-
-                // Создаем данные о котировке
-                QuoteData quoteData = new QuoteData(figi, ticker, // Используем тикер или FIGI если
-                                                                  // не найден
-                        instrumentName, // Используем имя или FIGI если не найдено
-                        currentPrice, previousPrice, closePrice,
-                        instrumentCacheService.getOpenPrice(figi), closePriceOS, closePriceVS, // openPrice,
-                                                                                               // closePriceOS
-                                                                                               // (используем
-                                                                                               // цену
-                                                                                               // закрытия),
-                                                                                               // closePriceVS
-                        bestBid, bestAsk, bestBidQuantity, bestAskQuantity, eventTime, 0L, // Для
-                                                                                           // LastPrice
-                                                                                           // объем
-                                                                                           // =
-                                                                                           // 0
-                        accumulatedVolume, // totalVolume (накопленный объем)
-                        direction, instrumentCacheService.getAvgVolumeMorning(figi),
-                        instrumentCacheService.getAvgVolumeWeekend(figi)); // avgVolumeMorning,
-                // avgVolumeWeekend
-
-                totalQuotesProcessed.incrementAndGet();
-
-                // Отправляем всем подписчикам
-                notifySubscribers(quoteData);
-
-                // Передаем данные о цене в InstrumentPairService для расчета пар
-                instrumentPairService.updateInstrumentPrice(figi, currentPrice, eventTime);
-
-                if (log.isDebugEnabled()) {
-                    log.debug("Processed LastPrice: {}", quoteData);
-                }
-
-            } catch (Exception e) {
-                log.error("Error processing LastPrice for {}", price.getFigi(), e);
-            }
-        });
+        log.debug("Delegating LastPrice processing to MarketDataProcessor for FIGI: {}",
+                price.getFigi());
+        marketDataProcessor.processLastPrice(price);
+        totalQuotesProcessed.incrementAndGet();
     }
 
     /**
-     * Обработка данных о сделке с максимальной производительностью
+     * Обработка данных о сделке - делегируем MarketDataProcessor
      */
     public void processTrade(Trade trade) {
-        // Проверяем, активен ли сканер (время утренней сессии)
-        if (!isScannerActive) {
-            return;
-        }
-
-        processingExecutor.submit(() -> {
-            try {
-                String figi = trade.getFigi();
-
-                // Фильтрация не нужна - обрабатываем все акции из базы данных
-
-                log.debug("Processing Trade for instrument {} - shares mode: {}", figi,
-                        config.isEnableSharesMode());
-                Instant eventInstant = Instant.ofEpochSecond(trade.getTime().getSeconds(),
-                        trade.getTime().getNanos());
-                LocalDateTime eventTime =
-                        LocalDateTime.ofInstant(eventInstant, ZoneOffset.of("+3"));
-
-                BigDecimal currentPrice = BigDecimal.valueOf(trade.getPrice().getUnits())
-                        .add(BigDecimal.valueOf(trade.getPrice().getNano()).movePointLeft(9));
-
-                // Получаем предыдущую цену для расчета разницы
-                BigDecimal previousPrice = instrumentCacheService.getLastPrice(figi);
-
-                // Обновляем последнюю цену
-                instrumentCacheService.setLastPrice(figi, currentPrice);
-
-                // Определяем направление сделки (преобразуем BUY/SELL в UP/DOWN для JavaScript)
-                String direction = "NEUTRAL";
-                if (trade.getDirection() == TradeDirection.TRADE_DIRECTION_BUY) {
-                    direction = "UP";
-                } else if (trade.getDirection() == TradeDirection.TRADE_DIRECTION_SELL) {
-                    direction = "DOWN";
-                }
-
-                // Получаем цену закрытия за предыдущий торговый день (основная сессия)
-                BigDecimal closePrice = instrumentCacheService.getClosePrice(figi);
-                BigDecimal closePriceOS = closePrice; // Используем цену закрытия как цену ОС
-
-                // Получаем цену закрытия вечерней сессии за предыдущий торговый день
-                BigDecimal closePriceVS =
-                        closePriceEveningSessionService.getEveningClosePrice(figi);
-
-                // Получаем данные стакана для этого инструмента
-                BigDecimal bestBid = instrumentCacheService.getBestBid(figi);
-                BigDecimal bestAsk = instrumentCacheService.getBestAsk(figi);
-                long bestBidQuantity = instrumentCacheService.getBestBidQuantity(figi);
-                long bestAskQuantity = instrumentCacheService.getBestAskQuantity(figi);
-
-                // Накопляем объем за время работы сканера только во время сессий выходного дня
-                long tradeQuantity = trade.getQuantity();
-                long currentAccumulatedVolume = instrumentCacheService.getAccumulatedVolume(figi);
-                long newAccumulatedVolume = currentAccumulatedVolume;
-
-                // Добавляем объем только если сейчас сессия выходного дня
-                if (sessionTimeService.isWeekendSessionTime()) {
-                    newAccumulatedVolume = currentAccumulatedVolume + tradeQuantity;
-                    instrumentCacheService.setAccumulatedVolume(figi, newAccumulatedVolume);
-                }
-
-                // Создаем данные о котировке
-                QuoteData quoteData = new QuoteData(figi,
-                        instrumentCacheService.getInstrumentTicker(figi, figi), // Используем
-                        // тикер или
-                        // FIGI если
-                        // не найден
-                        instrumentCacheService.getInstrumentName(figi, figi), // Используем имя или
-                                                                              // FIGI
-                        // если не найдено
-                        currentPrice, previousPrice, closePrice,
-                        instrumentCacheService.getOpenPrice(figi), closePriceOS, closePriceVS, // openPrice,
-                                                                                               // closePriceOS
-                                                                                               // (используем
-                                                                                               // цену
-                                                                                               // закрытия),
-                                                                                               // closePriceVS
-                        bestBid, bestAsk, bestBidQuantity, bestAskQuantity, eventTime,
-                        tradeQuantity, newAccumulatedVolume, // volume (текущая сделка),
-                                                             // totalVolume (накопленный)
-                        direction, instrumentCacheService.getAvgVolumeMorning(figi),
-                        instrumentCacheService.getAvgVolumeWeekend(figi)); // avgVolumeMorning,
-                // avgVolumeWeekend
-
-                totalQuotesProcessed.incrementAndGet();
-
-                // Отправляем всем подписчикам
-                notifySubscribers(quoteData);
-
-                // Передаем данные о цене в InstrumentPairService для расчета пар
-                instrumentPairService.updateInstrumentPrice(figi, currentPrice, eventTime);
-
-                if (log.isDebugEnabled()) {
-                    log.debug("Processed Trade: {}", quoteData);
-                }
-
-            } catch (Exception e) {
-                log.error("Error processing Trade for {}", trade.getFigi(), e);
-            }
-        });
+        log.debug("Delegating Trade processing to MarketDataProcessor for FIGI: {}",
+                trade.getFigi());
+        marketDataProcessor.processTrade(trade);
+        totalQuotesProcessed.incrementAndGet();
     }
 
     /**
-     * Уведомление всех подписчиков о новой котировке
-     */
-    private void notifySubscribers(QuoteData quoteData) {
-        log.info("Notifying {} subscribers about quote data for {}: {}", quoteSubscribers.size(),
-                quoteData.getTicker(), quoteData);
-
-        // Проверяем, включена ли WebSocket трансляция
-        if (!config.isEnableWebSocketBroadcast()) {
-            log.warn("WebSocket broadcast is disabled, skipping notification");
-            return;
-        }
-
-        // Если нет подписчиков, не тратим время на обработку
-        if (quoteSubscribers.isEmpty()) {
-            log.warn("No subscribers available, skipping notification");
-            return;
-        }
-
-        int notifiedCount = 0;
-        for (Consumer<QuoteData> subscriber : quoteSubscribers) {
-            try {
-                subscriber.accept(quoteData);
-                totalQuotesSent.incrementAndGet();
-                notifiedCount++;
-                log.debug("Successfully notified subscriber {}", notifiedCount);
-            } catch (Exception e) {
-                log.warn("Error notifying subscriber", e);
-            }
-        }
-        log.debug("Notified {} subscribers successfully", notifiedCount);
-    }
-
-    /**
-     * Подписка на обновления котировок
+     * Подписка на обновления котировок - делегируем NotificationService
      */
     public void subscribeToQuotes(Consumer<QuoteData> subscriber) {
-        quoteSubscribers.add(subscriber);
-        log.info("New quote subscriber added. Total subscribers: {}", quoteSubscribers.size());
+        notificationService.subscribe(subscriber);
+        log.info("Subscribed to quotes via NotificationService. Total subscribers: {}",
+                notificationService.getSubscriberCount());
     }
 
     /**
-     * Отписка от обновлений котировок
+     * Отписка от обновлений котировок - делегируем NotificationService
      */
     public void unsubscribeFromQuotes(Consumer<QuoteData> subscriber) {
-        quoteSubscribers.remove(subscriber);
-        log.info("Quote subscriber removed. Total subscribers: {}", quoteSubscribers.size());
+        notificationService.unsubscribe(subscriber);
+        log.info("Unsubscribed from quotes via NotificationService. Total subscribers: {}",
+                notificationService.getSubscriberCount());
     }
 
     /**
-     * Очистка неактивных подписчиков
+     * Очистка неактивных подписчиков - делегируем NotificationService
      */
     private void cleanupInactiveSubscribers() {
-        int initialSize = quoteSubscribers.size();
-        if (initialSize > 0) {
-            log.debug("Cleaning up inactive subscribers. Current count: {}", initialSize);
-            // Здесь можно добавить логику для проверки активности подписчиков
-            // Пока что просто логируем количество подписчиков
-            log.debug("Active subscribers: {}", quoteSubscribers.size());
+        int subscriberCount = notificationService.getSubscriberCount();
+        if (subscriberCount > 0) {
+            log.debug("Current active subscribers: {}", subscriberCount);
+            // NotificationService сам управляет подписчиками
         }
     }
 
@@ -558,14 +314,30 @@ public class QuoteScannerService {
 
 
     /**
-     * Получение статистики сервиса
+     * Получение статистики сервиса - агрегируем данные из всех компонентов
      */
     public Map<String, Object> getStats() {
-        return Map.of("totalQuotesProcessed", totalQuotesProcessed.get(), "totalQuotesSent",
-                totalQuotesSent.get(), "activeSubscribers", quoteSubscribers.size(),
-                "trackedInstruments", instrumentCacheService.getTrackedInstruments().size(),
-                "sharesMode", config.isEnableSharesMode(), "availableInstruments",
-                instrumentCacheService.getTrackedInstruments().size());
+        Map<String, Object> stats = new HashMap<>();
+
+        // Основная статистика
+        stats.put("totalQuotesProcessed", totalQuotesProcessed.get());
+        stats.put("sharesMode", config.isEnableSharesMode());
+        stats.put("trackedInstruments", instrumentCacheService.getTrackedInstruments().size());
+
+        // Статистика MarketDataProcessor
+        stats.put("marketDataProcessor", marketDataProcessor.getStats());
+
+        // Статистика NotificationService
+        stats.put("notificationService", notificationService.getStats());
+
+        // Статистика кэша
+        stats.put("cacheStats", instrumentCacheService.getCacheStats());
+
+        // Информация о сессии
+        stats.put("sessionInfo", sessionTimeService.getCurrentSessionInfo());
+        stats.put("isScannerActive", isScannerActive());
+
+        return stats;
     }
 
     /**
@@ -599,184 +371,36 @@ public class QuoteScannerService {
     }
 
     /**
-     * Обработка данных стакана заявок из T-Invest API
+     * Обработка данных стакана заявок - делегируем MarketDataProcessor
      */
     public void processOrderBook(OrderBook orderBook) {
-        // Проверяем, активен ли сканер (время утренней сессии)
-        if (!isScannerActive) {
-            return;
-        }
-
-        // Обрабатываем стаканы синхронно для минимальной задержки
-        try {
-            String figi = orderBook.getFigi();
-
-            // Фильтрация не нужна - обрабатываем все акции из базы данных
-
-            log.debug("Processing OrderBook for instrument {} - shares mode: {}", figi,
-                    config.isEnableSharesMode());
-
-            // Получаем лучший BID (первая заявка на покупку)
-            BigDecimal bestBid = BigDecimal.ZERO;
-            long bestBidQuantity = 0;
-            if (orderBook.getBidsCount() > 0) {
-                var bestBidOrder = orderBook.getBids(0);
-                bestBid = BigDecimal.valueOf(bestBidOrder.getPrice().getUnits()).add(
-                        BigDecimal.valueOf(bestBidOrder.getPrice().getNano()).movePointLeft(9));
-                bestBidQuantity = bestBidOrder.getQuantity();
-            }
-
-            // Получаем лучший ASK (первая заявка на продажу)
-            BigDecimal bestAsk = BigDecimal.ZERO;
-            long bestAskQuantity = 0;
-            if (orderBook.getAsksCount() > 0) {
-                var bestAskOrder = orderBook.getAsks(0);
-                bestAsk = BigDecimal.valueOf(bestAskOrder.getPrice().getUnits()).add(
-                        BigDecimal.valueOf(bestAskOrder.getPrice().getNano()).movePointLeft(9));
-                bestAskQuantity = bestAskOrder.getQuantity();
-            }
-
-            // Обновляем данные стакана в кеше
-            instrumentCacheService.setBestBid(figi, bestBid);
-            instrumentCacheService.setBestAsk(figi, bestAsk);
-            instrumentCacheService.setBestBidQuantity(figi, bestBidQuantity);
-            instrumentCacheService.setBestAskQuantity(figi, bestAskQuantity);
-
-            log.debug("Order book processed for FIGI: {}, BID: {} ({}), ASK: {} ({})", figi,
-                    bestBid, bestBidQuantity, bestAsk, bestAskQuantity);
-
-            // Немедленно отправляем обновление стакана в WebSocket (если включено)
-            if (config.isEnableImmediateOrderBookUpdates()) {
-                sendOrderBookUpdate(figi, bestBid, bestAsk, bestBidQuantity, bestAskQuantity);
-            }
-
-        } catch (Exception e) {
-            log.error("Error processing order book for FIGI: {}", orderBook.getFigi(), e);
-        }
+        log.debug("Delegating OrderBook processing to MarketDataProcessor for FIGI: {}",
+                orderBook.getFigi());
+        marketDataProcessor.processOrderBook(orderBook);
     }
 
-    /**
-     * Немедленная отправка обновления стакана в WebSocket
-     */
-    private void sendOrderBookUpdate(String figi, BigDecimal bestBid, BigDecimal bestAsk,
-            long bestBidQuantity, long bestAskQuantity) {
-        try {
-            // Получаем текущую цену из кеша
-            BigDecimal currentPrice = instrumentCacheService.getLastPrice(figi);
-            if (currentPrice == null) {
-                // Если нет текущей цены, используем среднее между BID и ASK
-                if (bestBid.compareTo(BigDecimal.ZERO) > 0
-                        && bestAsk.compareTo(BigDecimal.ZERO) > 0) {
-                    currentPrice = bestBid.add(bestAsk).divide(BigDecimal.valueOf(2), 9,
-                            java.math.RoundingMode.HALF_UP);
-                } else if (bestBid.compareTo(BigDecimal.ZERO) > 0) {
-                    currentPrice = bestBid;
-                } else if (bestAsk.compareTo(BigDecimal.ZERO) > 0) {
-                    currentPrice = bestAsk;
-                } else {
-                    return; // Нет данных для отправки
-                }
-            }
-
-            // Получаем предыдущую цену
-            BigDecimal previousPrice = instrumentCacheService.getLastPrice(figi);
-
-            // Получаем цену закрытия (основная сессия)
-            BigDecimal closePrice = instrumentCacheService.getClosePrice(figi);
-            BigDecimal closePriceOS = closePrice; // Используем цену закрытия как цену ОС
-
-            // Получаем цену закрытия вечерней сессии
-            BigDecimal closePriceVS = closePriceEveningSessionService.getEveningClosePrice(figi);
-
-            // Определяем направление
-            String direction = "NEUTRAL";
-            if (previousPrice != null && previousPrice.compareTo(BigDecimal.ZERO) > 0) {
-                int comparison = currentPrice.compareTo(previousPrice);
-                if (comparison > 0) {
-                    direction = "UP";
-                } else if (comparison < 0) {
-                    direction = "DOWN";
-                }
-            }
-
-            // Получаем накопленный объем для этого инструмента
-            long accumulatedVolume = instrumentCacheService.getAccumulatedVolume(figi);
-
-            // Создаем данные о котировке с обновленным стаканом
-            QuoteData quoteData = new QuoteData(figi,
-                    instrumentCacheService.getInstrumentTicker(figi, figi), // Используем
-                    // тикер
-                    // или
-                    // FIGI
-                    // если
-                    // не
-                    // найден
-                    instrumentCacheService.getInstrumentName(figi, figi), // Используем имя или FIGI
-                                                                          // если не
-                    // найдено
-                    currentPrice, previousPrice, closePrice,
-                    instrumentCacheService.getOpenPrice(figi), closePriceOS, closePriceVS, bestBid,
-                    bestAsk, bestBidQuantity, bestAskQuantity, LocalDateTime.now(), 0L,
-                    accumulatedVolume, direction, instrumentCacheService.getAvgVolumeMorning(figi),
-                    instrumentCacheService.getAvgVolumeWeekend(figi)); // avgVolumeMorning,
-            // avgVolumeWeekend
-
-            // Отправляем всем подписчикам
-            notifySubscribers(quoteData);
-
-            log.debug("Order book update sent for FIGI: {}, BID: {} ({}), ASK: {} ({})", figi,
-                    bestBid, bestBidQuantity, bestAsk, bestAskQuantity);
-
-        } catch (Exception e) {
-            log.error("Error sending order book update for FIGI: {}", figi, e);
-        }
-    }
 
     /**
-     * Обработка данных стакана заявок (устаревший метод для совместимости)
-     */
-    public void processOrderBook(String figi, BigDecimal bestBid, BigDecimal bestAsk,
-            long bestBidQuantity, long bestAskQuantity) {
-        try {
-            log.debug("Processing order book for FIGI: {}, BID: {} ({}), ASK: {} ({})", figi,
-                    bestBid, bestBidQuantity, bestAsk, bestAskQuantity);
-
-            // Обновляем данные стакана в кеше
-            instrumentCacheService.setBestBid(figi, bestBid);
-            instrumentCacheService.setBestAsk(figi, bestAsk);
-            instrumentCacheService.setBestBidQuantity(figi, bestBidQuantity);
-            instrumentCacheService.setBestAskQuantity(figi, bestAskQuantity);
-
-            log.debug("Order book processed for FIGI: {}", figi);
-
-        } catch (Exception e) {
-            log.error("Error processing order book for FIGI: {}", figi, e);
-        }
-    }
-
-    /**
-     * Статистика сканера котировок
+     * Статистика рефакторированного сканера котировок
      */
     public static class ScannerStats {
         private final long totalQuotesProcessed;
-        private final long totalQuotesSent;
         private final int activeSubscribers;
         private final int trackedInstruments;
+        private final String sessionInfo;
+        private final boolean isScannerActive;
 
-        public ScannerStats(long totalQuotesProcessed, long totalQuotesSent, int activeSubscribers,
-                int trackedInstruments) {
+        public ScannerStats(long totalQuotesProcessed, int activeSubscribers,
+                int trackedInstruments, String sessionInfo, boolean isScannerActive) {
             this.totalQuotesProcessed = totalQuotesProcessed;
-            this.totalQuotesSent = totalQuotesSent;
             this.activeSubscribers = activeSubscribers;
             this.trackedInstruments = trackedInstruments;
+            this.sessionInfo = sessionInfo;
+            this.isScannerActive = isScannerActive;
         }
 
         public long getTotalQuotesProcessed() {
             return totalQuotesProcessed;
-        }
-
-        public long getTotalQuotesSent() {
-            return totalQuotesSent;
         }
 
         public int getActiveSubscribers() {
@@ -786,81 +410,74 @@ public class QuoteScannerService {
         public int getTrackedInstruments() {
             return trackedInstruments;
         }
+
+        public String getSessionInfo() {
+            return sessionInfo;
+        }
+
+        public boolean isScannerActive() {
+            return isScannerActive;
+        }
     }
 
 
     /**
-     * Запускает сканер, если время утренней сессии
+     * Запускает сканер, если время утренней сессии - делегируем SessionTimeService
      */
     public void startScannerIfSessionTime() {
         if (sessionTimeService.isMorningSessionTime()) {
-            if (!isScannerActive) {
-                if (config.isEnableTestMode()) {
-                    log.info(
-                            "Starting scanner - TEST MODE ENABLED (ignoring session time restrictions)");
-                } else {
-                    log.info("Starting scanner - morning session time detected");
-                }
-                isScannerActive = true;
+            if (config.isEnableTestMode()) {
+                log.info("Morning session detected - TEST MODE ENABLED");
+            } else {
+                log.info("Morning session detected - scanner ready");
             }
         } else {
-            if (isScannerActive) {
-                if (config.isEnableTestMode()) {
-                    log.info("Scanner remains active - TEST MODE ENABLED");
-                } else {
-                    log.info("Stopping scanner - outside morning session time");
-                    isScannerActive = false;
-                }
+            if (config.isEnableTestMode()) {
+                log.info("Outside morning session - TEST MODE ENABLED");
+            } else {
+                log.info("Outside morning session - scanner inactive");
             }
         }
     }
 
     /**
-     * Запускает сканер, если время сессии выходного дня
+     * Запускает сканер, если время сессии выходного дня - делегируем SessionTimeService
      */
     public void startScannerIfWeekendSessionTime() {
         if (sessionTimeService.isWeekendSessionTime()) {
-            if (!isScannerActive) {
-                if (config.isEnableTestMode()) {
-                    log.info(
-                            "Starting weekend scanner - TEST MODE ENABLED (ignoring session time restrictions)");
-                } else {
-                    log.info("Starting weekend scanner - weekend session time detected");
-                }
-                isScannerActive = true;
+            if (config.isEnableTestMode()) {
+                log.info("Weekend session detected - TEST MODE ENABLED");
+            } else {
+                log.info("Weekend session detected - scanner ready");
             }
         } else {
-            if (isScannerActive) {
-                if (config.isEnableTestMode()) {
-                    log.info("Weekend scanner remains active - TEST MODE ENABLED");
-                } else {
-                    log.info("Stopping weekend scanner - outside weekend session time");
-                    isScannerActive = false;
-                }
+            if (config.isEnableTestMode()) {
+                log.info("Outside weekend session - TEST MODE ENABLED");
+            } else {
+                log.info("Outside weekend session - scanner inactive");
             }
         }
     }
 
     /**
-     * Проверяет, активен ли сканер
+     * Проверяет, активен ли сканер - делегируем SessionTimeService
      */
     public boolean isScannerActive() {
-        return isScannerActive;
+        return sessionTimeService.isAnySessionActive();
     }
 
     /**
-     * Проверяет, является ли текущее время сессией выходного дня (публичный метод)
+     * Проверяет, является ли текущее время сессией выходного дня - делегируем SessionTimeService
      */
     public boolean checkWeekendSessionTime() {
         return sessionTimeService.checkWeekendSessionTime();
     }
 
     /**
-     * Останавливает сканер принудительно
+     * Останавливает сканер принудительно - в рефакторированной версии не нужен
      */
     public void stopScanner() {
-        isScannerActive = false;
-        log.info("Scanner stopped manually");
+        log.info("Stop scanner requested - session management delegated to SessionTimeService");
     }
 
     /**

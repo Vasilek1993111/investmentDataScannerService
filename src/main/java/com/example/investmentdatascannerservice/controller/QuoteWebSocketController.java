@@ -32,15 +32,18 @@ public class QuoteWebSocketController implements WebSocketHandler {
 
         // Настраиваем ObjectMapper для работы с LocalDateTime
         this.objectMapper.findAndRegisterModules();
-
-        // Подписываемся на обновления котировок
-        this.quoteScannerService.subscribeToQuotes(this::broadcastQuote);
     }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         sessions.add(session);
         log.info("WebSocket соединение установлено. Всего соединений: {}", sessions.size());
+
+        // Подписываемся на обновления котировок только при первом подключении
+        if (sessions.size() == 1) {
+            this.quoteScannerService.subscribeToQuotes(this::broadcastQuote);
+            log.info("Subscribed to quote updates for WebSocket broadcasting");
+        }
     }
 
     @Override
@@ -61,6 +64,12 @@ public class QuoteWebSocketController implements WebSocketHandler {
             throws Exception {
         sessions.remove(session);
         log.info("WebSocket соединение закрыто. Всего соединений: {}", sessions.size());
+
+        // Отписываемся от обновлений котировок, если нет активных соединений
+        if (sessions.isEmpty()) {
+            this.quoteScannerService.unsubscribeFromQuotes(this::broadcastQuote);
+            log.info("Unsubscribed from quote updates - no active WebSocket connections");
+        }
     }
 
     @Override
@@ -103,23 +112,27 @@ public class QuoteWebSocketController implements WebSocketHandler {
 
             // Отправляем всем подключенным клиентам
             int sentCount = 0;
-            // Используем итератор для безопасного удаления элементов во время итерации
-            var iterator = sessions.iterator();
-            while (iterator.hasNext()) {
-                WebSocketSession session = iterator.next();
+            // Создаем копию для безопасной итерации
+            Set<WebSocketSession> sessionsCopy = new java.util.HashSet<>(sessions);
+            for (WebSocketSession session : sessionsCopy) {
                 if (session.isOpen()) {
                     try {
-                        session.sendMessage(message);
+                        // Синхронизируем отправку сообщения
+                        synchronized (session) {
+                            session.sendMessage(message);
+                        }
                         sentCount++;
                         log.debug("Quote data sent to session: {}", session.getId());
                     } catch (Exception e) {
                         log.error("Ошибка отправки сообщения клиенту, удаляем сессию: {}",
                                 session.getId(), e);
-                        iterator.remove(); // Безопасное удаление через итератор
+                        // Безопасное удаление из CopyOnWriteArraySet
+                        sessions.remove(session);
                     }
                 } else {
                     log.debug("Removing closed session: {}", session.getId());
-                    iterator.remove(); // Безопасное удаление через итератор
+                    // Безопасное удаление из CopyOnWriteArraySet
+                    sessions.remove(session);
                 }
             }
             log.debug("Quote data sent to {} sessions", sentCount);
