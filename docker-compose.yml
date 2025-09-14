@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  # Investment Data Scanner Service
+  investment-scanner:
+    build: .
+    container_name: investment-scanner-app
+    environment:
+      # Database configuration (подключение к внешней БД)
+      DB_URL: ${DB_URL:-jdbc:postgresql://host.docker.internal:5434/investment_scanner?currentSchema=invest}
+      DB_USERNAME: ${DB_USERNAME:-scanner_user}
+      DB_PASSWORD: ${DB_PASSWORD:-scanner_password}
+      
+      # Application configuration
+      SERVER_PORT: 8085
+      APP_TIMEZONE: Europe/Moscow
+      
+      # Tinkoff API (замените на ваш токен)
+      TINKOFF_API_TOKEN: ${TINKOFF_API_TOKEN:-your_tinkoff_token_here}
+    ports:
+      - "8085:8085"
+    networks:
+      - investment-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+networks:
+  investment-network:
+    driver: bridge

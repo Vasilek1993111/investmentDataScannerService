@@ -378,7 +378,63 @@ logging.pattern.file=%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %m
 
 ## 🚀 Развертывание
 
-### Docker
+### Docker (Рекомендуемый способ)
+
+#### Быстрый запуск
+
+1. **Скопируйте файл с переменными окружения:**
+
+   ```bash
+   cp env.example .env
+   ```
+
+2. **Отредактируйте файл `.env` и укажите ваш Tinkoff API токен:**
+
+   ```bash
+   TINKOFF_API_TOKEN=your_actual_tinkoff_token_here
+   ```
+
+3. **Запустите приложение:**
+
+   ```bash
+   docker-compose up -d
+   ```
+
+#### Доступ к приложению
+
+- **Основное приложение:** http://localhost:8085
+- **Health Check:** http://localhost:8085/actuator/health
+- **Metrics:** http://localhost:8085/actuator/metrics
+- **WebSocket котировки:** ws://localhost:8085/ws/quotes
+- **WebSocket пары:** ws://localhost:8085/ws/pairs
+
+#### Управление контейнерами
+
+```bash
+# Остановка всех сервисов
+docker-compose down
+
+# Остановка с удалением данных
+docker-compose down -v
+
+# Пересборка образа
+docker-compose build --no-cache
+
+# Просмотр логов
+docker-compose logs -f investment-scanner
+```
+
+#### Пересборка образа
+
+```bash
+# Пересборка образа приложения
+docker-compose build --no-cache
+
+# Перезапуск с новым образом
+docker-compose up -d
+```
+
+#### Ручная сборка и запуск
 
 ```dockerfile
 FROM openjdk:21-jdk-slim
