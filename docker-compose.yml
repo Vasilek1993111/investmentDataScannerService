@@ -5,6 +5,9 @@ services:
   investment-scanner:
     build: .
     container_name: investment-scanner-app
+    # Ограничения и приоритеты (Docker Desktop/Compose без Swarm)
+    cpus: 2.0
+    mem_limit: 2g
     environment:
       # Database configuration (подключение к внешней БД)
       DB_URL: ${DB_URL:-jdbc:postgresql://host.docker.internal:5434/postgres?currentSchema=invest}
@@ -14,6 +17,11 @@ services:
       # Application configuration
       SERVER_PORT: 8085
       APP_TIMEZONE: Europe/Moscow
+      TZ: Europe/Moscow
+      LANG: C.UTF-8
+      MALLOC_ARENA_MAX: 2
+      # JVM flags также дублируем здесь, можно переопределить через .env
+      JAVA_TOOL_OPTIONS: "-XX:+UseZGC -XX:MaxGCPauseMillis=5 -XX:InitialRAMPercentage=25 -XX:MaxRAMPercentage=75 -XX:MinRAMPercentage=25 -Djava.security.egd=file:/dev/urandom -Dsun.net.inetaddr.ttl=60 -Dnetworkaddress.cache.ttl=60 -XX:+AlwaysActAsServerClassMachine"
       
       # Tinkoff API (замените на ваш токен)
       TINKOFF_API_TOKEN: ${TINKOFF_API_TOKEN:-your_tinkoff_token_here}
@@ -22,12 +30,22 @@ services:
     networks:
       - investment-network
     restart: unless-stopped
+    # Минимизируем IO на диск и устраняем задержки от fsync
+    tmpfs:
+      - /tmp:size=64m
+    # Увеличиваем лимиты для сокетов/файлов
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8085/actuator/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
+    # Включаем профиль streaming для настроек низкой задержки
+    command: ["java", "-Dspring.profiles.active=streaming", "-jar", "/app/app.jar"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

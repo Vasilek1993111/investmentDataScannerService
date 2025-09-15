@@ -1,38 +1,58 @@
-# Используем официальный образ OpenJDK 21
-FROM openjdk:21-jdk-slim
+############################################
+# Stage 1: Build (with Maven Wrapper)
+############################################
+FROM eclipse-temurin:21-jdk-jammy AS builder
 
-# Устанавливаем рабочую директорию
-WORKDIR /app
+WORKDIR /build
 
 # Копируем Maven wrapper и pom.xml для кэширования зависимостей
-COPY mvnw .
-COPY mvnw.cmd .
+COPY mvnw ./
+COPY mvnw.cmd ./
 COPY .mvn .mvn
-COPY pom.xml .
+COPY pom.xml ./
 
-# Даем права на выполнение Maven wrapper
-RUN chmod +x mvnw
+# Даем права на выполнение Maven wrapper и прогреваем зависимости
+RUN chmod +x mvnw \
+    && ./mvnw -B -ntp dependency:go-offline
 
-# Скачиваем зависимости (этот слой будет кэшироваться если pom.xml не изменился)
-RUN ./mvnw dependency:go-offline -B
+# Копируем исходный код и собираем
+COPY src ./src
+RUN ./mvnw -B -ntp clean package -DskipTests
 
-# Копируем исходный код
-COPY src src
+############################################
+# Stage 2: Runtime (JRE only, tuned for low latency)
+############################################
+FROM eclipse-temurin:21-jre-jammy
 
-# Собираем приложение
-RUN ./mvnw clean package -DskipTests
+WORKDIR /app
 
-# Создаем пользователя для безопасности
+# Устанавливаем необходимые пакеты (tzdata, ca-certificates, curl для healthcheck)
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    tzdata ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Создаем непривилегированного пользователя
 RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+# Копируем собранный JAR из builder-стейджа
+COPY --from=builder /build/target/investment-data-scanner-service-0.0.1-SNAPSHOT.jar /app/app.jar
+
+# Права
 RUN chown -R appuser:appuser /app
 USER appuser
 
 # Открываем порт
 EXPOSE 8085
 
-# Устанавливаем переменные окружения по умолчанию
-ENV SERVER_PORT=8085
-ENV APP_TIMEZONE=Europe/Moscow
+# Переменные окружения по умолчанию
+ENV SERVER_PORT=8085 \
+    APP_TIMEZONE=Europe/Moscow \
+    TZ=Europe/Moscow \
+    LANG=C.UTF-8 \
+    MALLOC_ARENA_MAX=2 \
+    # Низкая задержка GC и предсказуемые паузы; процентная настройка heap под контейнер
+    JAVA_TOOL_OPTIONS="-XX:+UseZGC -XX:MaxGCPauseMillis=5 -XX:InitialRAMPercentage=25 -XX:MaxRAMPercentage=75 -XX:MinRAMPercentage=25 -Djava.security.egd=file:/dev/urandom -Dsun.net.inetaddr.ttl=60 -Dnetworkaddress.cache.ttl=60 -XX:+AlwaysActAsServerClassMachine -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp -XX:+AlwaysPreTouch"
 
-# Команда запуска приложения
-CMD ["java", "-jar", "target/investment-data-scanner-service-0.0.1-SNAPSHOT.jar"]
+# Запуск приложения
+CMD ["java", "-jar", "/app/app.jar"]
