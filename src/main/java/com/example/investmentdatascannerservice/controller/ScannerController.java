@@ -1,5 +1,6 @@
 package com.example.investmentdatascannerservice.controller;
 
+import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -12,7 +13,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.example.investmentdatascannerservice.config.QuoteScannerConfig;
+import com.example.investmentdatascannerservice.service.MorningScannerService;
+import com.example.investmentdatascannerservice.service.PriceCacheService;
 import com.example.investmentdatascannerservice.service.QuoteScannerService;
+import com.example.investmentdatascannerservice.service.WeekendScannerService;
 import com.example.investmentdatascannerservice.utils.SessionTimeService;
 import com.example.investmentdatascannerservice.utils.ShareService;
 import lombok.extern.slf4j.Slf4j;
@@ -32,13 +36,21 @@ public class ScannerController {
     private final ShareService shareService;
     private final QuoteScannerConfig config;
     private final SessionTimeService sessionTimeService;
+    private final MorningScannerService morningScannerService;
+    private final WeekendScannerService weekendScannerService;
+    private final PriceCacheService priceCacheService;
 
     public ScannerController(QuoteScannerService quoteScannerService, ShareService shareService,
-            QuoteScannerConfig config, SessionTimeService sessionTimeService) {
+            QuoteScannerConfig config, SessionTimeService sessionTimeService,
+            MorningScannerService morningScannerService,
+            WeekendScannerService weekendScannerService, PriceCacheService priceCacheService) {
         this.quoteScannerService = quoteScannerService;
         this.shareService = shareService;
         this.config = config;
         this.sessionTimeService = sessionTimeService;
+        this.morningScannerService = morningScannerService;
+        this.weekendScannerService = weekendScannerService;
+        this.priceCacheService = priceCacheService;
     }
 
     // ==================== ОБЩИЕ ENDPOINTS ====================
@@ -258,6 +270,172 @@ public class ScannerController {
         return ResponseEntity.ok(response);
     }
 
+    // ==================== MORNING SCANNER ENDPOINTS ====================
+
+    /**
+     * Получить текущий список индексов для утреннего сканера
+     */
+    @GetMapping("/morning-scanner/indices")
+    public ResponseEntity<Map<String, Object>> getMorningScannerIndices() {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            List<Map<String, String>> indices = morningScannerService.getCurrentIndices();
+            log.info("Retrieved {} indices for morning scanner: {}", indices.size(), indices);
+
+            response.put("success", true);
+            response.put("indices", indices);
+            response.put("message", "Список индексов утреннего сканера получен");
+        } catch (Exception e) {
+            log.error("Error getting indices for morning scanner", e);
+            response.put("success", false);
+            response.put("message", "Ошибка при получении списка индексов: " + e.getMessage());
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Добавить новый индекс для утреннего сканера
+     */
+    @PostMapping("/morning-scanner/indices/add")
+    public ResponseEntity<Map<String, Object>> addMorningScannerIndex(
+            @RequestBody Map<String, String> request) {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            // Поддерживаем разные варианты полей от фронтенда
+            String name = request.get("name");
+            if (name == null) {
+                name = request.get("ticker");
+            }
+            if (name == null) {
+                name = request.get("Ticker");
+            }
+
+            String displayName = request.get("displayName");
+            if (displayName == null) {
+                displayName = request.get("display_name");
+            }
+            if (displayName == null) {
+                displayName = request.get("Display Name");
+            }
+
+            if (name == null || name.trim().isEmpty()) {
+                response.put("success", false);
+                response.put("message", "Необходимо указать ticker");
+                return ResponseEntity.badRequest().body(response);
+            }
+
+            if (displayName == null || displayName.trim().isEmpty()) {
+                displayName = name;
+            }
+
+            log.info("Attempting to add morning scanner index: name='{}', displayName='{}'", name,
+                    displayName);
+            boolean added = morningScannerService.addIndex(name, displayName);
+
+            if (added) {
+                log.info("Successfully added morning scanner index: {}", name);
+                response.put("success", true);
+                response.put("message", "Индекс " + name + " успешно добавлен в утренний сканер");
+            } else {
+                response.put("success", false);
+                response.put("message", "Индекс " + name + " уже существует в утреннем сканере");
+            }
+
+        } catch (Exception e) {
+            log.error("Error adding morning scanner index", e);
+            response.put("success", false);
+            response.put("message", "Ошибка при добавлении индекса: " + e.getMessage());
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Удалить индекс для утреннего сканера
+     */
+    @DeleteMapping("/morning-scanner/indices/remove")
+    public ResponseEntity<Map<String, Object>> removeMorningScannerIndex(
+            @RequestBody Map<String, String> request) {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            // Поддерживаем разные варианты полей от фронтенда
+            String name = request.get("name");
+            if (name == null) {
+                name = request.get("ticker");
+            }
+            if (name == null) {
+                name = request.get("Ticker");
+            }
+
+            if (name == null || name.trim().isEmpty()) {
+                response.put("success", false);
+                response.put("message", "Необходимо указать name индекса");
+                return ResponseEntity.badRequest().body(response);
+            }
+
+            boolean removed = morningScannerService.removeIndex(name);
+
+            if (removed) {
+                response.put("success", true);
+                response.put("message", "Индекс " + name + " успешно удален из утреннего сканера");
+            } else {
+                response.put("success", false);
+                response.put("message", "Индекс " + name + " не найден в утреннем сканере");
+            }
+
+        } catch (Exception e) {
+            response.put("success", false);
+            response.put("message", "Ошибка при удалении индекса: " + e.getMessage());
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Получить цены закрытия для индексов утреннего сканера
+     */
+    @GetMapping("/morning-scanner/indices/prices")
+    public ResponseEntity<Map<String, Object>> getMorningScannerIndexPrices() {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            List<Map<String, String>> indices = morningScannerService.getCurrentIndices();
+            Map<String, Object> prices = new HashMap<>();
+
+            for (Map<String, String> index : indices) {
+                String figi = index.get("figi");
+                String name = index.get("name");
+
+                // Получаем цены закрытия из кэша
+                BigDecimal closePriceOS = priceCacheService.getLastClosePrice(figi);
+                BigDecimal closePriceEvening = priceCacheService.getLastEveningSessionPrice(figi);
+
+                Map<String, Object> indexPrices = new HashMap<>();
+                indexPrices.put("figi", figi);
+                indexPrices.put("name", name);
+                indexPrices.put("displayName", index.get("displayName"));
+                indexPrices.put("closePriceOS", closePriceOS);
+                indexPrices.put("closePriceEvening", closePriceEvening);
+
+                prices.put(figi, indexPrices);
+            }
+
+            response.put("success", true);
+            response.put("prices", prices);
+            response.put("message", "Цены закрытия для индексов утреннего сканера получены");
+        } catch (Exception e) {
+            log.error("Error getting morning scanner index prices", e);
+            response.put("success", false);
+            response.put("message", "Ошибка при получении цен закрытия: " + e.getMessage());
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
     // ==================== WEEKEND SCANNER ENDPOINTS ====================
 
     /**
@@ -372,12 +550,12 @@ public class ScannerController {
         Map<String, Object> response = new HashMap<>();
 
         try {
-            List<Map<String, String>> indices = quoteScannerService.getCurrentIndices();
+            List<Map<String, String>> indices = weekendScannerService.getCurrentIndices();
             log.info("Retrieved {} indices for weekend scanner: {}", indices.size(), indices);
 
             response.put("success", true);
             response.put("indices", indices);
-            response.put("message", "Список индексов получен");
+            response.put("message", "Список индексов сканера выходного дня получен");
         } catch (Exception e) {
             log.error("Error getting indices for weekend scanner", e);
             response.put("success", false);
@@ -427,7 +605,7 @@ public class ScannerController {
 
             log.info("Attempting to add index for weekend scanner: name='{}', displayName='{}'",
                     name, displayName);
-            boolean added = quoteScannerService.addIndex(name, displayName);
+            boolean added = weekendScannerService.addIndex(name, displayName);
 
             if (added) {
                 log.info("Successfully added index for weekend scanner: {}", name);
@@ -473,19 +651,61 @@ public class ScannerController {
                 return ResponseEntity.badRequest().body(response);
             }
 
-            boolean removed = quoteScannerService.removeIndex(name);
+            boolean removed = weekendScannerService.removeIndex(name);
 
             if (removed) {
                 response.put("success", true);
-                response.put("message", "Индекс " + name + " успешно удален");
+                response.put("message",
+                        "Индекс " + name + " успешно удален из сканера выходного дня");
             } else {
                 response.put("success", false);
-                response.put("message", "Индекс " + name + " не найден");
+                response.put("message", "Индекс " + name + " не найден в сканере выходного дня");
             }
 
         } catch (Exception e) {
             response.put("success", false);
             response.put("message", "Ошибка при удалении индекса: " + e.getMessage());
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Получить цены закрытия для индексов сканера выходного дня
+     */
+    @GetMapping("/weekend-scanner/indices/prices")
+    public ResponseEntity<Map<String, Object>> getWeekendScannerIndexPrices() {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            List<Map<String, String>> indices = weekendScannerService.getCurrentIndices();
+            Map<String, Object> prices = new HashMap<>();
+
+            for (Map<String, String> index : indices) {
+                String figi = index.get("figi");
+                String name = index.get("name");
+
+                // Получаем цены закрытия из кэша
+                BigDecimal closePriceOS = priceCacheService.getLastClosePrice(figi);
+                BigDecimal closePriceEvening = priceCacheService.getLastEveningSessionPrice(figi);
+
+                Map<String, Object> indexPrices = new HashMap<>();
+                indexPrices.put("figi", figi);
+                indexPrices.put("name", name);
+                indexPrices.put("displayName", index.get("displayName"));
+                indexPrices.put("closePriceOS", closePriceOS);
+                indexPrices.put("closePriceEvening", closePriceEvening);
+
+                prices.put(figi, indexPrices);
+            }
+
+            response.put("success", true);
+            response.put("prices", prices);
+            response.put("message", "Цены закрытия для индексов сканера выходного дня получены");
+        } catch (Exception e) {
+            log.error("Error getting weekend scanner index prices", e);
+            response.put("success", false);
+            response.put("message", "Ошибка при получении цен закрытия: " + e.getMessage());
         }
 
         return ResponseEntity.ok(response);

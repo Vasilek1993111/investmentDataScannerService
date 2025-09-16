@@ -73,7 +73,7 @@
             border-radius: 6px;
             background: rgba(0, 0, 0, 0.03);
             border: 1px solid rgba(0, 0, 0, 0.08);
-            min-width: 120px;
+            min-width: 140px;
             transition: all 0.3s ease;
         }
 
@@ -92,7 +92,21 @@
             letter-spacing: 0.5px;
         }
 
-        .index-value {
+        .index-prices {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 4px;
+            font-size: 0.8rem;
+            color: #666;
+        }
+
+        .index-os-price,
+        .index-evening-price {
+            margin-bottom: 2px;
+        }
+
+        .index-current {
             font-size: 1.1rem;
             font-weight: bold;
             margin-bottom: 2px;
@@ -149,6 +163,147 @@
 
         .indices-bar::-webkit-scrollbar-thumb:hover {
             background: rgba(0, 0, 0, 0.3);
+        }
+
+        /* Стили для модального окна управления индексами */
+        .modal {
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            margin: auto;
+            padding: 0;
+            border: 1px solid #888;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px 8px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 1.5rem;
+        }
+
+        .close {
+            color: white;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        .close:hover {
+            opacity: 0.7;
+        }
+
+        .modal-body {
+            padding: 20px;
+        }
+
+        .add-index-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+        }
+
+        .add-index-section h3 {
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .current-indices-section h3 {
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .indices-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .index-item-manage {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        .index-info {
+            flex: 1;
+        }
+
+        .index-name {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 4px;
+        }
+
+        .index-figi {
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        .btn-remove {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .btn-remove:hover {
+            background: #c82333;
         }
 
         .stats-grid {
@@ -631,6 +786,10 @@
         <div class="controls">
             <button id="connectBtn" class="btn btn-primary">Подключиться</button>
             <button id="disconnectBtn" class="btn btn-danger" disabled>Отключиться</button>
+            <button id="manageIndicesBtn" class="btn btn-secondary" onclick="toggleIndexManagement()">Управление
+                индексами</button>
+            <button id="loadPricesBtn" class="btn btn-info" onclick="loadClosePricesForAllQuotes()">Загрузить цены
+                ОС</button>
             <a href="/" class="btn btn-primary">← На главную</a>
             <div id="connectionStatus" class="status disconnected">Отключено</div>
         </div>
@@ -758,6 +917,37 @@
         </div>
     </div>
 
+    <!-- Модальное окно для управления индексами -->
+    <div id="indexManagementModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Управление индексами</h2>
+                <span class="close" onclick="toggleIndexManagement()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="add-index-section">
+                    <h3>Добавить новый индекс</h3>
+                    <div class="form-group">
+                        <label for="newIndexTicker">Ticker:</label>
+                        <input type="text" id="newIndexTicker" placeholder="XAG">
+                    </div>
+                    <div class="form-group">
+                        <label for="newIndexDisplayName">Display Name:</label>
+                        <input type="text" id="newIndexDisplayName" placeholder="XAG">
+                    </div>
+                    <button onclick="addIndex()" class="btn btn-primary">Добавить</button>
+                </div>
+
+                <div class="current-indices-section">
+                    <h3>Текущие индексы</h3>
+                    <div id="currentIndicesList" class="indices-list">
+                        <!-- Список индексов будет загружен динамически -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // Элементы DOM
         const connectBtn = document.getElementById('connectBtn');
@@ -787,13 +977,8 @@
 
         // Индексы для полоски
         let indices = new Map();
-        const INDICES_CONFIG = [
-            { figi: 'BBG00KDWPPW3', name: 'IMOEX2', displayName: 'IMOEX2' },
-            { figi: 'BBG004730N9', name: 'IMOEX', displayName: 'IMOEX' },
-            { figi: 'BBG004730Z0', name: 'RTSI', displayName: 'RTSI' },
-            { figi: 'BBG00H6ZJ3S3', name: 'SBER', displayName: 'SBER' },
-            { figi: 'BBG004730JJ5', name: 'GAZP', displayName: 'GAZP' },
-            { figi: 'BBG004730ZJ9', name: 'LKOH', displayName: 'LKOH' }
+        let INDICES_CONFIG = [
+            { figi: 'BBG00KDWPPW3', name: 'IMOEX2', displayName: 'IMOEX2' }
         ];
 
         // Настройки сортировки для растущих акций
@@ -887,6 +1072,12 @@
 
         function updateQuote(quoteData) {
             const figi = quoteData.figi;
+
+            // Загружаем цены закрытия из кэша если их нет в котировке
+            if (!quoteData.closePriceOS && !quoteData.closePrice) {
+                loadClosePricesForQuote(quoteData);
+            }
+
             quotes.set(figi, quoteData);
 
             updateCount++;
@@ -939,7 +1130,11 @@
 
             div.innerHTML = `
                 <div class="index-name">${config.displayName}</div>
-                <div class="index-value">--</div>
+                <div class="index-prices">
+                    <div class="index-os-price">ОС: --</div>
+                    <div class="index-evening-price">ВС: --</div>
+                </div>
+                <div class="index-current">--</div>
                 <div class="index-change neutral">--</div>
                 <div class="index-time">--:--</div>
             `;
@@ -954,12 +1149,12 @@
             if (!indexInfo) return;
 
             const element = indexInfo.element;
-            const valueElement = element.querySelector('.index-value');
+            const currentElement = element.querySelector('.index-current');
             const changeElement = element.querySelector('.index-change');
             const timeElement = element.querySelector('.index-time');
 
             if (!quoteData.currentPrice) {
-                valueElement.textContent = '--';
+                currentElement.textContent = '--';
                 changeElement.textContent = '--';
                 changeElement.className = 'index-change neutral';
                 timeElement.textContent = '--:--';
@@ -970,8 +1165,8 @@
             const previousPrice = indexInfo.data ? indexInfo.data.currentPrice : null;
             const currentPrice = quoteData.currentPrice;
 
-            // Обновляем значение
-            valueElement.textContent = formatPrice(quoteData.currentPrice);
+            // Обновляем текущую цену
+            currentElement.textContent = formatPrice(quoteData.currentPrice);
 
             // Вычисляем изменение
             const priceOS = quoteData.closePriceOS || quoteData.closePrice;
@@ -982,7 +1177,7 @@
                 const changeClass = changePercent > 0 ? 'positive' : changePercent < 0 ? 'negative' : 'neutral';
                 const changeText = changePercent >= 0 ? `+${formatPercent(changePercent)}` : formatPercent(changePercent);
 
-                changeElement.textContent = changeText;
+                changeElement.textContent = `(${changeText})`;
                 changeElement.className = `index-change ${changeClass}`;
             } else {
                 changeElement.textContent = '--';
@@ -992,18 +1187,18 @@
             // Добавляем подсветку изменений
             if (previousPrice && previousPrice !== currentPrice) {
                 // Удаляем предыдущие классы подсветки
-                valueElement.classList.remove('price-up', 'price-down');
+                currentElement.classList.remove('price-up', 'price-down');
 
                 // Добавляем новый класс подсветки
                 if (currentPrice > previousPrice) {
-                    valueElement.classList.add('price-up');
+                    currentElement.classList.add('price-up');
                 } else if (currentPrice < previousPrice) {
-                    valueElement.classList.add('price-down');
+                    currentElement.classList.add('price-down');
                 }
 
                 // Убираем класс подсветки через 2 секунды
                 setTimeout(() => {
-                    valueElement.classList.remove('price-up', 'price-down');
+                    currentElement.classList.remove('price-up', 'price-down');
                 }, 2000);
             }
 
@@ -1586,6 +1781,254 @@
 
         // Инициализируем полоску индексов при загрузке
         initializeIndicesBar();
+
+        // Загружаем актуальные индексы с сервера
+        updateIndicesFromServer();
+
+        // Загружаем цены закрытия для индексов
+        loadIndexPrices();
+
+        // Загружаем цены закрытия для всех существующих котировок
+        setTimeout(() => {
+            loadClosePricesForAllQuotes();
+        }, 2000);
+
+        // Функции для управления индексами
+        function toggleIndexManagement() {
+            const modal = document.getElementById('indexManagementModal');
+            if (modal.style.display === 'none') {
+                modal.style.display = 'flex';
+                loadCurrentIndices();
+            } else {
+                modal.style.display = 'none';
+            }
+        }
+
+        function loadCurrentIndices() {
+            fetch('/api/scanner/morning-scanner/indices')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        displayCurrentIndices(data.indices);
+                    } else {
+                        console.error('Ошибка загрузки индексов:', data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка при загрузке индексов:', error);
+                });
+        }
+
+        function displayCurrentIndices(indicesList) {
+            const container = document.getElementById('currentIndicesList');
+            container.innerHTML = '';
+
+            indicesList.forEach(index => {
+                const indexItem = document.createElement('div');
+                indexItem.className = 'index-item-manage';
+                indexItem.innerHTML = `
+                    <div class="index-info">
+                        <div class="index-name">${index.displayName}</div>
+                        <div class="index-figi">${index.name}</div>
+                    </div>
+                    <button class="btn-remove" onclick="removeIndex('${index.name}')">Удалить</button>
+                `;
+                container.appendChild(indexItem);
+            });
+        }
+
+        function addIndex() {
+            const name = document.getElementById('newIndexTicker').value.trim();
+            const displayName = document.getElementById('newIndexDisplayName').value.trim() || name;
+
+            if (!name) {
+                alert('Пожалуйста, заполните Ticker');
+                return;
+            }
+
+            fetch('/api/scanner/morning-scanner/indices/add', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    name: name,
+                    displayName: displayName
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Очищаем форму
+                        document.getElementById('newIndexTicker').value = '';
+                        document.getElementById('newIndexDisplayName').value = '';
+
+                        // Обновляем список
+                        loadCurrentIndices();
+
+                        // Обновляем полоску индексов
+                        updateIndicesFromServer();
+
+                        // Дополнительно загружаем цены закрытия с небольшой задержкой
+                        setTimeout(() => {
+                            loadIndexPrices();
+                        }, 500);
+
+                        alert('Индекс успешно добавлен!');
+                    } else {
+                        alert('Ошибка: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка при добавлении индекса:', error);
+                    alert('Ошибка при добавлении индекса');
+                });
+        }
+
+        function removeIndex(name) {
+            if (!confirm(`Вы уверены, что хотите удалить индекс "${name}"?`)) {
+                return;
+            }
+
+            fetch('/api/scanner/morning-scanner/indices/remove', {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    name: name
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Обновляем список
+                        loadCurrentIndices();
+
+                        // Обновляем полоску индексов
+                        updateIndicesFromServer();
+
+                        alert('Индекс успешно удален!');
+                    } else {
+                        alert('Ошибка: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка при удалении индекса:', error);
+                    alert('Ошибка при удалении индекса');
+                });
+        }
+
+        function updateIndicesFromServer() {
+            fetch('/api/scanner/morning-scanner/indices')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Преобразуем формат данных из API в формат, ожидаемый утренним сканером
+                        INDICES_CONFIG = data.indices.map(index => ({
+                            figi: index.figi || index.name, // Используем figi если есть, иначе name
+                            name: index.name,
+                            displayName: index.displayName
+                        }));
+
+                        // Пересоздаем полоску индексов
+                        const indicesContainer = document.getElementById('indicesContainer');
+                        indicesContainer.innerHTML = '';
+                        indices.clear();
+                        INDICES_CONFIG.forEach(config => {
+                            const indexElement = createIndexElement(config);
+                            indicesContainer.appendChild(indexElement);
+                            indices.set(config.figi, { ...config, element: indexElement, data: null });
+                        });
+
+                        // Загружаем цены закрытия для обновленных индексов
+                        loadIndexPrices();
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка при обновлении индексов:', error);
+                });
+        }
+
+        function loadIndexPrices() {
+            fetch('/api/scanner/morning-scanner/indices/prices')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Обновляем цены закрытия для каждого индекса
+                        Object.values(data.prices).forEach(priceData => {
+                            const figi = priceData.figi;
+                            const indexInfo = indices.get(figi);
+
+                            if (indexInfo) {
+                                const element = indexInfo.element;
+                                const osPriceElement = element.querySelector('.index-os-price');
+                                const eveningPriceElement = element.querySelector('.index-evening-price');
+
+                                if (osPriceElement) {
+                                    osPriceElement.textContent = `ОС: ${priceData.closePriceOS ? formatPrice(priceData.closePriceOS) : '--'}`;
+                                }
+
+                                if (eveningPriceElement) {
+                                    eveningPriceElement.textContent = `ВС: ${priceData.closePriceEvening ? formatPrice(priceData.closePriceEvening) : '--'}`;
+                                }
+                            }
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка при загрузке цен закрытия:', error);
+                });
+        }
+
+        function loadClosePricesForQuote(quoteData) {
+            // Загружаем цены закрытия для конкретного инструмента
+            fetch(`/api/price-cache/last-close-price?figi=${quoteData.figi}`)
+                .then(response => {
+                    if (response.ok) {
+                        return response.json();
+                    } else {
+                        console.log(`Цена закрытия не найдена для ${quoteData.figi}, статус: ${response.status}`);
+                        return null;
+                    }
+                })
+                .then(price => {
+                    if (price && price > 0) {
+                        console.log(`Загружена цена закрытия для ${quoteData.figi}: ${price}`);
+                        quoteData.closePriceOS = price;
+                        quoteData.closePrice = price;
+
+                        // Обновляем котировку в памяти
+                        quotes.set(quoteData.figi, quoteData);
+
+                        // Пересчитываем списки
+                        updateTopLists();
+                    } else {
+                        console.log(`Цена закрытия не найдена или равна 0 для ${quoteData.figi}`);
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка при загрузке цены закрытия для', quoteData.figi, error);
+                });
+        }
+
+        function loadClosePricesForAllQuotes() {
+            console.log('Загружаем цены закрытия для всех существующих котировок...');
+            quotes.forEach((quoteData, figi) => {
+                if (!quoteData.closePriceOS && !quoteData.closePrice) {
+                    console.log(`Загружаем цену закрытия для ${figi} (${quoteData.ticker})`);
+                    loadClosePricesForQuote(quoteData);
+                }
+            });
+        }
+
+        // Закрытие модального окна при клике вне его
+        window.onclick = function (event) {
+            const modal = document.getElementById('indexManagementModal');
+            if (event.target === modal) {
+                modal.style.display = 'none';
+            }
+        }
     </script>
 </body>
 

@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Price Cache Management</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        h1,
+        h2 {
+            color: #333;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input,
+        select,
+        button {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        input[type="text"],
+        input[type="date"] {
+            width: 200px;
+        }
+
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        .result {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            white-space: pre-wrap;
+        }
+
+        .error {
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+
+        .success {
+            background-color: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .stat-item {
+            background: #e9ecef;
+            padding: 10px;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Price Cache Management</h1>
+        <p>Управление кэшем цен закрытия и вечерней сессии</p>
+    </div>
+
+    <div class="container">
+        <h2>Cache Statistics</h2>
+        <button onclick="loadCacheStats()">Load Statistics</button>
+        <div id="statsResult" class="result" style="display: none;"></div>
+        <div id="statsGrid" class="stats" style="display: none;"></div>
+    </div>
+
+    <div class="container">
+        <h2>Get Single Price</h2>
+        <div class="form-group">
+            <label for="figi">FIGI:</label>
+            <input type="text" id="figi" placeholder="BBG004730N88" value="BBG004730N88">
+        </div>
+        <div class="form-group">
+            <label for="priceDate">Date:</label>
+            <input type="date" id="priceDate">
+        </div>
+        <div class="form-group">
+            <label for="priceType">Price Type:</label>
+            <select id="priceType">
+                <option value="close">Close Price</option>
+                <option value="evening">Evening Session Price</option>
+                <option value="lastClose">Last Close Price</option>
+                <option value="lastEvening">Last Evening Session Price</option>
+            </select>
+        </div>
+        <button onclick="getSinglePrice()">Get Price</button>
+        <div id="singlePriceResult" class="result" style="display: none;"></div>
+    </div>
+
+    <div class="container">
+        <h2>Get Multiple Prices</h2>
+        <div class="form-group">
+            <label for="figis">FIGIs (comma-separated):</label>
+            <input type="text" id="figis" placeholder="BBG004730N88,BBG0047315Y7" value="BBG004730N88,BBG0047315Y7"
+                style="width: 400px;">
+        </div>
+        <div class="form-group">
+            <label for="multiPriceDate">Date:</label>
+            <input type="date" id="multiPriceDate">
+        </div>
+        <div class="form-group">
+            <label for="multiPriceType">Price Type:</label>
+            <select id="multiPriceType">
+                <option value="close">Close Prices</option>
+                <option value="evening">Evening Session Prices</option>
+                <option value="lastClose">Last Close Prices</option>
+                <option value="lastEvening">Last Evening Session Prices</option>
+            </select>
+        </div>
+        <button onclick="getMultiplePrices()">Get Prices</button>
+        <div id="multiplePricesResult" class="result" style="display: none;"></div>
+    </div>
+
+    <div class="container">
+        <h2>Cache Management</h2>
+        <button onclick="reloadCache()">Reload Cache</button>
+        <button onclick="clearCache()">Clear Cache</button>
+        <button onclick="reloadAllPrices()">Reload All Prices</button>
+        <button onclick="refreshFromApi()">Refresh from API</button>
+        <div id="managementResult" class="result" style="display: none;"></div>
+    </div>
+
+    <script>
+        // Set today's date as default
+        document.getElementById('priceDate').value = new Date().toISOString().split('T')[0];
+        document.getElementById('multiPriceDate').value = new Date().toISOString().split('T')[0];
+
+        async function loadCacheStats() {
+            try {
+                const response = await fetch('/api/price-cache/stats');
+                const data = await response.json();
+
+                const resultDiv = document.getElementById('statsResult');
+                const statsGrid = document.getElementById('statsGrid');
+
+                if (response.ok) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = JSON.stringify(data, null, 2);
+                    resultDiv.style.display = 'block';
+
+                    // Create stats grid
+                    statsGrid.innerHTML = '';
+                    for (const [key, value] of Object.entries(data)) {
+                        const statItem = document.createElement('div');
+                        statItem.className = 'stat-item';
+                        statItem.innerHTML = `
+                            <div class="stat-value">${value}</div>
+                            <div class="stat-label">${key.replace(/([A-Z])/g, ' $1').toLowerCase()}</div>
+                        `;
+                        statsGrid.appendChild(statItem);
+                    }
+                    statsGrid.style.display = 'grid';
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = 'Error: ' + response.status;
+                    resultDiv.style.display = 'block';
+                }
+            } catch (error) {
+                const resultDiv = document.getElementById('statsResult');
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Error: ' + error.message;
+                resultDiv.style.display = 'block';
+            }
+        }
+
+        async function getSinglePrice() {
+            const figi = document.getElementById('figi').value;
+            const date = document.getElementById('priceDate').value;
+            const priceType = document.getElementById('priceType').value;
+
+            if (!figi) {
+                alert('Please enter FIGI');
+                return;
+            }
+
+            try {
+                let url = '';
+                if (priceType === 'close') {
+                    url = `/api/price-cache/close-price?figi=${figi}&date=${date}`;
+                } else if (priceType === 'evening') {
+                    url = `/api/price-cache/evening-session-price?figi=${figi}&date=${date}`;
+                } else if (priceType === 'lastClose') {
+                    url = `/api/price-cache/last-close-price?figi=${figi}`;
+                } else if (priceType === 'lastEvening') {
+                    url = `/api/price-cache/last-evening-session-price?figi=${figi}`;
+                }
+
+                const response = await fetch(url);
+                const resultDiv = document.getElementById('singlePriceResult');
+
+                if (response.ok) {
+                    const price = await response.text();
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `Price: ${price}`;
+                } else if (response.status === 404) {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = 'Price not found';
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = 'Error: ' + response.status;
+                }
+                resultDiv.style.display = 'block';
+            } catch (error) {
+                const resultDiv = document.getElementById('singlePriceResult');
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Error: ' + error.message;
+                resultDiv.style.display = 'block';
+            }
+        }
+
+        async function getMultiplePrices() {
+            const figis = document.getElementById('figis').value.split(',').map(f => f.trim()).filter(f => f);
+            const date = document.getElementById('multiPriceDate').value;
+            const priceType = document.getElementById('multiPriceType').value;
+
+            if (figis.length === 0) {
+                alert('Please enter FIGIs');
+                return;
+            }
+
+            try {
+                let url = '';
+                const figisParam = figis.join('&figis=');
+
+                if (priceType === 'close') {
+                    url = `/api/price-cache/close-prices?figis=${figisParam}&date=${date}`;
+                } else if (priceType === 'evening') {
+                    url = `/api/price-cache/evening-session-prices?figis=${figisParam}&date=${date}`;
+                } else if (priceType === 'lastClose') {
+                    url = `/api/price-cache/last-close-prices?figis=${figisParam}`;
+                } else if (priceType === 'lastEvening') {
+                    url = `/api/price-cache/last-evening-session-prices?figis=${figisParam}`;
+                }
+
+                const response = await fetch(url);
+                const data = await response.json();
+                const resultDiv = document.getElementById('multiplePricesResult');
+
+                if (response.ok) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = JSON.stringify(data, null, 2);
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = 'Error: ' + response.status;
+                }
+                resultDiv.style.display = 'block';
+            } catch (error) {
+                const resultDiv = document.getElementById('multiplePricesResult');
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Error: ' + error.message;
+                resultDiv.style.display = 'block';
+            }
+        }
+
+        async function reloadCache() {
+            await performAction('/api/price-cache/reload', 'managementResult');
+        }
+
+        async function clearCache() {
+            await performAction('/api/price-cache/clear', 'managementResult');
+        }
+
+        async function reloadAllPrices() {
+            await performAction('/api/price-cache/reload-all', 'managementResult');
+        }
+
+        async function refreshFromApi() {
+            await performAction('/api/price-cache/refresh-from-api', 'managementResult');
+        }
+
+        async function performAction(url, resultElementId) {
+            try {
+                const response = await fetch(url, { method: 'POST' });
+                const result = await response.text();
+                const resultDiv = document.getElementById(resultElementId);
+
+                if (response.ok) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = result;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = result;
+                }
+                resultDiv.style.display = 'block';
+            } catch (error) {
+                const resultDiv = document.getElementById(resultElementId);
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Error: ' + error.message;
+                resultDiv.style.display = 'block';
+            }
+        }
+    </script>
+</body>
+
+</html>
