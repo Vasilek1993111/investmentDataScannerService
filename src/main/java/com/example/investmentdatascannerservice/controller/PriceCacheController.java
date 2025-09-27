@@ -1,17 +1,19 @@
 package com.example.investmentdatascannerservice.controller;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.util.List;
 import java.util.Map;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import com.example.investmentdatascannerservice.service.HistoryVolumeService;
+import com.example.investmentdatascannerservice.service.InstrumentStartupLoader;
 import com.example.investmentdatascannerservice.service.PriceCacheService;
 import com.example.investmentdatascannerservice.service.StartupPriceLoader;
+import com.example.investmentdatascannerservice.service.TodayVolumeService;
+import com.example.investmentdatascannerservice.utils.InstrumentCacheService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -28,6 +30,10 @@ public class PriceCacheController {
 
     private final PriceCacheService priceCacheService;
     private final StartupPriceLoader startupPriceLoader;
+    private final InstrumentStartupLoader instrumentStartupLoader;
+    private final TodayVolumeService todayVolumeService;
+    private final HistoryVolumeService historyVolumeService;
+    private final InstrumentCacheService instrumentCacheService;
 
     /**
      * Получение статистики кэша
@@ -44,156 +50,62 @@ public class PriceCacheController {
     }
 
     /**
-     * Получение цены закрытия для конкретного инструмента и даты
+     * Получение всех цен закрытия из кэша
      */
     @GetMapping("/close-price")
-    public ResponseEntity<BigDecimal> getClosePrice(@RequestParam String figi,
-            @RequestParam LocalDate date) {
+    public ResponseEntity<Map<String, Object>> getClosePrice() {
         try {
-            BigDecimal price = priceCacheService.getClosePrice(figi, date);
-            if (price != null) {
-                return ResponseEntity.ok(price);
-            } else {
-                return ResponseEntity.notFound().build();
-            }
+            Map<String, BigDecimal> allClosePrices = priceCacheService.getAllClosePrices();
+            Map<String, Object> result = new java.util.HashMap<>();
+            result.put("prices", allClosePrices);
+            result.put("date", priceCacheService.getLastClosePriceDate());
+            result.put("count", allClosePrices.size());
+            return ResponseEntity.ok(result);
         } catch (Exception e) {
-            log.error("Error getting close price for figi: {}, date: {}", figi, date, e);
+            log.error("Error getting all close prices from cache", e);
             return ResponseEntity.internalServerError().build();
         }
     }
 
     /**
-     * Получение цены вечерней сессии для конкретного инструмента и даты
+     * Получение всех цен открытия из кэша
+     */
+    @GetMapping("/open-price")
+    public ResponseEntity<Map<String, Object>> getOpenPrice() {
+        try {
+            Map<String, BigDecimal> allOpenPrices = priceCacheService.getAllOpenPrices();
+            Map<String, Object> result = new java.util.HashMap<>();
+            result.put("prices", allOpenPrices);
+            result.put("date", priceCacheService.getLastOpenPriceDate());
+            result.put("count", allOpenPrices.size());
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("Error getting all open prices from cache", e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+
+    /**
+     * Получение всех цен вечерней сессии из кэша
      */
     @GetMapping("/evening-session-price")
-    public ResponseEntity<BigDecimal> getEveningSessionPrice(@RequestParam String figi,
-            @RequestParam LocalDate date) {
+    public ResponseEntity<Map<String, Object>> getEveningSessionPrice() {
         try {
-            BigDecimal price = priceCacheService.getEveningSessionPrice(figi, date);
-            if (price != null) {
-                return ResponseEntity.ok(price);
-            } else {
-                return ResponseEntity.notFound().build();
-            }
+            Map<String, BigDecimal> allEveningSessionPrices =
+                    priceCacheService.getAllEveningSessionPrices();
+            Map<String, Object> result = new java.util.HashMap<>();
+            result.put("prices", allEveningSessionPrices);
+            result.put("date", priceCacheService.getLastEveningSessionPriceDate());
+            result.put("count", allEveningSessionPrices.size());
+            return ResponseEntity.ok(result);
         } catch (Exception e) {
-            log.error("Error getting evening session price for figi: {}, date: {}", figi, date, e);
+            log.error("Error getting all evening session prices from cache", e);
             return ResponseEntity.internalServerError().build();
         }
     }
 
-    /**
-     * Получение последней цены закрытия для инструмента
-     */
-    @GetMapping("/last-close-price")
-    public ResponseEntity<BigDecimal> getLastClosePrice(@RequestParam String figi) {
-        try {
-            BigDecimal price = priceCacheService.getLastClosePrice(figi);
-            if (price != null) {
-                return ResponseEntity.ok(price);
-            } else {
-                return ResponseEntity.notFound().build();
-            }
-        } catch (Exception e) {
-            log.error("Error getting last close price for figi: {}", figi, e);
-            return ResponseEntity.internalServerError().build();
-        }
-    }
 
-    /**
-     * Получение последней цены вечерней сессии для инструмента
-     */
-    @GetMapping("/last-evening-session-price")
-    public ResponseEntity<BigDecimal> getLastEveningSessionPrice(@RequestParam String figi) {
-        try {
-            BigDecimal price = priceCacheService.getLastEveningSessionPrice(figi);
-            if (price != null) {
-                return ResponseEntity.ok(price);
-            } else {
-                return ResponseEntity.notFound().build();
-            }
-        } catch (Exception e) {
-            log.error("Error getting last evening session price for figi: {}", figi, e);
-            return ResponseEntity.internalServerError().build();
-        }
-    }
-
-    /**
-     * Получение цен закрытия для списка инструментов за определенную дату
-     */
-    @GetMapping("/close-prices")
-    public ResponseEntity<Map<String, BigDecimal>> getClosePricesForDate(
-            @RequestParam List<String> figis, @RequestParam LocalDate date) {
-        try {
-            Map<String, BigDecimal> prices = priceCacheService.getClosePricesForDate(figis, date);
-            return ResponseEntity.ok(prices);
-        } catch (Exception e) {
-            log.error("Error getting close prices for figis: {}, date: {}", figis, date, e);
-            return ResponseEntity.internalServerError().build();
-        }
-    }
-
-    /**
-     * Получение цен вечерней сессии для списка инструментов за определенную дату
-     */
-    @GetMapping("/evening-session-prices")
-    public ResponseEntity<Map<String, BigDecimal>> getEveningSessionPricesForDate(
-            @RequestParam List<String> figis, @RequestParam LocalDate date) {
-        try {
-            Map<String, BigDecimal> prices =
-                    priceCacheService.getEveningSessionPricesForDate(figis, date);
-            return ResponseEntity.ok(prices);
-        } catch (Exception e) {
-            log.error("Error getting evening session prices for figis: {}, date: {}", figis, date,
-                    e);
-            return ResponseEntity.internalServerError().build();
-        }
-    }
-
-    /**
-     * Получение последних цен закрытия для списка инструментов
-     */
-    @GetMapping("/last-close-prices")
-    public ResponseEntity<Map<String, BigDecimal>> getLastClosePrices(
-            @RequestParam List<String> figis) {
-        try {
-            Map<String, BigDecimal> prices = priceCacheService.getLastClosePrices(figis);
-            return ResponseEntity.ok(prices);
-        } catch (Exception e) {
-            log.error("Error getting last close prices for figis: {}", figis, e);
-            return ResponseEntity.internalServerError().build();
-        }
-    }
-
-    /**
-     * Получение последних цен вечерней сессии для списка инструментов
-     */
-    @GetMapping("/last-evening-session-prices")
-    public ResponseEntity<Map<String, BigDecimal>> getLastEveningSessionPrices(
-            @RequestParam List<String> figis) {
-        try {
-            Map<String, BigDecimal> prices = priceCacheService.getLastEveningSessionPrices(figis);
-            return ResponseEntity.ok(prices);
-        } catch (Exception e) {
-            log.error("Error getting last evening session prices for figis: {}", figis, e);
-            return ResponseEntity.internalServerError().build();
-        }
-    }
-
-    /**
-     * Перезагрузка кэша
-     */
-    @PostMapping("/reload")
-    public ResponseEntity<String> reloadCache() {
-        try {
-            log.info("Manual cache reload requested");
-            priceCacheService.reloadCache();
-            return ResponseEntity.ok("Cache reloaded successfully");
-        } catch (Exception e) {
-            log.error("Error reloading cache", e);
-            return ResponseEntity.internalServerError()
-                    .body("Error reloading cache: " + e.getMessage());
-        }
-    }
 
     /**
      * Очистка кэша
@@ -212,9 +124,9 @@ public class PriceCacheController {
     }
 
     /**
-     * Принудительная перезагрузка всех цен
+     * Асинхронная перезагрузка всех цен
      */
-    @PostMapping("/reload-all")
+    @PostMapping("/reload")
     public ResponseEntity<String> reloadAllPrices() {
         try {
             log.info("Manual reload all prices requested");
@@ -227,19 +139,188 @@ public class PriceCacheController {
         }
     }
 
+
+
     /**
-     * Обновление цен из API
+     * Перезагрузка всех инструментов (без цен)
      */
-    @PostMapping("/refresh-from-api")
-    public ResponseEntity<String> refreshPricesFromApi() {
+    @PostMapping("/reload-instruments")
+    public ResponseEntity<String> reloadAllInstruments() {
         try {
-            log.info("Manual refresh from API requested");
-            startupPriceLoader.refreshPricesFromApi();
-            return ResponseEntity.ok("Price refresh from API started");
+            log.info("Manual reload all instruments requested");
+            instrumentStartupLoader.reloadInstrumentsOnly();
+            return ResponseEntity.ok("All instruments reload started");
         } catch (Exception e) {
-            log.error("Error refreshing prices from API", e);
+            log.error("Error reloading all instruments", e);
             return ResponseEntity.internalServerError()
-                    .body("Error refreshing prices from API: " + e.getMessage());
+                    .body("Error reloading all instruments: " + e.getMessage());
         }
     }
+
+    /**
+     * Получение всех цен по FIGI из кэша
+     */
+    @GetMapping("/prices/{figi}")
+    public ResponseEntity<Map<String, Object>> getPricesByFigi(@PathVariable String figi) {
+        try {
+            Map<String, BigDecimal> prices = priceCacheService.getPricesForFigi(figi);
+            Map<String, Object> result = new java.util.HashMap<>();
+            result.put("figi", figi);
+            result.putAll(prices);
+            result.put("dates", Map.of("closePriceDate", priceCacheService.getLastClosePriceDate(),
+                    "eveningSessionPriceDate", priceCacheService.getLastEveningSessionPriceDate(),
+                    "openPriceDate", priceCacheService.getLastOpenPriceDate()));
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("Error getting prices for figi: {}", figi, e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * Получение данных выходной биржевой сессии из today_volume_view
+     */
+    @GetMapping("/weekend-exchange-volume")
+    public ResponseEntity<Map<String, Object>> getWeekendExchangeVolume() {
+        try {
+            Map<String, Long> volumes = todayVolumeService.getAllWeekendExchangeVolumes();
+            Map<String, Long> candles = todayVolumeService.getAllWeekendExchangeCandles();
+            Map<String, BigDecimal> avgVolumes =
+                    todayVolumeService.getAllWeekendExchangeAvgVolumes();
+            Map<String, Object> stats = todayVolumeService.getTodayVolumeStats();
+
+            Map<String, Object> result = new java.util.HashMap<>();
+            result.put("volumes", volumes);
+            result.put("candles", candles);
+            result.put("avgVolumes", avgVolumes);
+            result.put("stats", stats);
+
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("Error getting weekend exchange volume data", e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * Получение данных выходной биржевой сессии для конкретного инструмента
+     */
+    @GetMapping("/weekend-exchange-volume/{figi}")
+    public ResponseEntity<Map<String, Object>> getWeekendExchangeVolumeByFigi(
+            @PathVariable String figi) {
+        try {
+            Map<String, Object> result = Map.of("figi", figi, "volume",
+                    todayVolumeService.getWeekendExchangeVolume(figi), "candles",
+                    todayVolumeService.getWeekendExchangeCandles(figi), "avgVolume",
+                    todayVolumeService.getWeekendExchangeAvgVolume(figi));
+
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("Error getting weekend exchange volume data for figi: {}", figi, e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * Загрузка уже проторгованных объемов из today_volume_view в накопленные объемы
+     */
+    @PostMapping("/load-weekend-volumes")
+    public ResponseEntity<String> loadWeekendVolumes() {
+        try {
+            log.info("Loading weekend exchange volumes into accumulated volumes...");
+            instrumentCacheService.loadWeekendExchangeVolumes();
+            return ResponseEntity.ok("Weekend exchange volumes loaded into accumulated volumes");
+        } catch (Exception e) {
+            log.error("Error loading weekend exchange volumes", e);
+            return ResponseEntity.internalServerError()
+                    .body("Error loading weekend exchange volumes: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Очистка накопленных объемов (сброс счетчика)
+     */
+    @PostMapping("/clear-accumulated-volumes")
+    public ResponseEntity<String> clearAccumulatedVolumes() {
+        try {
+            log.info("Clearing accumulated volumes...");
+            instrumentCacheService.clearAccumulatedVolumes();
+            return ResponseEntity.ok("Accumulated volumes cleared");
+        } catch (Exception e) {
+            log.error("Error clearing accumulated volumes", e);
+            return ResponseEntity.internalServerError()
+                    .body("Error clearing accumulated volumes: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Получение исторических данных объемов из history_volume_aggregation
+     */
+    @GetMapping("/history-volumes")
+    public ResponseEntity<Map<String, Object>> getHistoryVolumes() {
+        try {
+            Map<String, Long> totalVolumes = historyVolumeService.getAllTotalVolumes();
+            Map<String, Long> morningVolumes = historyVolumeService.getAllMorningSessionVolumes();
+            Map<String, Long> mainVolumes = historyVolumeService.getAllMainSessionVolumes();
+            Map<String, Long> eveningVolumes = historyVolumeService.getAllEveningSessionVolumes();
+            Map<String, Long> weekendExchangeVolumes =
+                    historyVolumeService.getAllWeekendExchangeVolumes();
+            Map<String, Long> weekendOtcVolumes = historyVolumeService.getAllWeekendOtcVolumes();
+            Map<String, Object> stats = historyVolumeService.getHistoryVolumeStats();
+
+            Map<String, Object> result = new java.util.HashMap<>();
+            result.put("totalVolumes", totalVolumes);
+            result.put("morningVolumes", morningVolumes);
+            result.put("mainVolumes", mainVolumes);
+            result.put("eveningVolumes", eveningVolumes);
+            result.put("weekendExchangeVolumes", weekendExchangeVolumes);
+            result.put("weekendOtcVolumes", weekendOtcVolumes);
+            result.put("stats", stats);
+
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("Error getting history volume data", e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * Получение исторических данных объемов для конкретного инструмента
+     */
+    @GetMapping("/history-volumes/{figi}")
+    public ResponseEntity<Map<String, Object>> getHistoryVolumesByFigi(@PathVariable String figi) {
+        try {
+            Map<String, Object> result = Map.of("figi", figi, "totalVolume",
+                    historyVolumeService.getTotalVolume(figi), "totalCandles",
+                    historyVolumeService.getTotalCandles(figi), "avgVolumePerCandle",
+                    historyVolumeService.getAvgVolumePerCandle(figi), "morningSessionVolume",
+                    historyVolumeService.getMorningSessionVolume(figi), "mainSessionVolume",
+                    historyVolumeService.getMainSessionVolume(figi), "eveningSessionVolume",
+                    historyVolumeService.getEveningSessionVolume(figi), "weekendExchangeVolume",
+                    historyVolumeService.getWeekendExchangeVolume(figi), "weekendOtcVolume",
+                    historyVolumeService.getWeekendOtcVolume(figi));
+
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("Error getting history volume data for figi: {}", figi, e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * Перезагрузка исторических данных
+     */
+    @PostMapping("/reload-history-volumes")
+    public ResponseEntity<String> reloadHistoryVolumes() {
+        try {
+            log.info("Reloading history volume data...");
+            historyVolumeService.reloadHistoryVolumeData();
+            return ResponseEntity.ok("History volume data reloaded successfully");
+        } catch (Exception e) {
+            log.error("Error reloading history volume data", e);
+            return ResponseEntity.internalServerError()
+                    .body("Error reloading history volume data: " + e.getMessage());
+        }
+    }
+
 }

@@ -1,9 +1,6 @@
 package com.example.investmentdatascannerservice.service;
 
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import lombok.RequiredArgsConstructor;
@@ -21,12 +18,10 @@ import lombok.extern.slf4j.Slf4j;
 public class StartupPriceLoader {
 
     private final PriceCacheService priceCacheService;
-    private final TInvestApiClient tinvestApiClient;
 
     /**
      * Загрузка цен при готовности приложения
      */
-    @EventListener(ApplicationReadyEvent.class)
     @Async
     public void loadPricesOnStartup() {
         log.info("Starting price loading on application startup...");
@@ -37,9 +32,12 @@ public class StartupPriceLoader {
                     CompletableFuture.runAsync(this::loadClosePrices);
             CompletableFuture<Void> eveningSessionPricesFuture =
                     CompletableFuture.runAsync(this::loadEveningSessionPrices);
+            CompletableFuture<Void> openPricesFuture =
+                    CompletableFuture.runAsync(this::loadOpenPrices);
 
             // Ждем завершения всех задач
-            CompletableFuture.allOf(closePricesFuture, eveningSessionPricesFuture).join();
+            CompletableFuture.allOf(closePricesFuture, eveningSessionPricesFuture, openPricesFuture)
+                    .join();
 
             log.info("Price loading completed successfully on startup");
             logCacheStats();
@@ -76,6 +74,19 @@ public class StartupPriceLoader {
     }
 
     /**
+     * Загрузка цен открытия
+     */
+    private void loadOpenPrices() {
+        try {
+            log.info("Loading open prices...");
+            priceCacheService.loadAllOpenPrices();
+            log.info("Open prices loaded successfully");
+        } catch (Exception e) {
+            log.error("Error loading open prices", e);
+        }
+    }
+
+    /**
      * Принудительная перезагрузка всех цен
      */
     @Async
@@ -91,48 +102,7 @@ public class StartupPriceLoader {
         }
     }
 
-    /**
-     * Загрузка цен для конкретных инструментов
-     */
-    @Async
-    public void loadPricesForInstruments(List<String> figis) {
-        log.info("Loading prices for {} instruments...", figis.size());
 
-        try {
-            // Получаем последние цены из кэша
-            var closePrices = priceCacheService.getLastClosePrices(figis);
-            var eveningSessionPrices = priceCacheService.getLastEveningSessionPrices(figis);
-
-            log.info("Loaded close prices for {} instruments", closePrices.size());
-            log.info("Loaded evening session prices for {} instruments",
-                    eveningSessionPrices.size());
-
-        } catch (Exception e) {
-            log.error("Error loading prices for instruments", e);
-        }
-    }
-
-    /**
-     * Проверка доступности API и загрузка актуальных данных
-     */
-    @Async
-    public void refreshPricesFromApi() {
-        log.info("Refreshing prices from API...");
-
-        try {
-            if (tinvestApiClient.isApiAvailable()) {
-                log.info("API is available, refreshing prices...");
-                // Здесь можно добавить логику получения актуальных цен из API
-                // и обновления кэша
-                priceCacheService.reloadCache();
-                log.info("Prices refreshed from API successfully");
-            } else {
-                log.warn("API is not available, using cached data");
-            }
-        } catch (Exception e) {
-            log.error("Error refreshing prices from API", e);
-        }
-    }
 
     /**
      * Логирование статистики кэша
@@ -146,10 +116,4 @@ public class StartupPriceLoader {
         }
     }
 
-    /**
-     * Получение статистики загрузки
-     */
-    public void logLoadingStats() {
-        logCacheStats();
-    }
 }

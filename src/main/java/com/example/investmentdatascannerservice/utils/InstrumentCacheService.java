@@ -8,6 +8,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.stereotype.Service;
 import com.example.investmentdatascannerservice.config.QuoteScannerConfig;
+import com.example.investmentdatascannerservice.service.TodayVolumeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -25,6 +26,7 @@ public class InstrumentCacheService {
     private final ShareService shareService;
     private final IndicativeService indicativeService;
     private final SharesAggregatedDataService sharesAggregatedDataService;
+    private final TodayVolumeService todayVolumeService;
 
     // Кэш последних цен инструментов
     private final Map<String, BigDecimal> lastPrices = new ConcurrentHashMap<>();
@@ -71,6 +73,9 @@ public class InstrumentCacheService {
         Map<String, String> tickersToLoad = getInstrumentTickersForScanning();
         instrumentTickers.putAll(tickersToLoad);
         log.info("Loaded {} tickers into cache", instrumentTickers.size());
+
+        // Загружаем уже проторгованные объемы из today_volume_view
+        loadWeekendExchangeVolumes();
 
         if (!instrumentTickers.isEmpty()) {
             log.info("First 5 tickers in cache: {}",
@@ -393,12 +398,12 @@ public class InstrumentCacheService {
         avgVolumeWeekendMap.clear();
         closePrices.clear();
         openPrices.clear();
-        accumulatedVolumes.clear();
+        // НЕ очищаем accumulatedVolumes - они содержат уже проторгованные объемы
         bestBids.clear();
         bestAsks.clear();
         bestBidQuantities.clear();
         bestAskQuantities.clear();
-        log.info("Instrument cache cleared");
+        log.info("Instrument cache cleared (preserving accumulated volumes)");
     }
 
     /**
@@ -409,6 +414,14 @@ public class InstrumentCacheService {
         clearCache();
         initializeCache();
         log.info("Instrument cache reloaded successfully");
+    }
+
+    /**
+     * Очистить только накопленные объемы (для сброса в начале новой сессии)
+     */
+    public void clearAccumulatedVolumes() {
+        accumulatedVolumes.clear();
+        log.info("Accumulated volumes cleared");
     }
 
 
@@ -441,11 +454,46 @@ public class InstrumentCacheService {
     }
 
     /**
+     * Загрузить цены открытия
+     */
+    public void loadOpenPrices(Map<String, BigDecimal> prices) {
+        openPrices.putAll(prices);
+        log.info("Loaded {} open prices into cache", prices.size());
+    }
+
+    /**
      * Загрузить имена инструментов
      */
     public void loadInstrumentNames(Map<String, String> names) {
         instrumentNames.putAll(names);
         log.info("Loaded {} instrument names into cache", names.size());
+    }
+
+    /**
+     * Загрузка уже проторгованных объемов выходной биржевой сессии из today_volume_view
+     */
+    public void loadWeekendExchangeVolumes() {
+        try {
+            Map<String, Long> weekendVolumes = todayVolumeService.getAllWeekendExchangeVolumes();
+
+            // Инициализируем накопленные объемы уже проторгованными объемами
+            accumulatedVolumes.putAll(weekendVolumes);
+
+            log.info("Loaded {} weekend exchange volumes into accumulated volumes cache",
+                    weekendVolumes.size());
+
+            // Логируем статистику
+            long totalVolume = weekendVolumes.values().stream().mapToLong(Long::longValue).sum();
+            long instrumentsWithVolume =
+                    weekendVolumes.values().stream().mapToLong(v -> v > 0 ? 1 : 0).sum();
+
+            log.info(
+                    "Weekend exchange volume statistics: {} instruments with volume, total volume: {}",
+                    instrumentsWithVolume, totalVolume);
+
+        } catch (Exception e) {
+            log.error("Error loading weekend exchange volumes into accumulated volumes", e);
+        }
     }
 
     /**

@@ -7,13 +7,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.example.investmentdatascannerservice.entity.ClosePriceEntity;
 import com.example.investmentdatascannerservice.entity.ClosePriceEveningSessionEntity;
+import com.example.investmentdatascannerservice.entity.OpenPriceEntity;
 import com.example.investmentdatascannerservice.repository.ClosePriceEveningSessionRepository;
 import com.example.investmentdatascannerservice.repository.ClosePriceRepository;
+import com.example.investmentdatascannerservice.repository.OpenPriceRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,20 +32,24 @@ public class PriceCacheService {
 
     private final ClosePriceRepository closePriceRepository;
     private final ClosePriceEveningSessionRepository closePriceEveningSessionRepository;
+    private final OpenPriceRepository openPriceRepository;
 
     // In-memory кэш для быстрого доступа - только последние цены
     private final Map<String, BigDecimal> lastClosePricesCache = new ConcurrentHashMap<>();
     private final Map<String, BigDecimal> lastEveningSessionPricesCache = new ConcurrentHashMap<>();
+    private final Map<String, BigDecimal> lastOpenPricesCache = new ConcurrentHashMap<>();
 
     // Кэш для последних доступных дат
     private LocalDate lastClosePriceDate;
     private LocalDate lastEveningSessionDate;
+    private LocalDate lastOpenPriceDate;
 
     @PostConstruct
     public void initializeCache() {
         log.info("Initializing price cache...");
         loadAllClosePrices();
         loadAllEveningSessionPrices();
+        loadAllOpenPrices();
         log.info("Price cache initialized successfully");
     }
 
@@ -122,27 +127,6 @@ public class PriceCacheService {
         }
     }
 
-    /**
-     * Получение цены закрытия из кэша (только последняя цена)
-     */
-    public BigDecimal getClosePrice(String figi, LocalDate date) {
-        // Возвращаем последнюю цену только если запрашиваемая дата совпадает с последней датой
-        if (lastClosePriceDate != null && lastClosePriceDate.equals(date)) {
-            return lastClosePricesCache.get(figi);
-        }
-        return null;
-    }
-
-    /**
-     * Получение цены закрытия вечерней сессии из кэша (только последняя цена)
-     */
-    public BigDecimal getEveningSessionPrice(String figi, LocalDate date) {
-        // Возвращаем последнюю цену только если запрашиваемая дата совпадает с последней датой
-        if (lastEveningSessionDate != null && lastEveningSessionDate.equals(date)) {
-            return lastEveningSessionPricesCache.get(figi);
-        }
-        return null;
-    }
 
     /**
      * Получение последней цены закрытия для инструмента
@@ -158,83 +142,7 @@ public class PriceCacheService {
         return lastEveningSessionPricesCache.get(figi);
     }
 
-    /**
-     * Получение цен закрытия за указанную дату для списка инструментов (только последняя дата)
-     */
-    @Cacheable(value = "closePrices", key = "#figis.hashCode() + '_' + #date")
-    public Map<String, BigDecimal> getClosePricesForDate(List<String> figis, LocalDate date) {
-        // Возвращаем цены только если запрашиваемая дата совпадает с последней датой
-        if (lastClosePriceDate != null && lastClosePriceDate.equals(date)) {
-            return figis.stream().filter(figi -> lastClosePricesCache.containsKey(figi))
-                    .collect(Collectors.toMap(figi -> figi, lastClosePricesCache::get));
-        }
-        return Map.of();
-    }
 
-    /**
-     * Получение цен вечерней сессии за указанную дату для списка инструментов (только последняя
-     * дата)
-     */
-    @Cacheable(value = "eveningSessionPrices", key = "#figis.hashCode() + '_' + #date")
-    public Map<String, BigDecimal> getEveningSessionPricesForDate(List<String> figis,
-            LocalDate date) {
-        // Возвращаем цены только если запрашиваемая дата совпадает с последней датой
-        if (lastEveningSessionDate != null && lastEveningSessionDate.equals(date)) {
-            return figis.stream().filter(figi -> lastEveningSessionPricesCache.containsKey(figi))
-                    .collect(Collectors.toMap(figi -> figi, lastEveningSessionPricesCache::get));
-        }
-        return Map.of();
-    }
-
-    /**
-     * Получение последних цен закрытия для списка инструментов
-     */
-    @Cacheable(value = "lastClosePrices", key = "#figis.hashCode()")
-    public Map<String, BigDecimal> getLastClosePrices(List<String> figis) {
-        return figis.stream().filter(figi -> lastClosePricesCache.containsKey(figi))
-                .collect(Collectors.toMap(figi -> figi, lastClosePricesCache::get));
-    }
-
-    /**
-     * Получение последних цен вечерней сессии для списка инструментов
-     */
-    @Cacheable(value = "lastEveningSessionPrices", key = "#figis.hashCode()")
-    public Map<String, BigDecimal> getLastEveningSessionPrices(List<String> figis) {
-        return figis.stream().filter(figi -> lastEveningSessionPricesCache.containsKey(figi))
-                .collect(Collectors.toMap(figi -> figi, lastEveningSessionPricesCache::get));
-    }
-
-    /**
-     * Обновление кэша после добавления новых цен (только если это последняя дата)
-     */
-    public void updateClosePriceCache(String figi, LocalDate date, BigDecimal price) {
-        if (lastClosePriceDate == null || date.isAfter(lastClosePriceDate)) {
-            // Если это новая последняя дата, очищаем кэш и обновляем дату
-            lastClosePricesCache.clear();
-            lastClosePriceDate = date;
-        }
-
-        // Добавляем цену только если это последняя дата
-        if (lastClosePriceDate.equals(date)) {
-            lastClosePricesCache.put(figi, price);
-        }
-    }
-
-    /**
-     * Обновление кэша вечерней сессии после добавления новых цен (только если это последняя дата)
-     */
-    public void updateEveningSessionPriceCache(String figi, LocalDate date, BigDecimal price) {
-        if (lastEveningSessionDate == null || date.isAfter(lastEveningSessionDate)) {
-            // Если это новая последняя дата, очищаем кэш и обновляем дату
-            lastEveningSessionPricesCache.clear();
-            lastEveningSessionDate = date;
-        }
-
-        // Добавляем цену только если это последняя дата
-        if (lastEveningSessionDate.equals(date)) {
-            lastEveningSessionPricesCache.put(figi, price);
-        }
-    }
 
     /**
      * Очистка кэша
@@ -242,8 +150,10 @@ public class PriceCacheService {
     public void clearCache() {
         lastClosePricesCache.clear();
         lastEveningSessionPricesCache.clear();
+        lastOpenPricesCache.clear();
         lastClosePriceDate = null;
         lastEveningSessionDate = null;
+        lastOpenPriceDate = null;
         log.info("Price cache cleared");
     }
 
@@ -255,7 +165,109 @@ public class PriceCacheService {
         clearCache();
         loadAllClosePrices();
         loadAllEveningSessionPrices();
+        loadAllOpenPrices();
         log.info("Price cache reloaded successfully");
+    }
+
+    /**
+     * Загрузка последних цен открытия в кэш
+     */
+    @Transactional(readOnly = true)
+    public void loadAllOpenPrices() {
+        try {
+            // Получаем последнюю дату с ценами открытия
+            Optional<LocalDate> latestDate = openPriceRepository.findLatestPriceDate();
+            if (latestDate.isEmpty()) {
+                log.warn("No open prices found in database");
+                return;
+            }
+
+            lastOpenPriceDate = latestDate.get();
+            lastOpenPricesCache.clear();
+
+            // Получаем все уникальные FIGI из базы данных
+            List<String> allFigis =
+                    openPriceRepository.findAll().stream().map(entity -> entity.getId().getFigi())
+                            .distinct().collect(Collectors.toList());
+
+            // Получаем последние цены для всех инструментов
+            List<OpenPriceEntity> latestOpenPrices =
+                    openPriceRepository.findLastOpenPricesByFigis(allFigis);
+
+            for (OpenPriceEntity entity : latestOpenPrices) {
+                String figi = entity.getId().getFigi();
+                BigDecimal price = entity.getOpenPrice();
+                lastOpenPricesCache.put(figi, price);
+            }
+
+            log.info("Loaded {} open prices for date: {}", lastOpenPricesCache.size(),
+                    lastOpenPriceDate);
+
+        } catch (Exception e) {
+            log.error("Error loading open prices", e);
+        }
+    }
+
+
+
+    /**
+     * Получение всех цен закрытия из кэша
+     */
+    public Map<String, BigDecimal> getAllClosePrices() {
+        return Map.copyOf(lastClosePricesCache);
+    }
+
+    /**
+     * Получение всех цен вечерней сессии из кэша
+     */
+    public Map<String, BigDecimal> getAllEveningSessionPrices() {
+        return Map.copyOf(lastEveningSessionPricesCache);
+    }
+
+    /**
+     * Получение всех цен открытия из кэша
+     */
+    public Map<String, BigDecimal> getAllOpenPrices() {
+        return Map.copyOf(lastOpenPricesCache);
+    }
+
+    /**
+     * Получение цены открытия для инструмента из кэша
+     */
+    public BigDecimal getLastOpenPrice(String figi) {
+        return lastOpenPricesCache.get(figi);
+    }
+
+    /**
+     * Получение всех цен для конкретного инструмента
+     */
+    public Map<String, BigDecimal> getPricesForFigi(String figi) {
+        Map<String, BigDecimal> prices = new java.util.HashMap<>();
+        prices.put("closePrice", getLastClosePrice(figi));
+        prices.put("eveningSessionPrice", getLastEveningSessionPrice(figi));
+        prices.put("openPrice", getLastOpenPrice(figi));
+        return prices;
+    }
+
+    /**
+     * Получение последней даты цен закрытия
+     */
+    public String getLastClosePriceDate() {
+        return lastClosePriceDate != null ? lastClosePriceDate.toString() : "N/A";
+    }
+
+    /**
+     * Получение последней даты цен вечерней сессии
+     */
+    public String getLastEveningSessionPriceDate() {
+        return lastEveningSessionDate != null ? lastEveningSessionDate.toString() : "N/A";
+    }
+
+    /**
+     * Получение последней даты цен открытия
+     */
+    public String getLastOpenPriceDate() {
+        return lastOpenPriceDate != null ? lastOpenPriceDate.toString() : "N/A";
     }
 
     /**
@@ -263,11 +275,14 @@ public class PriceCacheService {
      */
     public Map<String, Object> getCacheStats() {
         return Map.of("closePricesCount", lastClosePricesCache.size(), "eveningSessionPricesCount",
-                lastEveningSessionPricesCache.size(), "instrumentsWithClosePrices",
-                lastClosePricesCache.size(), "instrumentsWithEveningSessionPrices",
-                lastEveningSessionPricesCache.size(), "lastClosePriceDate",
+                lastEveningSessionPricesCache.size(), "openPricesCount", lastOpenPricesCache.size(),
+                "instrumentsWithClosePrices", lastClosePricesCache.size(),
+                "instrumentsWithEveningSessionPrices", lastEveningSessionPricesCache.size(),
+                "instrumentsWithOpenPrices", lastOpenPricesCache.size(), "lastClosePriceDate",
                 lastClosePriceDate != null ? lastClosePriceDate.toString() : "N/A",
                 "lastEveningSessionDate",
-                lastEveningSessionDate != null ? lastEveningSessionDate.toString() : "N/A");
+                lastEveningSessionDate != null ? lastEveningSessionDate.toString() : "N/A",
+                "lastOpenPriceDate",
+                lastOpenPriceDate != null ? lastOpenPriceDate.toString() : "N/A");
     }
 }

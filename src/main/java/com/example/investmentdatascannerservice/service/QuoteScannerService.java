@@ -105,9 +105,9 @@ public class QuoteScannerService {
         // Инициализируем кэш инструментов
         instrumentCacheService.initializeCache();
 
-        // Сбрасываем накопленный объем при инициализации
-        instrumentCacheService.clearCache();
-        log.info("Accumulated volumes reset for new session");
+        // Очищаем только накопленные объемы (сохраняем уже проторгованные)
+        instrumentCacheService.clearAccumulatedVolumes();
+        log.info("Accumulated volumes reset for new session (preserving weekend exchange volumes)");
 
         // Загружаем цены закрытия за предыдущий торговый день
         loadClosePrices();
