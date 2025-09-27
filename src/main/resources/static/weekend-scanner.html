@@ -809,6 +809,7 @@
                             <option value="asc">Сначала менее растущие</option>
                             <option value="volume_desc">Наибольший объем</option>
                             <option value="volume_asc">Наименьший объем</option>
+                            <option value="spread_desc">Наибольший спред</option>
                         </select>
                     </div>
                     <div class="sort-group">
@@ -835,12 +836,13 @@
                                 <th>ASK (лоты)</th>
                                 <th>Объем</th>
                                 <th>Исторический объем</th>
+                                <th>Спред</th>
                                 <th>Время</th>
                             </tr>
                         </thead>
                         <tbody id="gainersTableBody">
                             <tr>
-                                <td colspan="11" class="no-data">Нет данных</td>
+                                <td colspan="12" class="no-data">Нет данных</td>
                             </tr>
                         </tbody>
                     </table>
@@ -867,6 +869,7 @@
                             <option value="asc">Сначала менее падающие</option>
                             <option value="volume_desc">Наибольший объем</option>
                             <option value="volume_asc">Наименьший объем</option>
+                            <option value="spread_desc">Наибольший спред</option>
                         </select>
                     </div>
                     <div class="sort-group">
@@ -893,12 +896,13 @@
                                 <th>ASK (лоты)</th>
                                 <th>Объем</th>
                                 <th>Исторический объем</th>
+                                <th>Спред</th>
                                 <th>Время</th>
                             </tr>
                         </thead>
                         <tbody id="losersTableBody">
                             <tr>
-                                <td colspan="11" class="no-data">Нет данных</td>
+                                <td colspan="12" class="no-data">Нет данных</td>
                             </tr>
                         </tbody>
                     </table>
@@ -998,8 +1002,8 @@
                     connectionStatus.className = 'status connected';
 
                     // Очищаем таблицы
-                    gainersTableBody.innerHTML = '<tr><td colspan="11" class="no-data">Нет данных</td></tr>';
-                    losersTableBody.innerHTML = '<tr><td colspan="11" class="no-data">Нет данных</td></tr>';
+                    gainersTableBody.innerHTML = '<tr><td colspan="12" class="no-data">Нет данных</td></tr>';
+                    losersTableBody.innerHTML = '<tr><td colspan="12" class="no-data">Нет данных</td></tr>';
                     quotes.clear();
                     gainers = [];
                     losers = [];
@@ -1103,9 +1107,9 @@
                 quoteData.totalVolume = 0;
             }
 
-            // Добавляем средний объем из исторических данных
-            if (historyVolumeData && historyVolumeData.weekendExchangeVolumes) {
-                quoteData.avgVolumeWeekend = historyVolumeData.weekendExchangeVolumes[figi] || 0;
+            // Добавляем средний объем за день из исторических данных
+            if (historyVolumeData && historyVolumeData.weekendExchangeAvgVolumesPerDay) {
+                quoteData.avgVolumeWeekend = historyVolumeData.weekendExchangeAvgVolumesPerDay[figi] || 0;
             } else {
                 quoteData.avgVolumeWeekend = 0;
             }
@@ -1299,6 +1303,8 @@
             let gainersSortText = '';
             if (gainersSortOrder === 'volume_desc' || gainersSortOrder === 'volume_asc') {
                 gainersSortText = 'по объему';
+            } else if (gainersSortOrder === 'spread_desc') {
+                gainersSortText = 'по спреду';
             } else {
                 switch (gainersSortBy) {
                     case 'changeOS':
@@ -1318,6 +1324,8 @@
                 gainersOrderText = 'наибольший объем';
             } else if (gainersSortOrder === 'volume_asc') {
                 gainersOrderText = 'наименьший объем';
+            } else if (gainersSortOrder === 'spread_desc') {
+                gainersOrderText = 'наибольший спред';
             }
             const gainersResultsText = `Топ-${gainersMaxResults}`;
             gainersTitle.textContent = `🚀 ${gainersResultsText} растущих (${gainersSortText}, ${gainersOrderText})`;
@@ -1326,6 +1334,8 @@
             let losersSortText = '';
             if (losersSortOrder === 'volume_desc' || losersSortOrder === 'volume_asc') {
                 losersSortText = 'по объему';
+            } else if (losersSortOrder === 'spread_desc') {
+                losersSortText = 'по спреду';
             } else {
                 switch (losersSortBy) {
                     case 'changeOS':
@@ -1345,6 +1355,8 @@
                 losersOrderText = 'наибольший объем';
             } else if (losersSortOrder === 'volume_asc') {
                 losersOrderText = 'наименьший объем';
+            } else if (losersSortOrder === 'spread_desc') {
+                losersOrderText = 'наибольший спред';
             }
             const losersResultsText = `Топ-${losersMaxResults}`;
             losersTitle.textContent = `📉 ${losersResultsText} падающих (${losersSortText}, ${losersOrderText})`;
@@ -1400,6 +1412,18 @@
                     }
                 }
 
+                // Если sortOrder содержит spread, принудительно сортируем по спреду
+                if (sortOrder === 'spread_desc') {
+                    // Вычисляем спред для каждого инструмента
+                    const spreadA = calculateSpreadPercent(a.bestBid, a.bestAsk, a.currentPrice) || 0;
+                    const spreadB = calculateSpreadPercent(b.bestBid, b.bestAsk, b.currentPrice) || 0;
+
+                    valueA = spreadA;
+                    valueB = spreadB;
+
+                    return valueB - valueA; // по убыванию спреда (наибольший спред сверху)
+                }
+
                 // Обычная сортировка по выбранному критерию
                 switch (sortBy) {
                     case 'changeOS':
@@ -1443,12 +1467,23 @@
                     valueA = a.totalVolume || 0;
                     valueB = b.totalVolume || 0;
 
-
                     if (sortOrder === 'volume_desc') {
                         return valueB - valueA; // по убыванию объема (наибольший объем сверху)
                     } else {
                         return valueA - valueB; // по возрастанию объема (наименьший объем сверху)
                     }
+                }
+
+                // Если sortOrder содержит spread, принудительно сортируем по спреду
+                if (sortOrder === 'spread_desc') {
+                    // Вычисляем спред для каждого инструмента
+                    const spreadA = calculateSpreadPercent(a.bestBid, a.bestAsk, a.currentPrice) || 0;
+                    const spreadB = calculateSpreadPercent(b.bestBid, b.bestAsk, b.currentPrice) || 0;
+
+                    valueA = spreadA;
+                    valueB = spreadB;
+
+                    return valueB - valueA; // по убыванию спреда (наибольший спред сверху)
                 }
 
                 // Обычная сортировка по выбранному критерию
@@ -1523,6 +1558,9 @@
             // Получаем средний объем из исторических данных
             const avgVolume = getAvgVolumeFromHistory(quoteData.figi);
 
+            // Вычисляем спред в процентах
+            const spreadPercent = calculateSpreadPercent(quoteData.bestBid, quoteData.bestAsk, quoteData.currentPrice);
+
             row.innerHTML = `
                 <td><span class="rank">#${rank || ''}</span> <strong>${quoteData.ticker || quoteData.figi}</strong></td>
                 <td class="${priceChangeClass}">${formatPrice(quoteData.currentPrice)}</td>
@@ -1533,6 +1571,7 @@
                 <td>${formatBidAsk(quoteData.bestAsk, quoteData.bestAskQuantity || 0)}</td>
                 <td>${displayVolume.toLocaleString()}</td>
                 <td>${formatAvgVolume(avgVolume)}</td>
+                <td>${formatSpreadPercent(spreadPercent)}</td>
                 <td class="timestamp">${formatTime(quoteData.timestamp)}</td>
             `;
 
@@ -1555,6 +1594,30 @@
                 return historyVolumeData.weekendExchangeAvgVolumesPerDay[figi] || 0;
             }
             return 0;
+        }
+
+        // Функция для вычисления спреда в процентах
+        function calculateSpreadPercent(bestBid, bestAsk, currentPrice) {
+            if (!bestBid || !bestAsk || !currentPrice || bestBid <= 0 || bestAsk <= 0 || currentPrice <= 0) {
+                return null; // Возвращаем null если нет данных
+            }
+
+            const spread = bestAsk - bestBid;
+            const spreadPercent = (spread / currentPrice) * 100;
+            return spreadPercent;
+        }
+
+        // Функция для форматирования спреда в процентах
+        function formatSpreadPercent(spreadPercent) {
+            if (spreadPercent === null || spreadPercent === undefined) {
+                return 'Н/Д'; // Заглушка если нет данных
+            }
+
+            if (spreadPercent === 0) {
+                return '0.00%';
+            }
+
+            return spreadPercent.toFixed(2) + '%';
         }
 
         async function updateWeekendStatus() {
