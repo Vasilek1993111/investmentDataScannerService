@@ -54,6 +54,19 @@ public class HistoryVolumeService {
     private final Map<String, Long> weekendOtcCandles = new ConcurrentHashMap<>();
     private final Map<String, BigDecimal> weekendOtcAvgVolumes = new ConcurrentHashMap<>();
 
+    // Кэш для новых полей - количество дней
+    private final Map<String, Long> totalDays = new ConcurrentHashMap<>();
+    private final Map<String, Long> workingDays = new ConcurrentHashMap<>();
+    private final Map<String, Long> weekendDays = new ConcurrentHashMap<>();
+
+    // Кэш для средних объемов за день
+    private final Map<String, BigDecimal> morningAvgVolumePerDay = new ConcurrentHashMap<>();
+    private final Map<String, BigDecimal> mainAvgVolumePerDay = new ConcurrentHashMap<>();
+    private final Map<String, BigDecimal> eveningAvgVolumePerDay = new ConcurrentHashMap<>();
+    private final Map<String, BigDecimal> weekendExchangeAvgVolumePerDay =
+            new ConcurrentHashMap<>();
+    private final Map<String, BigDecimal> weekendOtcAvgVolumePerDay = new ConcurrentHashMap<>();
+
     @PostConstruct
     public void initializeHistoryVolumeData() {
         log.info("Initializing history volume data from history_volume_aggregation...");
@@ -142,6 +155,35 @@ public class HistoryVolumeService {
                 }
                 if (entity.getWeekendOtcAvgVolumePerCandle() != null) {
                     weekendOtcAvgVolumes.put(figi, entity.getWeekendOtcAvgVolumePerCandle());
+                }
+
+                // Новые поля - количество дней
+                if (entity.getTotalDays() != null) {
+                    totalDays.put(figi, entity.getTotalDays());
+                }
+                if (entity.getWorkingDays() != null) {
+                    workingDays.put(figi, entity.getWorkingDays());
+                }
+                if (entity.getWeekendDays() != null) {
+                    weekendDays.put(figi, entity.getWeekendDays());
+                }
+
+                // Новые поля - средние объемы за день
+                if (entity.getMorningAvgVolumePerDay() != null) {
+                    morningAvgVolumePerDay.put(figi, entity.getMorningAvgVolumePerDay());
+                }
+                if (entity.getMainAvgVolumePerDay() != null) {
+                    mainAvgVolumePerDay.put(figi, entity.getMainAvgVolumePerDay());
+                }
+                if (entity.getEveningAvgVolumePerDay() != null) {
+                    eveningAvgVolumePerDay.put(figi, entity.getEveningAvgVolumePerDay());
+                }
+                if (entity.getWeekendExchangeAvgVolumePerDay() != null) {
+                    weekendExchangeAvgVolumePerDay.put(figi,
+                            entity.getWeekendExchangeAvgVolumePerDay());
+                }
+                if (entity.getWeekendOtcAvgVolumePerDay() != null) {
+                    weekendOtcAvgVolumePerDay.put(figi, entity.getWeekendOtcAvgVolumePerDay());
                 }
             }
 
@@ -251,6 +293,120 @@ public class HistoryVolumeService {
         return Map.copyOf(weekendOtcVolumes);
     }
 
+    // Новые методы для получения данных о днях
+    /**
+     * Получить общее количество дней для инструмента
+     */
+    public Long getTotalDays(String figi) {
+        return totalDays.getOrDefault(figi, 0L);
+    }
+
+    /**
+     * Получить количество рабочих дней для инструмента
+     */
+    public Long getWorkingDays(String figi) {
+        return workingDays.getOrDefault(figi, 0L);
+    }
+
+    /**
+     * Получить количество выходных дней для инструмента
+     */
+    public Long getWeekendDays(String figi) {
+        return weekendDays.getOrDefault(figi, 0L);
+    }
+
+    // Новые методы для получения средних объемов за день
+    /**
+     * Получить средний объем утренней сессии за день для инструмента
+     */
+    public BigDecimal getMorningAvgVolumePerDay(String figi) {
+        return morningAvgVolumePerDay.getOrDefault(figi, BigDecimal.ZERO);
+    }
+
+    /**
+     * Получить средний объем основной сессии за день для инструмента
+     */
+    public BigDecimal getMainAvgVolumePerDay(String figi) {
+        return mainAvgVolumePerDay.getOrDefault(figi, BigDecimal.ZERO);
+    }
+
+    /**
+     * Получить средний объем вечерней сессии за день для инструмента
+     */
+    public BigDecimal getEveningAvgVolumePerDay(String figi) {
+        return eveningAvgVolumePerDay.getOrDefault(figi, BigDecimal.ZERO);
+    }
+
+    /**
+     * Получить средний объем выходной биржевой сессии за день для инструмента
+     */
+    public BigDecimal getWeekendExchangeAvgVolumePerDay(String figi) {
+        return weekendExchangeAvgVolumePerDay.getOrDefault(figi, BigDecimal.ZERO);
+    }
+
+    /**
+     * Получить средний объем выходной OTC сессии за день для инструмента
+     */
+    public BigDecimal getWeekendOtcAvgVolumePerDay(String figi) {
+        return weekendOtcAvgVolumePerDay.getOrDefault(figi, BigDecimal.ZERO);
+    }
+
+    /**
+     * Получить все данные о днях
+     */
+    public Map<String, Long> getAllTotalDays() {
+        return Map.copyOf(totalDays);
+    }
+
+    /**
+     * Получить все данные о рабочих днях
+     */
+    public Map<String, Long> getAllWorkingDays() {
+        return Map.copyOf(workingDays);
+    }
+
+    /**
+     * Получить все данные о выходных днях
+     */
+    public Map<String, Long> getAllWeekendDays() {
+        return Map.copyOf(weekendDays);
+    }
+
+    /**
+     * Получить все средние объемы утренней сессии за день
+     */
+    public Map<String, BigDecimal> getAllMorningAvgVolumesPerDay() {
+        return Map.copyOf(morningAvgVolumePerDay);
+    }
+
+    /**
+     * Получить все средние объемы основной сессии за день
+     */
+    public Map<String, BigDecimal> getAllMainAvgVolumesPerDay() {
+        return Map.copyOf(mainAvgVolumePerDay);
+    }
+
+    /**
+     * Получить все средние объемы вечерней сессии за день
+     */
+    public Map<String, BigDecimal> getAllEveningAvgVolumesPerDay() {
+        return Map.copyOf(eveningAvgVolumePerDay);
+    }
+
+    /**
+     * Получить все средние объемы выходной биржевой сессии за день
+     */
+    public Map<String, BigDecimal> getAllWeekendExchangeAvgVolumesPerDay() {
+        return Map.copyOf(weekendExchangeAvgVolumePerDay);
+    }
+
+    /**
+     * Получить все средние объемы выходной OTC сессии за день
+     */
+    public Map<String, BigDecimal> getAllWeekendOtcAvgVolumesPerDay() {
+        return Map.copyOf(weekendOtcAvgVolumePerDay);
+    }
+
     /**
      * Получить статистику загрузки
      */
@@ -280,6 +436,17 @@ public class HistoryVolumeService {
                 weekendExchangeVolumes.values().stream().mapToLong(Long::longValue).sum());
         stats.put("totalWeekendOtcVolume",
                 weekendOtcVolumes.values().stream().mapToLong(Long::longValue).sum());
+
+        // Добавляем статистику по новым полям
+        stats.put("instrumentsWithTotalDays", totalDays.size());
+        stats.put("instrumentsWithWorkingDays", workingDays.size());
+        stats.put("instrumentsWithWeekendDays", weekendDays.size());
+        stats.put("totalDays", totalDays.values().stream().mapToLong(Long::longValue).sum());
+        stats.put("totalWorkingDays",
+                workingDays.values().stream().mapToLong(Long::longValue).sum());
+        stats.put("totalWeekendDays",
+                weekendDays.values().stream().mapToLong(Long::longValue).sum());
+
         return stats;
     }
 
@@ -314,6 +481,16 @@ public class HistoryVolumeService {
         weekendOtcVolumes.clear();
         weekendOtcCandles.clear();
         weekendOtcAvgVolumes.clear();
+
+        // Очистка новых кэшей
+        totalDays.clear();
+        workingDays.clear();
+        weekendDays.clear();
+        morningAvgVolumePerDay.clear();
+        mainAvgVolumePerDay.clear();
+        eveningAvgVolumePerDay.clear();
+        weekendExchangeAvgVolumePerDay.clear();
+        weekendOtcAvgVolumePerDay.clear();
     }
 
     /**
@@ -337,6 +514,12 @@ public class HistoryVolumeService {
         log.info("Total evening volume: {}", stats.get("totalEveningVolume"));
         log.info("Total weekend exchange volume: {}", stats.get("totalWeekendExchangeVolume"));
         log.info("Total weekend OTC volume: {}", stats.get("totalWeekendOtcVolume"));
+        log.info("Instruments with total days: {}", stats.get("instrumentsWithTotalDays"));
+        log.info("Instruments with working days: {}", stats.get("instrumentsWithWorkingDays"));
+        log.info("Instruments with weekend days: {}", stats.get("instrumentsWithWeekendDays"));
+        log.info("Total days: {}", stats.get("totalDays"));
+        log.info("Total working days: {}", stats.get("totalWorkingDays"));
+        log.info("Total weekend days: {}", stats.get("totalWeekendDays"));
         log.info("=============================================");
     }
 }

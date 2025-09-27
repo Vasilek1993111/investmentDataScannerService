@@ -1,4 +1,5 @@
---Материализованное представление daily_volume_aggregation
+--Материализованное представление history_volume_aggregation
+
 create materialized view history_volume_aggregation as
 SELECT minute_candles.figi,
        CASE
@@ -473,6 +474,148 @@ SELECT minute_candles.figi,
                                                             END)::numeric, 2)
            ELSE 0::numeric
            END                                                         AS weekend_otc_avg_volume_per_candle,
+       -- Подсчет количества дней
+       count(DISTINCT DATE(minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) AS total_days,
+       count(DISTINCT CASE
+                          WHEN EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) >= 1::numeric AND
+                               EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 5::numeric
+                          THEN DATE(minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)
+                          ELSE NULL
+                          END) AS working_days,
+       count(DISTINCT CASE
+                          WHEN EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) = ANY
+                               (ARRAY [0::numeric, 6::numeric])
+                          THEN DATE(minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)
+                          ELSE NULL
+                          END) AS weekend_days,
+       -- Средние объемы за день для каждой сессии
+       CASE
+           WHEN count(DISTINCT CASE
+                                   WHEN EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) >= 1::numeric AND
+                                        EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 5::numeric
+                                   THEN DATE(minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)
+                                   ELSE NULL
+                                   END) > 0 THEN round(sum(
+                                                           CASE
+                                                               WHEN EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) >= 1::numeric AND
+                                                                    EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 5::numeric AND
+                                                                    (EXTRACT(hour FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) = 6::numeric AND
+                                                                     EXTRACT(minute FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) = 59::numeric AND
+                                                                     EXTRACT(second FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) >= 59::numeric OR
+                                                                     EXTRACT(hour FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) >= 7::numeric AND
+                                                                     EXTRACT(hour FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 8::numeric OR
+                                                                     EXTRACT(hour FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) = 9::numeric AND
+                                                                     EXTRACT(minute FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 59::numeric)
+                                                               THEN minute_candles.volume
+                                                               ELSE 0::bigint
+                                                               END) / count(DISTINCT CASE
+                                                                                         WHEN EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) >= 1::numeric AND
+                                                                                              EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 5::numeric
+                                                                                         THEN DATE(minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)
+                                                                                         ELSE NULL
+                                                                                         END)::numeric, 2)
+           ELSE 0::numeric
+           END AS morning_avg_volume_per_day,
+       CASE
+           WHEN count(DISTINCT CASE
+                                   WHEN EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) >= 1::numeric AND
+                                        EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 5::numeric
+                                   THEN DATE(minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)
+                                   ELSE NULL
+                                   END) > 0 THEN round(sum(
+                                                           CASE
+                                                               WHEN EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) >= 1::numeric AND
+                                                                    EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 5::numeric AND
+                                                                    (EXTRACT(hour FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) >= 10::numeric AND
+                                                                     EXTRACT(hour FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 17::numeric OR
+                                                                     EXTRACT(hour FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) = 18::numeric AND
+                                                                     EXTRACT(minute FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 59::numeric)
+                                                               THEN minute_candles.volume
+                                                               ELSE 0::bigint
+                                                               END) / count(DISTINCT CASE
+                                                                                         WHEN EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) >= 1::numeric AND
+                                                                                              EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 5::numeric
+                                                                                         THEN DATE(minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)
+                                                                                         ELSE NULL
+                                                                                         END)::numeric, 2)
+           ELSE 0::numeric
+           END AS main_avg_volume_per_day,
+       CASE
+           WHEN count(DISTINCT CASE
+                                   WHEN EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) >= 1::numeric AND
+                                        EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 5::numeric
+                                   THEN DATE(minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)
+                                   ELSE NULL
+                                   END) > 0 THEN round(sum(
+                                                           CASE
+                                                               WHEN EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) >= 1::numeric AND
+                                                                    EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 5::numeric AND
+                                                                    (EXTRACT(hour FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) >= 19::numeric AND
+                                                                     EXTRACT(hour FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 22::numeric OR
+                                                                     EXTRACT(hour FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) = 23::numeric AND
+                                                                     EXTRACT(minute FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 50::numeric)
+                                                               THEN minute_candles.volume
+                                                               ELSE 0::bigint
+                                                               END) / count(DISTINCT CASE
+                                                                                         WHEN EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) >= 1::numeric AND
+                                                                                              EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 5::numeric
+                                                                                         THEN DATE(minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)
+                                                                                         ELSE NULL
+                                                                                         END)::numeric, 2)
+           ELSE 0::numeric
+           END AS evening_avg_volume_per_day,
+       CASE
+           WHEN count(DISTINCT CASE
+                                   WHEN EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) = ANY
+                                        (ARRAY [0::numeric, 6::numeric])
+                                   THEN DATE(minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)
+                                   ELSE NULL
+                                   END) > 0 THEN round(sum(
+                                                           CASE
+                                                               WHEN (EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) = ANY
+                                                                    (ARRAY [0::numeric, 6::numeric])) AND
+                                                                    (EXTRACT(hour FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) >= 10::numeric AND
+                                                                     EXTRACT(hour FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 17::numeric OR
+                                                                     EXTRACT(hour FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) = 18::numeric AND
+                                                                     EXTRACT(minute FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 59::numeric)
+                                                               THEN minute_candles.volume
+                                                               ELSE 0::bigint
+                                                               END) / count(DISTINCT CASE
+                                                                                         WHEN EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) = ANY
+                                                                                              (ARRAY [0::numeric, 6::numeric])
+                                                                                         THEN DATE(minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)
+                                                                                         ELSE NULL
+                                                                                         END)::numeric, 2)
+           ELSE 0::numeric
+           END AS weekend_exchange_avg_volume_per_day,
+       CASE
+           WHEN count(DISTINCT CASE
+                                   WHEN EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) = ANY
+                                        (ARRAY [0::numeric, 6::numeric])
+                                   THEN DATE(minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)
+                                   ELSE NULL
+                                   END) > 0 THEN round(sum(
+                                                           CASE
+                                                               WHEN (EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) = ANY
+                                                                    (ARRAY [0::numeric, 6::numeric])) AND
+                                                                    (EXTRACT(hour FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) >= 2::numeric AND
+                                                                     EXTRACT(hour FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 8::numeric OR
+                                                                     EXTRACT(hour FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) = 9::numeric AND
+                                                                     EXTRACT(minute FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 59::numeric OR
+                                                                     EXTRACT(hour FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) >= 19::numeric AND
+                                                                     EXTRACT(hour FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 22::numeric OR
+                                                                     EXTRACT(hour FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) = 23::numeric AND
+                                                                     EXTRACT(minute FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) <= 50::numeric)
+                                                               THEN minute_candles.volume
+                                                               ELSE 0::bigint
+                                                               END) / count(DISTINCT CASE
+                                                                                         WHEN EXTRACT(dow FROM (minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) = ANY
+                                                                                              (ARRAY [0::numeric, 6::numeric])
+                                                                                         THEN DATE(minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)
+                                                                                         ELSE NULL
+                                                                                         END)::numeric, 2)
+           ELSE 0::numeric
+           END AS weekend_otc_avg_volume_per_day,
        (min(minute_candles."time") AT TIME ZONE 'Europe/Moscow'::text) AS first_candle_time,
        (max(minute_candles."time") AT TIME ZONE 'Europe/Moscow'::text) AS last_candle_time,
        (now() AT TIME ZONE 'Europe/Moscow'::text)                      AS last_updated
@@ -480,4 +623,10 @@ FROM minute_candles
          LEFT JOIN shares s ON minute_candles.figi::text = s.figi::text
          LEFT JOIN futures f ON minute_candles.figi::text = f.figi::text
 GROUP BY minute_candles.figi, s.figi, f.figi
-ORDER BY minute_candles.figi
+ORDER BY minute_candles.figi;
+
+alter materialized view history_volume_aggregation owner to postgres;
+
+grant select on history_volume_aggregation to tester;
+
+grant delete, insert, references, select, trigger, truncate, update on history_volume_aggregation to admin;

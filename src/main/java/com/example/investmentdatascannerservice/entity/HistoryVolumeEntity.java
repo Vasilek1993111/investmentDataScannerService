@@ -83,6 +83,32 @@ public class HistoryVolumeEntity {
     @Column(name = "weekend_otc_avg_volume_per_candle", precision = 10, scale = 2)
     private BigDecimal weekendOtcAvgVolumePerCandle;
 
+    // Новые поля - количество дней
+    @Column(name = "total_days")
+    private Long totalDays;
+
+    @Column(name = "working_days")
+    private Long workingDays;
+
+    @Column(name = "weekend_days")
+    private Long weekendDays;
+
+    // Новые поля - средние объемы за день
+    @Column(name = "morning_avg_volume_per_day", precision = 10, scale = 2)
+    private BigDecimal morningAvgVolumePerDay;
+
+    @Column(name = "main_avg_volume_per_day", precision = 10, scale = 2)
+    private BigDecimal mainAvgVolumePerDay;
+
+    @Column(name = "evening_avg_volume_per_day", precision = 10, scale = 2)
+    private BigDecimal eveningAvgVolumePerDay;
+
+    @Column(name = "weekend_exchange_avg_volume_per_day", precision = 10, scale = 2)
+    private BigDecimal weekendExchangeAvgVolumePerDay;
+
+    @Column(name = "weekend_otc_avg_volume_per_day", precision = 10, scale = 2)
+    private BigDecimal weekendOtcAvgVolumePerDay;
+
     @Column(name = "first_candle_time")
     private LocalDateTime firstCandleTime;
 

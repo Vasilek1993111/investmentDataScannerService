@@ -843,7 +843,7 @@
                                 <th>BID (лоты)</th>
                                 <th>ASK (лоты)</th>
                                 <th>Объем</th>
-                                <th>Средний объем</th>
+                                <th>Исторический объем</th>
                                 <th>Время</th>
                             </tr>
                         </thead>
@@ -902,7 +902,7 @@
                                 <th>BID (лоты)</th>
                                 <th>ASK (лоты)</th>
                                 <th>Объем</th>
-                                <th>Средний объем</th>
+                                <th>Исторический объем</th>
                                 <th>Время</th>
                             </tr>
                         </thead>
@@ -971,6 +971,9 @@
         let quotes = new Map();
         let gainers = [];
         let losers = [];
+
+        // Глобальные переменные для кэширования данных
+        let historyVolumeData = null;
         let updateCount = 0;
         let lastUpdateTime = null;
         let updateTimer = null;
@@ -1519,7 +1522,7 @@
                 <td>${formatBidAsk(quoteData.bestBid, quoteData.bestBidQuantity || 0)}</td>
                 <td>${formatBidAsk(quoteData.bestAsk, quoteData.bestAskQuantity || 0)}</td>
                 <td>${(quoteData.totalVolume || 0).toLocaleString()}</td>
-                <td>${formatAvgVolume(quoteData.avgVolumeMorning)}</td>
+                <td>${formatAvgVolume(getAvgVolumeFromHistory(quoteData.figi))}</td>
                 <td class="timestamp">${formatTime(quoteData.timestamp)}</td>
             `;
 
@@ -1793,6 +1796,9 @@
             loadClosePricesForAllQuotes();
         }, 2000);
 
+        // Инициализируем данные объемов
+        initializeVolumeData();
+
         // Функции для управления индексами
         function toggleIndexManagement() {
             const modal = document.getElementById('indexManagementModal');
@@ -2020,6 +2026,57 @@
                     loadClosePricesForQuote(quoteData);
                 }
             });
+        }
+
+        // Функция для загрузки исторических данных объемов
+        async function loadHistoryVolumeData() {
+            try {
+                console.log('Загружаем исторические данные объемов...');
+
+                // Загружаем основные исторические данные
+                const response = await fetch('/api/price-cache/history-volumes');
+                if (!response.ok) {
+                    console.error('Ошибка загрузки исторических данных:', response.status);
+                    return null;
+                }
+                const data = await response.json();
+
+                // Загружаем средние объемы за день
+                const avgVolumesResponse = await fetch('/api/price-cache/history-avg-volumes-per-day');
+                if (avgVolumesResponse.ok) {
+                    const avgVolumesData = await avgVolumesResponse.json();
+                    // Добавляем данные о средних объемах за день к основным данным
+                    data.weekendExchangeAvgVolumesPerDay = avgVolumesData.weekendExchangeAvgVolumesPerDay || {};
+                    console.log('Данные о средних объемах за день загружены:', avgVolumesData);
+                } else {
+                    console.warn('Не удалось загрузить данные о средних объемах за день');
+                    data.weekendExchangeAvgVolumesPerDay = {};
+                }
+
+                console.log('Исторические данные загружены:', data);
+                return data;
+            } catch (error) {
+                console.error('Ошибка при загрузке исторических данных:', error);
+                return null;
+            }
+        }
+
+        // Функция для инициализации данных объемов
+        async function initializeVolumeData() {
+            console.log('Инициализируем данные объемов...');
+
+            // Загружаем исторические данные
+            historyVolumeData = await loadHistoryVolumeData();
+
+            console.log('Данные объемов инициализированы');
+        }
+
+        // Функция для получения исторического объема за выходной день
+        function getAvgVolumeFromHistory(figi) {
+            if (historyVolumeData && historyVolumeData.weekendExchangeAvgVolumesPerDay) {
+                return historyVolumeData.weekendExchangeAvgVolumesPerDay[figi] || 0;
+            }
+            return 0;
         }
 
         // Закрытие модального окна при клике вне его

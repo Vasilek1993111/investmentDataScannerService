@@ -323,4 +323,93 @@ public class PriceCacheController {
         }
     }
 
+    /**
+     * Получение данных о днях из исторических данных
+     */
+    @GetMapping("/history-days")
+    public ResponseEntity<Map<String, Object>> getHistoryDays() {
+        try {
+            Map<String, Long> totalDays = historyVolumeService.getAllTotalDays();
+            Map<String, Long> workingDays = historyVolumeService.getAllWorkingDays();
+            Map<String, Long> weekendDays = historyVolumeService.getAllWeekendDays();
+            Map<String, Object> stats = historyVolumeService.getHistoryVolumeStats();
+
+            Map<String, Object> result = new java.util.HashMap<>();
+            result.put("totalDays", totalDays);
+            result.put("workingDays", workingDays);
+            result.put("weekendDays", weekendDays);
+            result.put("stats", stats);
+
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("Error getting history days data", e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * Получение данных о днях для конкретного инструмента
+     */
+    @GetMapping("/history-days/{figi}")
+    public ResponseEntity<Map<String, Object>> getHistoryDaysByFigi(@PathVariable String figi) {
+        try {
+            Map<String, Object> result =
+                    Map.of("figi", figi, "totalDays", historyVolumeService.getTotalDays(figi),
+                            "workingDays", historyVolumeService.getWorkingDays(figi), "weekendDays",
+                            historyVolumeService.getWeekendDays(figi));
+
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("Error getting history days data for figi: {}", figi, e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * Получение средних объемов за день из исторических данных
+     */
+    @GetMapping("/history-avg-volumes-per-day")
+    public ResponseEntity<Map<String, Object>> getHistoryAvgVolumesPerDay() {
+        try {
+            Map<String, Object> result = new java.util.HashMap<>();
+            result.put("morningAvgVolumesPerDay",
+                    historyVolumeService.getAllMorningAvgVolumesPerDay());
+            result.put("mainAvgVolumesPerDay", historyVolumeService.getAllMainAvgVolumesPerDay());
+            result.put("eveningAvgVolumesPerDay",
+                    historyVolumeService.getAllEveningAvgVolumesPerDay());
+            result.put("weekendExchangeAvgVolumesPerDay",
+                    historyVolumeService.getAllWeekendExchangeAvgVolumesPerDay());
+            result.put("weekendOtcAvgVolumesPerDay",
+                    historyVolumeService.getAllWeekendOtcAvgVolumesPerDay());
+
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("Error getting history avg volumes per day data", e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * Получение средних объемов за день для конкретного инструмента
+     */
+    @GetMapping("/history-avg-volumes-per-day/{figi}")
+    public ResponseEntity<Map<String, Object>> getHistoryAvgVolumesPerDayByFigi(
+            @PathVariable String figi) {
+        try {
+            Map<String, Object> result = Map.of("figi", figi, "morningAvgVolumePerDay",
+                    historyVolumeService.getMorningAvgVolumePerDay(figi), "mainAvgVolumePerDay",
+                    historyVolumeService.getMainAvgVolumePerDay(figi), "eveningAvgVolumePerDay",
+                    historyVolumeService.getEveningAvgVolumePerDay(figi),
+                    "weekendExchangeAvgVolumePerDay",
+                    historyVolumeService.getWeekendExchangeAvgVolumePerDay(figi),
+                    "weekendOtcAvgVolumePerDay",
+                    historyVolumeService.getWeekendOtcAvgVolumePerDay(figi));
+
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("Error getting history avg volumes per day data for figi: {}", figi, e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
 }

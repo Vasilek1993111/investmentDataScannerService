@@ -772,6 +772,10 @@
                 <h3>Последнее обновление</h3>
                 <div class="value" id="lastUpdate">--:--:--</div>
             </div>
+            <div class="stat-card">
+                <h3>Режим выходного дня</h3>
+                <div class="value" id="weekendStatus">Проверка...</div>
+            </div>
         </div>
 
         <div class="controls">
@@ -781,6 +785,8 @@
                 индексами</button>
             <button id="loadPricesBtn" class="btn btn-info" onclick="loadClosePricesForAllQuotes()">Загрузить цены
                 ОС</button>
+            <button id="loadVolumesBtn" class="btn btn-warning" onclick="initializeVolumeData()">Обновить
+                объемы</button>
             <a href="/" class="btn btn-primary">← На главную</a>
             <div id="connectionStatus" class="status disconnected">Отключено</div>
         </div>
@@ -832,7 +838,7 @@
                                 <th>BID (лоты)</th>
                                 <th>ASK (лоты)</th>
                                 <th>Объем</th>
-                                <th>Средний объем</th>
+                                <th>Исторический объем</th>
                                 <th>Время</th>
                             </tr>
                         </thead>
@@ -890,7 +896,7 @@
                                 <th>BID (лоты)</th>
                                 <th>ASK (лоты)</th>
                                 <th>Объем</th>
-                                <th>Средний объем</th>
+                                <th>Исторический объем</th>
                                 <th>Время</th>
                             </tr>
                         </thead>
@@ -1061,6 +1067,9 @@
                 loadClosePricesForQuote(quoteData);
             }
 
+            // Обновляем данные объемов для инструмента
+            updateVolumeDataForQuote(quoteData);
+
             quotes.set(figi, quoteData);
 
             updateCount++;
@@ -1087,10 +1096,33 @@
             updateTopLists();
         }
 
+        // Функция для обновления данных объемов для конкретной котировки
+        function updateVolumeDataForQuote(quoteData) {
+            const figi = quoteData.figi;
+
+            // Добавляем объем из today_volume_view если сегодня выходной день
+            if (isWeekend() && todayVolumeData && todayVolumeData.volumes) {
+                quoteData.totalVolume = todayVolumeData.volumes[figi] || 0;
+            } else {
+                quoteData.totalVolume = 0;
+            }
+
+            // Добавляем средний объем из исторических данных
+            if (historyVolumeData && historyVolumeData.weekendExchangeVolumes) {
+                quoteData.avgVolumeWeekend = historyVolumeData.weekendExchangeVolumes[figi] || 0;
+            } else {
+                quoteData.avgVolumeWeekend = 0;
+            }
+        }
+
         function updateTotalVolume() {
             let total = 0;
             quotes.forEach(quote => {
-                total += quote.totalVolume || 0;
+                // Используем объем из today_volume_view только если сегодня выходной день
+                if (isWeekend() && todayVolumeData && todayVolumeData.volumes) {
+                    total += todayVolumeData.volumes[quote.figi] || 0;
+                }
+                // В будние дни показываем 0
             });
             totalVolume.textContent = total.toLocaleString();
         }
@@ -1489,6 +1521,12 @@
             const changePercentFromOS = priceOS ? ((quoteData.currentPrice - priceOS) / priceOS) * 100 : 0;
             const changeClass = changePercentFromOS > 0 ? 'positive' : changePercentFromOS < 0 ? 'negative' : '';
 
+            // Получаем объем для отображения
+            const displayVolume = getDisplayVolume(quoteData.figi);
+
+            // Получаем средний объем из исторических данных
+            const avgVolume = getAvgVolumeFromHistory(quoteData.figi);
+
             row.innerHTML = `
                 <td><span class="rank">#${rank || ''}</span> <strong>${quoteData.ticker || quoteData.figi}</strong></td>
                 <td class="${priceChangeClass}">${formatPrice(quoteData.currentPrice)}</td>
@@ -1497,20 +1535,49 @@
                 <td><span class="change-percent ${changeClass}">${formatPercent(changePercentFromOS)}</span></td>
                 <td>${formatBidAsk(quoteData.bestBid, quoteData.bestBidQuantity || 0)}</td>
                 <td>${formatBidAsk(quoteData.bestAsk, quoteData.bestAskQuantity || 0)}</td>
-                <td>${(quoteData.totalVolume || 0).toLocaleString()}</td>
-                <td>${formatAvgVolume(quoteData.avgVolumeWeekend)}</td>
+                <td>${displayVolume.toLocaleString()}</td>
+                <td>${formatAvgVolume(avgVolume)}</td>
                 <td class="timestamp">${formatTime(quoteData.timestamp)}</td>
             `;
 
             return row;
         }
 
+        // Функция для получения объема для отображения
+        function getDisplayVolume(figi) {
+            // Если сегодня выходной день, показываем total_volume из today_volume_view
+            if (isWeekend() && todayVolumeData && todayVolumeData.volumes) {
+                return todayVolumeData.volumes[figi] || 0;
+            }
+            // Иначе показываем 0
+            return 0;
+        }
+
+        // Функция для получения исторического объема за выходной день
+        function getAvgVolumeFromHistory(figi) {
+            if (historyVolumeData && historyVolumeData.weekendExchangeAvgVolumesPerDay) {
+                return historyVolumeData.weekendExchangeAvgVolumesPerDay[figi] || 0;
+            }
+            return 0;
+        }
+
         async function updateWeekendStatus() {
             const now = new Date();
             const moscowTime = new Date(now.getTime() + (3 * 60 * 60 * 1000)); // UTC+3
+            const weekendStatusElement = document.getElementById('weekendStatus');
 
-            // В выходном режиме всегда показываем активное состояние
-            console.log('Weekend scanner mode - always active');
+            // Проверяем, является ли сегодня выходным днем
+            const isWeekendDay = isWeekend();
+
+            if (isWeekendDay) {
+                weekendStatusElement.textContent = 'Активен';
+                weekendStatusElement.style.color = '#2e7d32';
+                console.log('Weekend scanner mode - ВЫХОДНОЙ ДЕНЬ - показываем объемы');
+            } else {
+                weekendStatusElement.textContent = 'Будний день';
+                weekendStatusElement.style.color = '#f57c00';
+                console.log('Weekend scanner mode - БУДНИЙ ДЕНЬ - объемы = 0');
+            }
         }
 
         function getPriceChangeClass(priceChange) {
@@ -1678,6 +1745,12 @@
 
         // Инициализируем полоску индексов при загрузке
         initializeIndicesBar();
+
+        // Инициализируем данные объемов
+        initializeVolumeData();
+
+        // Обновляем статус выходного дня каждую минуту
+        setInterval(updateWeekendStatus, 60000);
 
         // Загружаем актуальные индексы с сервера
         updateIndicesFromServer();
@@ -1915,6 +1988,100 @@
                     loadClosePricesForQuote(quoteData);
                 }
             });
+        }
+
+        // Функция для проверки, является ли сегодня выходным днем
+        function isWeekend() {
+            const now = new Date();
+            const moscowTime = new Date(now.getTime() + (3 * 60 * 60 * 1000)); // UTC+3
+            const dayOfWeek = moscowTime.getDay();
+            return dayOfWeek === 0 || dayOfWeek === 6; // Воскресенье = 0, Суббота = 6
+        }
+
+        // Функция для загрузки исторических данных объемов
+        async function loadHistoryVolumeData() {
+            try {
+                console.log('Загружаем исторические данные объемов...');
+
+                // Загружаем основные исторические данные
+                const response = await fetch('/api/price-cache/history-volumes');
+                if (!response.ok) {
+                    console.error('Ошибка загрузки исторических данных:', response.status);
+                    return null;
+                }
+                const data = await response.json();
+
+                // Загружаем средние объемы за день
+                const avgVolumesResponse = await fetch('/api/price-cache/history-avg-volumes-per-day');
+                if (avgVolumesResponse.ok) {
+                    const avgVolumesData = await avgVolumesResponse.json();
+                    // Добавляем данные о средних объемах за день к основным данным
+                    data.weekendExchangeAvgVolumesPerDay = avgVolumesData.weekendExchangeAvgVolumesPerDay || {};
+                    console.log('Данные о средних объемах за день загружены:', avgVolumesData);
+                } else {
+                    console.warn('Не удалось загрузить данные о средних объемах за день');
+                    data.weekendExchangeAvgVolumesPerDay = {};
+                }
+
+                console.log('Исторические данные загружены:', data);
+                return data;
+            } catch (error) {
+                console.error('Ошибка при загрузке исторических данных:', error);
+                return null;
+            }
+        }
+
+        // Функция для загрузки сегодняшних данных объемов
+        async function loadTodayVolumeData() {
+            try {
+                console.log('Загружаем сегодняшние данные объемов...');
+                const response = await fetch('/api/price-cache/weekend-exchange-volume');
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('Сегодняшние данные загружены:', data);
+                    return data;
+                } else {
+                    console.error('Ошибка загрузки сегодняшних данных:', response.status);
+                    return null;
+                }
+            } catch (error) {
+                console.error('Ошибка при загрузке сегодняшних данных:', error);
+                return null;
+            }
+        }
+
+        // Глобальные переменные для кэширования данных
+        let historyVolumeData = null;
+        let todayVolumeData = null;
+
+        // Функция для инициализации данных объемов
+        async function initializeVolumeData() {
+            console.log('Инициализируем данные объемов...');
+
+            // Загружаем исторические данные
+            historyVolumeData = await loadHistoryVolumeData();
+
+            // Загружаем сегодняшние данные
+            todayVolumeData = await loadTodayVolumeData();
+
+            // Обновляем все существующие котировки
+            updateAllQuotesWithVolumeData();
+
+            console.log('Данные объемов инициализированы');
+        }
+
+        // Функция для обновления всех существующих котировок данными объемов
+        function updateAllQuotesWithVolumeData() {
+            console.log('Обновляем все котировки данными объемов...');
+            quotes.forEach((quoteData, figi) => {
+                updateVolumeDataForQuote(quoteData);
+            });
+
+            // Обновляем отображение
+            updateTopLists();
+            updateTotalVolume();
+
+            console.log('Все котировки обновлены данными объемов');
         }
 
         // Закрытие модального окна при клике вне его
