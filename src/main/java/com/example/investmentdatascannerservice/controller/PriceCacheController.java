@@ -166,7 +166,14 @@ public class PriceCacheController {
             Map<String, BigDecimal> prices = priceCacheService.getPricesForFigi(figi);
             Map<String, Object> result = new java.util.HashMap<>();
             result.put("figi", figi);
-            result.putAll(prices);
+
+            // Добавляем объект prices с конкретными ценами
+            Map<String, Object> pricesObject = new java.util.HashMap<>();
+            pricesObject.put("openPrice", prices.get("openPrice"));
+            pricesObject.put("closePrice", prices.get("closePrice"));
+            pricesObject.put("eveningSessionPrice", prices.get("eveningSessionPrice"));
+            result.put("prices", pricesObject);
+
             result.put("dates", Map.of("closePriceDate", priceCacheService.getLastClosePriceDate(),
                     "eveningSessionPriceDate", priceCacheService.getLastEveningSessionPriceDate(),
                     "openPriceDate", priceCacheService.getLastOpenPriceDate()));
@@ -177,49 +184,7 @@ public class PriceCacheController {
         }
     }
 
-    /**
-     * Получение данных выходной биржевой сессии из today_volume_view
-     */
-    @GetMapping("/weekend-exchange-volume")
-    public ResponseEntity<Map<String, Object>> getWeekendExchangeVolume() {
-        try {
-            Map<String, Long> volumes = todayVolumeService.getAllWeekendExchangeVolumes();
-            Map<String, Long> candles = todayVolumeService.getAllWeekendExchangeCandles();
-            Map<String, BigDecimal> avgVolumes =
-                    todayVolumeService.getAllWeekendExchangeAvgVolumes();
-            Map<String, Object> stats = todayVolumeService.getTodayVolumeStats();
 
-            Map<String, Object> result = new java.util.HashMap<>();
-            result.put("volumes", volumes);
-            result.put("candles", candles);
-            result.put("avgVolumes", avgVolumes);
-            result.put("stats", stats);
-
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            log.error("Error getting weekend exchange volume data", e);
-            return ResponseEntity.internalServerError().build();
-        }
-    }
-
-    /**
-     * Получение данных выходной биржевой сессии для конкретного инструмента
-     */
-    @GetMapping("/weekend-exchange-volume/{figi}")
-    public ResponseEntity<Map<String, Object>> getWeekendExchangeVolumeByFigi(
-            @PathVariable String figi) {
-        try {
-            Map<String, Object> result = Map.of("figi", figi, "volume",
-                    todayVolumeService.getWeekendExchangeVolume(figi), "candles",
-                    todayVolumeService.getWeekendExchangeCandles(figi), "avgVolume",
-                    todayVolumeService.getWeekendExchangeAvgVolume(figi));
-
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            log.error("Error getting weekend exchange volume data for figi: {}", figi, e);
-            return ResponseEntity.internalServerError().build();
-        }
-    }
 
     /**
      * Загрузка уже проторгованных объемов из today_volume_view в накопленные объемы
@@ -237,27 +202,12 @@ public class PriceCacheController {
         }
     }
 
-    /**
-     * Очистка накопленных объемов (сброс счетчика)
-     */
-    @PostMapping("/clear-accumulated-volumes")
-    public ResponseEntity<String> clearAccumulatedVolumes() {
-        try {
-            log.info("Clearing accumulated volumes...");
-            instrumentCacheService.clearAccumulatedVolumes();
-            return ResponseEntity.ok("Accumulated volumes cleared");
-        } catch (Exception e) {
-            log.error("Error clearing accumulated volumes", e);
-            return ResponseEntity.internalServerError()
-                    .body("Error clearing accumulated volumes: " + e.getMessage());
-        }
-    }
 
     /**
-     * Получение исторических данных объемов из history_volume_aggregation
+     * Получение всех данных объемов (исторических и сегодняшних)
      */
-    @GetMapping("/history-volumes")
-    public ResponseEntity<Map<String, Object>> getHistoryVolumes() {
+    @GetMapping("/volumes")
+    public ResponseEntity<Map<String, Object>> getVolumes() {
         try {
             Map<String, Long> totalVolumes = historyVolumeService.getAllTotalVolumes();
             Map<String, Long> morningVolumes = historyVolumeService.getAllMorningSessionVolumes();
@@ -268,14 +218,38 @@ public class PriceCacheController {
             Map<String, Long> weekendOtcVolumes = historyVolumeService.getAllWeekendOtcVolumes();
             Map<String, Object> stats = historyVolumeService.getHistoryVolumeStats();
 
+            // Добавляем средние объемы за день
+            Map<String, Object> avgVolumesPerDay = new java.util.HashMap<>();
+            avgVolumesPerDay.put("morningAvgVolumesPerDay",
+                    historyVolumeService.getAllMorningAvgVolumesPerDay());
+            avgVolumesPerDay.put("mainAvgVolumesPerDay",
+                    historyVolumeService.getAllMainAvgVolumesPerDay());
+            avgVolumesPerDay.put("eveningAvgVolumesPerDay",
+                    historyVolumeService.getAllEveningAvgVolumesPerDay());
+            avgVolumesPerDay.put("weekendExchangeAvgVolumesPerDay",
+                    historyVolumeService.getAllWeekendExchangeAvgVolumesPerDay());
+            avgVolumesPerDay.put("weekendOtcAvgVolumesPerDay",
+                    historyVolumeService.getAllWeekendOtcAvgVolumesPerDay());
+
+            // Сегодняшние данные
+            Map<String, Long> todayVolumes = todayVolumeService.getAllTotalVolumes();
+            Map<String, Object> todayStats = todayVolumeService.getTodayVolumeStats();
+
             Map<String, Object> result = new java.util.HashMap<>();
+
+            // Исторические данные
             result.put("totalVolumes", totalVolumes);
             result.put("morningVolumes", morningVolumes);
             result.put("mainVolumes", mainVolumes);
             result.put("eveningVolumes", eveningVolumes);
             result.put("weekendExchangeVolumes", weekendExchangeVolumes);
             result.put("weekendOtcVolumes", weekendOtcVolumes);
-            result.put("stats", stats);
+            result.put("avgVolumesPerDay", avgVolumesPerDay);
+            result.put("historyStats", stats);
+
+            // Сегодняшние данные
+            result.put("todayVolumes", todayVolumes);
+            result.put("todayStats", todayStats);
 
             return ResponseEntity.ok(result);
         } catch (Exception e) {
@@ -285,20 +259,48 @@ public class PriceCacheController {
     }
 
     /**
-     * Получение исторических данных объемов для конкретного инструмента
+     * Получение всех данных объемов для конкретного инструмента
      */
-    @GetMapping("/history-volumes/{figi}")
-    public ResponseEntity<Map<String, Object>> getHistoryVolumesByFigi(@PathVariable String figi) {
+    @GetMapping("/volumes/{figi}")
+    public ResponseEntity<Map<String, Object>> getVolumesByFigi(@PathVariable String figi) {
         try {
-            Map<String, Object> result = Map.of("figi", figi, "totalVolume",
-                    historyVolumeService.getTotalVolume(figi), "totalCandles",
-                    historyVolumeService.getTotalCandles(figi), "avgVolumePerCandle",
-                    historyVolumeService.getAvgVolumePerCandle(figi), "morningSessionVolume",
-                    historyVolumeService.getMorningSessionVolume(figi), "mainSessionVolume",
-                    historyVolumeService.getMainSessionVolume(figi), "eveningSessionVolume",
-                    historyVolumeService.getEveningSessionVolume(figi), "weekendExchangeVolume",
-                    historyVolumeService.getWeekendExchangeVolume(figi), "weekendOtcVolume",
-                    historyVolumeService.getWeekendOtcVolume(figi));
+            Map<String, Object> result = new java.util.HashMap<>();
+            result.put("figi", figi);
+
+            // Группируем данные по объектам
+            Map<String, Object> volumes = new java.util.HashMap<>();
+            volumes.put("totalVolume", historyVolumeService.getTotalVolume(figi));
+            volumes.put("morningSessionVolume", historyVolumeService.getMorningSessionVolume(figi));
+            volumes.put("mainSessionVolume", historyVolumeService.getMainSessionVolume(figi));
+            volumes.put("eveningSessionVolume", historyVolumeService.getEveningSessionVolume(figi));
+            volumes.put("weekendExchangeVolume",
+                    historyVolumeService.getWeekendExchangeVolume(figi));
+            volumes.put("weekendOtcVolume", historyVolumeService.getWeekendOtcVolume(figi));
+            volumes.put("todayVolume", todayVolumeService.getTotalVolume(figi));
+            result.put("volumes", volumes);
+
+            Map<String, Object> avg = new java.util.HashMap<>();
+            avg.put("avgVolumePerCandle", historyVolumeService.getAvgVolumePerCandle(figi));
+            avg.put("todayAvgVolumePerCandle", todayVolumeService.getAvgVolumePerCandle(figi));
+            result.put("avg", avg);
+
+            Map<String, Object> candles = new java.util.HashMap<>();
+            candles.put("totalCandles", historyVolumeService.getTotalCandles(figi));
+            candles.put("todayCandles", todayVolumeService.getTotalCandles(figi));
+            result.put("candles", candles);
+
+            Map<String, Object> volumePerDays = new java.util.HashMap<>();
+            volumePerDays.put("morningAvgVolumePerDay",
+                    historyVolumeService.getMorningAvgVolumePerDay(figi));
+            volumePerDays.put("mainAvgVolumePerDay",
+                    historyVolumeService.getMainAvgVolumePerDay(figi));
+            volumePerDays.put("eveningAvgVolumePerDay",
+                    historyVolumeService.getEveningAvgVolumePerDay(figi));
+            volumePerDays.put("weekendExchangeAvgVolumePerDay",
+                    historyVolumeService.getWeekendExchangeAvgVolumePerDay(figi));
+            volumePerDays.put("weekendOtcAvgVolumePerDay",
+                    historyVolumeService.getWeekendOtcAvgVolumePerDay(figi));
+            result.put("volumePerDays", volumePerDays);
 
             return ResponseEntity.ok(result);
         } catch (Exception e) {
@@ -308,9 +310,9 @@ public class PriceCacheController {
     }
 
     /**
-     * Перезагрузка исторических данных
+     * Перезагрузка данных объемов
      */
-    @PostMapping("/reload-history-volumes")
+    @PostMapping("/reload-volumes")
     public ResponseEntity<String> reloadHistoryVolumes() {
         try {
             log.info("Reloading history volume data...");
@@ -320,95 +322,6 @@ public class PriceCacheController {
             log.error("Error reloading history volume data", e);
             return ResponseEntity.internalServerError()
                     .body("Error reloading history volume data: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Получение данных о днях из исторических данных
-     */
-    @GetMapping("/history-days")
-    public ResponseEntity<Map<String, Object>> getHistoryDays() {
-        try {
-            Map<String, Long> totalDays = historyVolumeService.getAllTotalDays();
-            Map<String, Long> workingDays = historyVolumeService.getAllWorkingDays();
-            Map<String, Long> weekendDays = historyVolumeService.getAllWeekendDays();
-            Map<String, Object> stats = historyVolumeService.getHistoryVolumeStats();
-
-            Map<String, Object> result = new java.util.HashMap<>();
-            result.put("totalDays", totalDays);
-            result.put("workingDays", workingDays);
-            result.put("weekendDays", weekendDays);
-            result.put("stats", stats);
-
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            log.error("Error getting history days data", e);
-            return ResponseEntity.internalServerError().build();
-        }
-    }
-
-    /**
-     * Получение данных о днях для конкретного инструмента
-     */
-    @GetMapping("/history-days/{figi}")
-    public ResponseEntity<Map<String, Object>> getHistoryDaysByFigi(@PathVariable String figi) {
-        try {
-            Map<String, Object> result =
-                    Map.of("figi", figi, "totalDays", historyVolumeService.getTotalDays(figi),
-                            "workingDays", historyVolumeService.getWorkingDays(figi), "weekendDays",
-                            historyVolumeService.getWeekendDays(figi));
-
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            log.error("Error getting history days data for figi: {}", figi, e);
-            return ResponseEntity.internalServerError().build();
-        }
-    }
-
-    /**
-     * Получение средних объемов за день из исторических данных
-     */
-    @GetMapping("/history-avg-volumes-per-day")
-    public ResponseEntity<Map<String, Object>> getHistoryAvgVolumesPerDay() {
-        try {
-            Map<String, Object> result = new java.util.HashMap<>();
-            result.put("morningAvgVolumesPerDay",
-                    historyVolumeService.getAllMorningAvgVolumesPerDay());
-            result.put("mainAvgVolumesPerDay", historyVolumeService.getAllMainAvgVolumesPerDay());
-            result.put("eveningAvgVolumesPerDay",
-                    historyVolumeService.getAllEveningAvgVolumesPerDay());
-            result.put("weekendExchangeAvgVolumesPerDay",
-                    historyVolumeService.getAllWeekendExchangeAvgVolumesPerDay());
-            result.put("weekendOtcAvgVolumesPerDay",
-                    historyVolumeService.getAllWeekendOtcAvgVolumesPerDay());
-
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            log.error("Error getting history avg volumes per day data", e);
-            return ResponseEntity.internalServerError().build();
-        }
-    }
-
-    /**
-     * Получение средних объемов за день для конкретного инструмента
-     */
-    @GetMapping("/history-avg-volumes-per-day/{figi}")
-    public ResponseEntity<Map<String, Object>> getHistoryAvgVolumesPerDayByFigi(
-            @PathVariable String figi) {
-        try {
-            Map<String, Object> result = Map.of("figi", figi, "morningAvgVolumePerDay",
-                    historyVolumeService.getMorningAvgVolumePerDay(figi), "mainAvgVolumePerDay",
-                    historyVolumeService.getMainAvgVolumePerDay(figi), "eveningAvgVolumePerDay",
-                    historyVolumeService.getEveningAvgVolumePerDay(figi),
-                    "weekendExchangeAvgVolumePerDay",
-                    historyVolumeService.getWeekendExchangeAvgVolumePerDay(figi),
-                    "weekendOtcAvgVolumePerDay",
-                    historyVolumeService.getWeekendOtcAvgVolumePerDay(figi));
-
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            log.error("Error getting history avg volumes per day data for figi: {}", figi, e);
-            return ResponseEntity.internalServerError().build();
         }
     }
 

@@ -788,8 +788,6 @@
             <button id="disconnectBtn" class="btn btn-danger" disabled>Отключиться</button>
             <button id="manageIndicesBtn" class="btn btn-secondary" onclick="toggleIndexManagement()">Управление
                 индексами</button>
-            <button id="loadPricesBtn" class="btn btn-info" onclick="loadClosePricesForAllQuotes()">Загрузить цены
-                ОС</button>
             <a href="/" class="btn btn-primary">← На главную</a>
             <div id="connectionStatus" class="status disconnected">Отключено</div>
         </div>
@@ -974,6 +972,7 @@
 
         // Глобальные переменные для кэширования данных
         let historyVolumeData = null;
+        let todayVolumeData = null;
         let updateCount = 0;
         let lastUpdateTime = null;
         let updateTimer = null;
@@ -1521,7 +1520,7 @@
                 <td><span class="change-percent ${changeClass}">${formatPercent(changePercentFromOS)}</span></td>
                 <td>${formatBidAsk(quoteData.bestBid, quoteData.bestBidQuantity || 0)}</td>
                 <td>${formatBidAsk(quoteData.bestAsk, quoteData.bestAskQuantity || 0)}</td>
-                <td>${(quoteData.totalVolume || 0).toLocaleString()}</td>
+                <td>${getDisplayVolume(quoteData.figi).toLocaleString()}</td>
                 <td>${formatAvgVolume(getAvgVolumeFromHistory(quoteData.figi))}</td>
                 <td class="timestamp">${formatTime(quoteData.timestamp)}</td>
             `;
@@ -2034,23 +2033,16 @@
                 console.log('Загружаем исторические данные объемов...');
 
                 // Загружаем основные исторические данные
-                const response = await fetch('/api/price-cache/history-volumes');
+                const response = await fetch('/api/price-cache/volumes');
                 if (!response.ok) {
                     console.error('Ошибка загрузки исторических данных:', response.status);
                     return null;
                 }
                 const data = await response.json();
 
-                // Загружаем средние объемы за день
-                const avgVolumesResponse = await fetch('/api/price-cache/history-avg-volumes-per-day');
-                if (avgVolumesResponse.ok) {
-                    const avgVolumesData = await avgVolumesResponse.json();
-                    // Добавляем данные о средних объемах за день к основным данным
-                    data.weekendExchangeAvgVolumesPerDay = avgVolumesData.weekendExchangeAvgVolumesPerDay || {};
-                    console.log('Данные о средних объемах за день загружены:', avgVolumesData);
-                } else {
-                    console.warn('Не удалось загрузить данные о средних объемах за день');
-                    data.weekendExchangeAvgVolumesPerDay = {};
+                // Данные о средних объемах за день теперь включены в основной ответ
+                if (data.avgVolumesPerDay) {
+                    data.weekendExchangeAvgVolumesPerDay = data.avgVolumesPerDay.weekendExchangeAvgVolumesPerDay || {};
                 }
 
                 console.log('Исторические данные загружены:', data);
@@ -2061,14 +2053,39 @@
             }
         }
 
+        // Функция для проверки выходного дня
+        function isWeekend() {
+            const now = new Date();
+            const dayOfWeek = now.getDay();
+            return dayOfWeek === 0 || dayOfWeek === 6; // Воскресенье или суббота
+        }
+
+
         // Функция для инициализации данных объемов
         async function initializeVolumeData() {
             console.log('Инициализируем данные объемов...');
 
-            // Загружаем исторические данные
-            historyVolumeData = await loadHistoryVolumeData();
+            // Загружаем все данные объемов (исторические и сегодняшние)
+            const data = await loadHistoryVolumeData();
+            if (data) {
+                historyVolumeData = data;
+                // Сегодняшние данные теперь включены в основной ответ
+                if (isWeekend() && data.todayVolumes) {
+                    todayVolumeData = { volumes: data.todayVolumes };
+                }
+            }
 
             console.log('Данные объемов инициализированы');
+        }
+
+        // Функция для получения объема для отображения
+        function getDisplayVolume(figi) {
+            // Если сегодня выходной день, показываем total_volume из today_volume_view
+            if (isWeekend() && todayVolumeData && todayVolumeData.volumes) {
+                return todayVolumeData.volumes[figi] || 0;
+            }
+            // Иначе показываем 0
+            return 0;
         }
 
         // Функция для получения исторического объема за выходной день

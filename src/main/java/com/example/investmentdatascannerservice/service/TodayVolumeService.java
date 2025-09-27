@@ -24,10 +24,11 @@ public class TodayVolumeService {
 
     private final TodayVolumeRepository todayVolumeRepository;
 
-    // Кэш для данных выходной биржевой сессии
-    private final Map<String, Long> weekendExchangeVolumes = new ConcurrentHashMap<>();
-    private final Map<String, Long> weekendExchangeCandles = new ConcurrentHashMap<>();
-    private final Map<String, BigDecimal> weekendExchangeAvgVolumes = new ConcurrentHashMap<>();
+    // Кэш для общих данных
+    private final Map<String, Long> totalVolumes = new ConcurrentHashMap<>();
+    private final Map<String, Long> totalCandles = new ConcurrentHashMap<>();
+    private final Map<String, BigDecimal> avgVolumesPerCandle = new ConcurrentHashMap<>();
+
 
     @PostConstruct
     public void initializeTodayVolumeData() {
@@ -45,32 +46,28 @@ public class TodayVolumeService {
             List<TodayVolumeEntity> todayVolumes = todayVolumeRepository.findAllTodayVolumes();
 
             // Очищаем кэш
-            weekendExchangeVolumes.clear();
-            weekendExchangeCandles.clear();
-            weekendExchangeAvgVolumes.clear();
+            totalVolumes.clear();
+            totalCandles.clear();
+            avgVolumesPerCandle.clear();
 
-            // Загружаем данные выходной биржевой сессии
+            // Загружаем все данные
             for (TodayVolumeEntity entity : todayVolumes) {
                 String figi = entity.getFigi();
 
-                if (entity.getWeekendExchangeSessionVolume() != null) {
-                    weekendExchangeVolumes.put(figi, entity.getWeekendExchangeSessionVolume());
+                // Общие данные
+                if (entity.getTotalVolume() != null) {
+                    totalVolumes.put(figi, entity.getTotalVolume());
+                }
+                if (entity.getTotalCandles() != null) {
+                    totalCandles.put(figi, entity.getTotalCandles());
+                }
+                if (entity.getAvgVolumePerCandle() != null) {
+                    avgVolumesPerCandle.put(figi, entity.getAvgVolumePerCandle());
                 }
 
-                if (entity.getWeekendExchangeSessionCandles() != null) {
-                    weekendExchangeCandles.put(figi, entity.getWeekendExchangeSessionCandles());
-                }
-
-                if (entity.getWeekendExchangeAvgVolumePerCandle() != null) {
-                    weekendExchangeAvgVolumes.put(figi,
-                            entity.getWeekendExchangeAvgVolumePerCandle());
-                }
             }
 
             log.info("Loaded today volume data for {} instruments", todayVolumes.size());
-            log.info("Weekend exchange session data: {} volumes, {} candles, {} avg volumes",
-                    weekendExchangeVolumes.size(), weekendExchangeCandles.size(),
-                    weekendExchangeAvgVolumes.size());
 
         } catch (Exception e) {
             log.error("Error loading today volume data", e);
@@ -78,60 +75,43 @@ public class TodayVolumeService {
     }
 
     /**
-     * Получить объем выходной биржевой сессии для инструмента
+     * Получить общий объем для инструмента
      */
-    public Long getWeekendExchangeVolume(String figi) {
-        return weekendExchangeVolumes.getOrDefault(figi, 0L);
+    public Long getTotalVolume(String figi) {
+        return totalVolumes.getOrDefault(figi, 0L);
     }
 
     /**
-     * Получить количество свечей выходной биржевой сессии для инструмента
+     * Получить общее количество свечей для инструмента
      */
-    public Long getWeekendExchangeCandles(String figi) {
-        return weekendExchangeCandles.getOrDefault(figi, 0L);
+    public Long getTotalCandles(String figi) {
+        return totalCandles.getOrDefault(figi, 0L);
     }
 
     /**
-     * Получить средний объем на свечу выходной биржевой сессии для инструмента
+     * Получить средний объем на свечу для инструмента
      */
-    public BigDecimal getWeekendExchangeAvgVolume(String figi) {
-        return weekendExchangeAvgVolumes.getOrDefault(figi, BigDecimal.ZERO);
+    public BigDecimal getAvgVolumePerCandle(String figi) {
+        return avgVolumesPerCandle.getOrDefault(figi, BigDecimal.ZERO);
     }
 
     /**
-     * Получить все объемы выходной биржевой сессии
+     * Получить все общие объемы
      */
-    public Map<String, Long> getAllWeekendExchangeVolumes() {
-        return Map.copyOf(weekendExchangeVolumes);
+    public Map<String, Long> getAllTotalVolumes() {
+        return Map.copyOf(totalVolumes);
     }
 
-    /**
-     * Получить все свечи выходной биржевой сессии
-     */
-    public Map<String, Long> getAllWeekendExchangeCandles() {
-        return Map.copyOf(weekendExchangeCandles);
-    }
-
-    /**
-     * Получить все средние объемы выходной биржевой сессии
-     */
-    public Map<String, BigDecimal> getAllWeekendExchangeAvgVolumes() {
-        return Map.copyOf(weekendExchangeAvgVolumes);
-    }
 
     /**
      * Получить статистику загрузки
      */
     public Map<String, Object> getTodayVolumeStats() {
-        return Map.of("totalInstruments", weekendExchangeVolumes.size(),
-                "instrumentsWithWeekendExchangeVolume",
-                weekendExchangeVolumes.values().stream().mapToLong(v -> v > 0 ? 1 : 0).sum(),
-                "totalWeekendExchangeVolume",
-                weekendExchangeVolumes.values().stream().mapToLong(Long::longValue).sum(),
-                "totalWeekendExchangeCandles",
-                weekendExchangeCandles.values().stream().mapToLong(Long::longValue).sum(),
-                "avgWeekendExchangeVolume", weekendExchangeVolumes.values().stream()
-                        .mapToLong(Long::longValue).average().orElse(0.0));
+        return Map.of("totalInstruments", totalVolumes.size(), "instrumentsWithTotalVolume",
+                totalVolumes.values().stream().mapToLong(v -> v > 0 ? 1 : 0).sum(), "totalVolume",
+                totalVolumes.values().stream().mapToLong(Long::longValue).sum(), "totalCandles",
+                totalCandles.values().stream().mapToLong(Long::longValue).sum(), "avgVolume",
+                totalVolumes.values().stream().mapToLong(Long::longValue).average().orElse(0.0));
     }
 
     /**

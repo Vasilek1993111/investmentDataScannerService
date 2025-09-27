@@ -416,13 +416,6 @@ public class InstrumentCacheService {
         log.info("Instrument cache reloaded successfully");
     }
 
-    /**
-     * Очистить только накопленные объемы (для сброса в начале новой сессии)
-     */
-    public void clearAccumulatedVolumes() {
-        accumulatedVolumes.clear();
-        log.info("Accumulated volumes cleared");
-    }
 
 
     /**
@@ -470,29 +463,31 @@ public class InstrumentCacheService {
     }
 
     /**
-     * Загрузка уже проторгованных объемов выходной биржевой сессии из today_volume_view
+     * Загрузка уже проторгованных объемов из today_volume_view
      */
     public void loadWeekendExchangeVolumes() {
         try {
-            Map<String, Long> weekendVolumes = todayVolumeService.getAllWeekendExchangeVolumes();
+            Map<String, Long> todayVolumes = todayVolumeService.getAllTotalVolumes();
 
-            // Инициализируем накопленные объемы уже проторгованными объемами
-            accumulatedVolumes.putAll(weekendVolumes);
+            // Очищаем накопленные объемы перед загрузкой новых
+            accumulatedVolumes.clear();
 
-            log.info("Loaded {} weekend exchange volumes into accumulated volumes cache",
-                    weekendVolumes.size());
+            // Загружаем проторгованные объемы (перезаписываем, а не суммируем)
+            accumulatedVolumes.putAll(todayVolumes);
+
+            log.info("Cleared and loaded {} today volumes into accumulated volumes cache",
+                    todayVolumes.size());
 
             // Логируем статистику
-            long totalVolume = weekendVolumes.values().stream().mapToLong(Long::longValue).sum();
+            long totalVolume = todayVolumes.values().stream().mapToLong(Long::longValue).sum();
             long instrumentsWithVolume =
-                    weekendVolumes.values().stream().mapToLong(v -> v > 0 ? 1 : 0).sum();
+                    todayVolumes.values().stream().mapToLong(v -> v > 0 ? 1 : 0).sum();
 
-            log.info(
-                    "Weekend exchange volume statistics: {} instruments with volume, total volume: {}",
+            log.info("Today volume statistics: {} instruments with volume, total volume: {}",
                     instrumentsWithVolume, totalVolume);
 
         } catch (Exception e) {
-            log.error("Error loading weekend exchange volumes into accumulated volumes", e);
+            log.error("Error loading today volumes into accumulated volumes", e);
         }
     }
 

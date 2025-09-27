@@ -783,10 +783,6 @@
             <button id="disconnectBtn" class="btn btn-danger" disabled>Отключиться</button>
             <button id="manageIndicesBtn" class="btn btn-secondary" onclick="toggleIndexManagement()">Управление
                 индексами</button>
-            <button id="loadPricesBtn" class="btn btn-info" onclick="loadClosePricesForAllQuotes()">Загрузить цены
-                ОС</button>
-            <button id="loadVolumesBtn" class="btn btn-warning" onclick="initializeVolumeData()">Обновить
-                объемы</button>
             <a href="/" class="btn btn-primary">← На главную</a>
             <div id="connectionStatus" class="status disconnected">Отключено</div>
         </div>
@@ -2004,23 +2000,16 @@
                 console.log('Загружаем исторические данные объемов...');
 
                 // Загружаем основные исторические данные
-                const response = await fetch('/api/price-cache/history-volumes');
+                const response = await fetch('/api/price-cache/volumes');
                 if (!response.ok) {
                     console.error('Ошибка загрузки исторических данных:', response.status);
                     return null;
                 }
                 const data = await response.json();
 
-                // Загружаем средние объемы за день
-                const avgVolumesResponse = await fetch('/api/price-cache/history-avg-volumes-per-day');
-                if (avgVolumesResponse.ok) {
-                    const avgVolumesData = await avgVolumesResponse.json();
-                    // Добавляем данные о средних объемах за день к основным данным
-                    data.weekendExchangeAvgVolumesPerDay = avgVolumesData.weekendExchangeAvgVolumesPerDay || {};
-                    console.log('Данные о средних объемах за день загружены:', avgVolumesData);
-                } else {
-                    console.warn('Не удалось загрузить данные о средних объемах за день');
-                    data.weekendExchangeAvgVolumesPerDay = {};
+                // Данные о средних объемах за день теперь включены в основной ответ
+                if (data.avgVolumesPerDay) {
+                    data.weekendExchangeAvgVolumesPerDay = data.avgVolumesPerDay.weekendExchangeAvgVolumesPerDay || {};
                 }
 
                 console.log('Исторические данные загружены:', data);
@@ -2031,24 +2020,6 @@
             }
         }
 
-        // Функция для загрузки сегодняшних данных объемов
-        async function loadTodayVolumeData() {
-            try {
-                console.log('Загружаем сегодняшние данные объемов...');
-                const response = await fetch('/api/price-cache/weekend-exchange-volume');
-                if (response.ok) {
-                    const data = await response.json();
-                    console.log('Сегодняшние данные загружены:', data);
-                    return data;
-                } else {
-                    console.error('Ошибка загрузки сегодняшних данных:', response.status);
-                    return null;
-                }
-            } catch (error) {
-                console.error('Ошибка при загрузке сегодняшних данных:', error);
-                return null;
-            }
-        }
 
         // Глобальные переменные для кэширования данных
         let historyVolumeData = null;
@@ -2058,11 +2029,15 @@
         async function initializeVolumeData() {
             console.log('Инициализируем данные объемов...');
 
-            // Загружаем исторические данные
-            historyVolumeData = await loadHistoryVolumeData();
-
-            // Загружаем сегодняшние данные
-            todayVolumeData = await loadTodayVolumeData();
+            // Загружаем все данные объемов (исторические и сегодняшние)
+            const data = await loadHistoryVolumeData();
+            if (data) {
+                historyVolumeData = data;
+                // Сегодняшние данные теперь включены в основной ответ
+                if (data.todayVolumes) {
+                    todayVolumeData = { volumes: data.todayVolumes };
+                }
+            }
 
             // Обновляем все существующие котировки
             updateAllQuotesWithVolumeData();

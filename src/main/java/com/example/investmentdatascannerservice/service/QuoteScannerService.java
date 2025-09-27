@@ -106,7 +106,7 @@ public class QuoteScannerService {
         instrumentCacheService.initializeCache();
 
         // Очищаем только накопленные объемы (сохраняем уже проторгованные)
-        instrumentCacheService.clearAccumulatedVolumes();
+        instrumentCacheService.loadWeekendExchangeVolumes();
         log.info("Accumulated volumes reset for new session (preserving weekend exchange volumes)");
 
         // Загружаем цены закрытия за предыдущий торговый день
