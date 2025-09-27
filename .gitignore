@@ -66,6 +66,8 @@ application-prod.properties
 
 # Environment variables
 .env
+.env.*
+env.*
 
 # Database
 *.db

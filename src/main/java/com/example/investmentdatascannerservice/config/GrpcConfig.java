@@ -24,6 +24,9 @@ public class GrpcConfig {
     @Value("${tinkoff.api.token}")
     private String token;
 
+    private static final org.slf4j.Logger logger =
+            org.slf4j.LoggerFactory.getLogger(GrpcConfig.class);
+
     /**
      * Создает управляемый канал для подключения к T-Invest API с оптимизацией для потоковых данных
      * 
@@ -31,6 +34,11 @@ public class GrpcConfig {
      */
     @Bean
     public ManagedChannel investChannel() {
+        logger.info("Initializing gRPC channel with token: {}",
+                token != null && !token.isEmpty()
+                        ? token.substring(0, Math.min(10, token.length())) + "..."
+                        : "NULL/EMPTY");
+
         ClientInterceptor authInterceptor = new ClientInterceptor() {
             @Override
             public <ReqT, RespT> io.grpc.ClientCall<ReqT, RespT> interceptCall(
@@ -40,9 +48,12 @@ public class GrpcConfig {
                         next.newCall(method, callOptions)) {
                     @Override
                     public void start(Listener<RespT> responseListener, Metadata headers) {
+                        String authHeader = "Bearer " + token;
+                        logger.debug("Adding Authorization header: {}",
+                                authHeader.substring(0, Math.min(20, authHeader.length())) + "...");
                         headers.put(
                                 Metadata.Key.of("Authorization", Metadata.ASCII_STRING_MARSHALLER),
-                                "Bearer " + token);
+                                authHeader);
                         super.start(responseListener, headers);
                     }
                 };
