@@ -53,6 +53,25 @@ COMMENT ON VIEW invest.today_volume_view IS 'Синоним для invest_views.
 
 ALTER VIEW invest.today_volume_view OWNER TO postgres;
 
+-- Создание синонима для функции run_daily_vs_minute_check
+CREATE OR REPLACE FUNCTION invest.run_daily_vs_minute_check(p_date DATE)
+RETURNS TABLE(
+    task_id TEXT,
+    total_rows BIGINT,
+    mismatches BIGINT
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT * FROM invest_dq.run_daily_vs_minute_check(p_date);
+END;
+$$;
+
+COMMENT ON FUNCTION invest.run_daily_vs_minute_check(DATE) IS 'Синоним для invest_dq.run_daily_vs_minute_check - проверка качества данных между дневными и минутными свечами с ограничением времени в выходные дни (выходные: 9:59-18:59, рабочие дни: без ограничений) и логированием результатов в system_logs';
+
+ALTER FUNCTION invest.run_daily_vs_minute_check(DATE) OWNER TO postgres;
+
 --Вью с агрегированными объемами за сегодня
 create view invest_views.today_volume_view
             (figi, instrument_type, trade_date, total_volume, total_candles, avg_volume_per_candle,

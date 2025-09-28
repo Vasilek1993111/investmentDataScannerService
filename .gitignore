@@ -77,3 +77,7 @@ env.*
 # Temporary files
 *.tmp
 *.temp
+
+# MCP Docker files
+Dockerfile.mcp-postgres
+mcp-postgres-start.sh
