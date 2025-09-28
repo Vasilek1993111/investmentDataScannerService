@@ -623,3 +623,80 @@ alter function trg_open_prices_ensure_partition() owner to postgres;
 
 grant execute on function trg_open_prices_ensure_partition() to admin;
 
+
+-- =============================================
+-- ФУНКЦИИ ОЧИСТКИ ЛОГОВ ИЗ system_logs
+-- =============================================
+
+-- Батчевая очистка (минимизирует длительные блокировки)
+create function cleanup_old_system_logs_batched(retention_days integer DEFAULT 7,
+                                               batch_size integer DEFAULT 10000)
+    returns bigint
+    language plpgsql
+as
+$$
+DECLARE
+    cutoff_time   timestamp with time zone;
+    affected_rows integer;
+    total_deleted bigint := 0;
+BEGIN
+    cutoff_time := now() - make_interval(days => retention_days);
+
+    LOOP
+        DELETE FROM system_logs
+        WHERE ctid IN (
+            SELECT ctid
+            FROM system_logs
+            WHERE created_at < cutoff_time
+            LIMIT batch_size
+        );
+
+        GET DIAGNOSTICS affected_rows = ROW_COUNT;
+        EXIT WHEN affected_rows = 0;
+        total_deleted := total_deleted + affected_rows;
+
+        PERFORM pg_sleep(0.01);
+    END LOOP;
+
+    INSERT INTO system_logs (task_id, endpoint, method, status, message, start_time, end_time, duration_ms)
+    VALUES (
+        'cleanup_logs_' || to_char(now(), 'YYYYMMDD_HH24MISS'),
+        'system/cleanup',
+        'CLEANUP',
+        'SUCCESS',
+        'Очистка старых логов (batched). Удалено записей: ' || total_deleted || ', срез до ' || to_char(cutoff_time, 'YYYY-MM-DD HH24:MI:SS OF'),
+        now(),
+        now(),
+        0
+    );
+
+    RETURN total_deleted;
+END;
+$$;
+
+comment on function cleanup_old_system_logs_batched(integer, integer) is 'Батчевая очистка system_logs старше N дней (по умолчанию 7), порциями batch_size.';
+
+alter function cleanup_old_system_logs_batched(integer, integer) owner to postgres;
+
+grant execute on function cleanup_old_system_logs_batched(integer, integer) to admin;
+
+
+-- Обёртка для вызова из pg_cron/ручного запуска
+create function cleanup_old_system_logs(retention_days integer DEFAULT 7)
+    returns bigint
+    language plpgsql
+as
+$$
+DECLARE
+    deleted_total bigint;
+BEGIN
+    deleted_total := cleanup_old_system_logs_batched(retention_days, 20000);
+    RETURN deleted_total;
+END;
+$$;
+
+comment on function cleanup_old_system_logs(integer) is 'Очистка system_logs старше N дней (по умолчанию 7). Использует батчевую стратегию.';
+
+alter function cleanup_old_system_logs(integer) owner to postgres;
+
+grant execute on function cleanup_old_system_logs(integer) to admin;

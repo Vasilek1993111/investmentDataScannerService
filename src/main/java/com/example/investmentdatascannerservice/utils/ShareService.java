@@ -92,4 +92,18 @@ public class ShareService {
             return 0;
         }
     }
+
+    /**
+     * Найти акции по тикеру
+     */
+    public List<ShareEntity> findByTicker(String ticker) {
+        try {
+            List<ShareEntity> shares = shareRepository.findByTicker(ticker);
+            log.info("Found {} shares with ticker: {}", shares.size(), ticker);
+            return shares;
+        } catch (Exception e) {
+            log.error("Error finding shares by ticker: {}", ticker, e);
+            return List.of();
+        }
+    }
 }

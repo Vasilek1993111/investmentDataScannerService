@@ -1,5 +1,60 @@
+-- Создание синонимов для таблиц свечей
+CREATE OR REPLACE VIEW invest.minute_candles AS 
+SELECT * FROM invest_candles.minute_candles;
+
+CREATE OR REPLACE VIEW invest.daily_candles AS 
+SELECT * FROM invest_candles.daily_candles;
+
+COMMENT ON VIEW invest.minute_candles IS 'Синоним для таблицы invest_candles.minute_candles - минутные свечи';
+COMMENT ON VIEW invest.daily_candles IS 'Синоним для таблицы invest_candles.daily_candles - дневные свечи';
+
+ALTER VIEW invest.minute_candles OWNER TO postgres;
+ALTER VIEW invest.daily_candles OWNER TO postgres;
+
+-- Создание синонимов для таблиц из invest_utils
+CREATE OR REPLACE VIEW invest.data_quality_issues AS 
+SELECT * FROM invest_utils.data_quality_issues;
+
+CREATE OR REPLACE VIEW invest.index_session_times AS 
+SELECT * FROM invest_utils.index_session_times;
+
+CREATE OR REPLACE VIEW invest.system_logs AS 
+SELECT * FROM invest_utils.system_logs;
+
+COMMENT ON VIEW invest.data_quality_issues IS 'Синоним для таблицы invest_utils.data_quality_issues - проблемы качества данных';
+COMMENT ON VIEW invest.index_session_times IS 'Синоним для таблицы invest_utils.index_session_times - времена торговых сессий индексов';
+COMMENT ON VIEW invest.system_logs IS 'Синоним для таблицы invest_utils.system_logs - системные логи';
+
+ALTER VIEW invest.data_quality_issues OWNER TO postgres;
+ALTER VIEW invest.index_session_times OWNER TO postgres;
+ALTER VIEW invest.system_logs OWNER TO postgres;
+
+-- Создание синонима для таблицы close_prices_evening_session
+CREATE OR REPLACE VIEW invest.close_prices_evening_session AS 
+SELECT * FROM invest_prices.close_prices_evening_session;
+
+COMMENT ON VIEW invest.close_prices_evening_session IS 'Синоним для таблицы invest_prices.close_prices_evening_session - цены закрытия вечерней сессии';
+
+ALTER VIEW invest.close_prices_evening_session OWNER TO postgres;
+
+-- Создание синонима для таблицы trades
+CREATE OR REPLACE VIEW invest.trades AS 
+SELECT * FROM invest_prices.trades;
+
+COMMENT ON VIEW invest.trades IS 'Синоним для таблицы invest_prices.trades - данные о сделках';
+
+ALTER VIEW invest.trades OWNER TO postgres;
+
+-- Создание синонима для today_volume_view
+CREATE OR REPLACE VIEW invest.today_volume_view AS 
+SELECT * FROM invest_views.today_volume_view;
+
+COMMENT ON VIEW invest.today_volume_view IS 'Синоним для invest_views.today_volume_view - агрегированные объемы за сегодня';
+
+ALTER VIEW invest.today_volume_view OWNER TO postgres;
+
 --Вью с агрегированными объемами за сегодня
-create view today_volume_view
+create view invest_views.today_volume_view
             (figi, instrument_type, trade_date, total_volume, total_candles, avg_volume_per_candle,
              morning_session_volume, morning_session_candles, morning_avg_volume_per_candle, main_session_volume,
              main_session_candles, main_avg_volume_per_candle, evening_session_volume, evening_session_candles,
@@ -484,18 +539,29 @@ SELECT minute_candles.figi,
        min(minute_candles."time")                        AS first_candle_time,
        max(minute_candles."time")                        AS last_candle_time,
        (now() AT TIME ZONE 'Europe/Moscow'::text)        AS last_updated
-FROM minute_candles
-         LEFT JOIN shares s ON minute_candles.figi::text = s.figi::text
-         LEFT JOIN futures f ON minute_candles.figi::text = f.figi::text
+FROM invest.minute_candles
+         LEFT JOIN invest.shares s ON minute_candles.figi::text = s.figi::text
+         LEFT JOIN invest.futures f ON minute_candles.figi::text = f.figi::text
 WHERE
     date((minute_candles."time" AT TIME ZONE 'Europe/Moscow'::text)) = (CURRENT_DATE AT TIME ZONE 'Europe/Moscow'::text)
 GROUP BY minute_candles.figi, s.figi, f.figi
 ORDER BY minute_candles.figi;
 
-comment on column today_volume_view.figi is 'Уникальный идентификатор инструмента (Financial Instrument Global Identifier)';
+comment on view invest_views.today_volume_view is 'Вью с агрегированными объемами за сегодня по всем торговым сессиям (использует синонимы)';
 
-alter table today_volume_view
-    owner to postgres;
+comment on column invest_views.today_volume_view.figi is 'Уникальный идентификатор инструмента (Financial Instrument Global Identifier)';
+comment on column invest_views.today_volume_view.instrument_type is 'Тип инструмента: share, future, unknown';
+comment on column invest_views.today_volume_view.trade_date is 'Дата торгов (текущая дата в московском времени)';
+comment on column invest_views.today_volume_view.total_volume is 'Общий объем торгов за день';
+comment on column invest_views.today_volume_view.total_candles is 'Общее количество свечей за день';
+comment on column invest_views.today_volume_view.avg_volume_per_candle is 'Средний объем на свечу';
+comment on column invest_views.today_volume_view.morning_session_volume is 'Объем утренней сессии (7:00-9:59)';
+comment on column invest_views.today_volume_view.main_session_volume is 'Объем основной сессии (10:00-18:59)';
+comment on column invest_views.today_volume_view.evening_session_volume is 'Объем вечерней сессии (19:00-23:50)';
+comment on column invest_views.today_volume_view.weekend_exchange_session_volume is 'Объем выходной биржевой сессии';
+comment on column invest_views.today_volume_view.weekend_otc_session_volume is 'Объем выходной внебиржевой сессии';
+
+alter view invest_views.today_volume_view owner to postgres;
 
 
 create view last_prices_daily_partition_stats(schemaname, partition_name, partition_date, size, size_bytes) as

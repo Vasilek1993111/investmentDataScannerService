@@ -98,6 +98,7 @@ public class QuoteWebSocketController implements WebSocketHandler {
     }
 
     private void broadcastQuote(QuoteData quoteData) {
+
         log.debug("Broadcasting quote data: {} to {} sessions", quoteData, sessions.size());
 
         if (sessions.isEmpty()) {

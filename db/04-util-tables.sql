@@ -52,6 +52,39 @@ grant delete, insert, references, select, trigger, truncate, update on system_lo
 
 
 
+
+-- auto-generated definition
+-- Универсальная таблица несоответствий (для любых DQ-проверок)
+create table if not exists data_quality_issues
+(
+    id                bigserial primary key,
+    task_id           varchar(255)             not null,  -- связь с system_logs.task_id
+    check_name        varchar(128)             not null,  -- имя проверки (например, 'daily_vs_minute')
+    entity_type       varchar(64)              not null,  -- тип сущности ('SHARE','FUTURE', ...)
+    entity_id         varchar(255)             not null,  -- идентификатор сущности (например, FIGI)
+    trade_date        date,                                  -- дата, если применимо
+    metric            varchar(64)              not null,  -- что сравнивали: 'volume','high','low','open','close', ...
+    expected_numeric  numeric(30,10),
+    actual_numeric    numeric(30,10),
+    diff_numeric      numeric(30,10),
+    status            varchar(32)              not null,  -- 'OK','MISMATCH','MISSING','WARNING','ERROR'
+    message           text,                                  -- произвольное пояснение
+    details           jsonb,                                 -- доп. контекст, если нужен
+    created_at        timestamp with time zone default now() not null
+);
+
+comment on table data_quality_issues is 'Универсальные результаты DQ-проверок: любая метрика/сущность/дата. Привязка к system_logs.task_id';
+
+create index if not exists idx_dqi_task on data_quality_issues(task_id);
+create index if not exists idx_dqi_check on data_quality_issues(check_name);
+create index if not exists idx_dqi_entity on data_quality_issues(entity_type, entity_id);
+create index if not exists idx_dqi_date on data_quality_issues(trade_date);
+
+alter table data_quality_issues owner to postgres;
+grant select on data_quality_issues to tester;
+grant delete, insert, references, select, trigger, truncate, update on data_quality_issues to admin;
+
+
 -- auto-generated definition
 create table index_session_times
 (

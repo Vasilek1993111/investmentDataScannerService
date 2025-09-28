@@ -8,11 +8,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.example.investmentdatascannerservice.config.QuoteScannerConfig;
+import com.example.investmentdatascannerservice.entity.ShareEntity;
 import com.example.investmentdatascannerservice.service.MorningScannerService;
 import com.example.investmentdatascannerservice.service.PriceCacheService;
 import com.example.investmentdatascannerservice.service.QuoteScannerService;
@@ -109,6 +111,21 @@ public class ScannerController {
         return ResponseEntity.ok(Map.of("testModeEnabled", config.isEnableTestMode(),
                 "scannerActive", quoteScannerService.isScannerActive(), "sharesMode",
                 config.isEnableSharesMode()));
+    }
+
+    /**
+     * Найти акции по тикеру
+     */
+    @GetMapping("/shares/search/{ticker}")
+    public ResponseEntity<Map<String, Object>> searchSharesByTicker(@PathVariable String ticker) {
+        try {
+            List<ShareEntity> shares = shareService.findByTicker(ticker);
+            return ResponseEntity.ok(Map.of("ticker", ticker, "shares", shares, "count",
+                    shares.size(), "found", !shares.isEmpty()));
+        } catch (Exception e) {
+            log.error("Error searching shares by ticker: {}", ticker, e);
+            return ResponseEntity.internalServerError().build();
+        }
     }
 
     /**

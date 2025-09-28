@@ -126,6 +126,14 @@ public class QuoteDataFactory {
         BigDecimal openPrice = cacheService.getOpenPrice(figi);
         BigDecimal closePriceVS = eveningSessionService.getEveningClosePrice(figi);
 
+        // Если нет текущей цены, используем цену закрытия или 0
+        if (currentPrice == null) {
+            currentPrice = closePrice != null ? closePrice : BigDecimal.ZERO;
+        }
+        if (previousPrice == null) {
+            previousPrice = currentPrice;
+        }
+
         // Получаем агрегированные данные
         BigDecimal avgVolumeMorning = cacheService.getAvgVolumeMorning(figi);
         BigDecimal avgVolumeWeekend = cacheService.getAvgVolumeWeekend(figi);
@@ -151,7 +159,9 @@ public class QuoteDataFactory {
      * Расчет направления изменения цены
      */
     private String calculateDirection(BigDecimal previousPrice, BigDecimal currentPrice) {
-        if (previousPrice == null || previousPrice.compareTo(BigDecimal.ZERO) <= 0) {
+        if (previousPrice == null || currentPrice == null
+                || previousPrice.compareTo(BigDecimal.ZERO) <= 0
+                || currentPrice.compareTo(BigDecimal.ZERO) <= 0) {
             return "NEUTRAL";
         }
 

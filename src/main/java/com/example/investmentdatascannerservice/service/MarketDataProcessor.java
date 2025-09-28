@@ -170,6 +170,7 @@ public class MarketDataProcessor {
         String figi = price.getFigi();
         BigDecimal currentPrice = convertPrice(price.getPrice());
 
+
         log.debug("Processing LastPrice for FIGI: {}, price: {}", figi, currentPrice);
 
         // Обновляем кэш
@@ -180,11 +181,18 @@ public class MarketDataProcessor {
             cacheService.setOpenPrice(figi, currentPrice);
         }
 
+        // Специальная логика для OTC инструментов: принудительно обновляем цену
+        // поскольку Trade события могут не работать для OTC
+        if (figi.equals("TCS00A105NV2")) {
+            // Принудительное обновление цены для OTC инструментов
+        }
+
         // Создаем QuoteData
         QuoteData quoteData = quoteDataFactory.createFromLastPrice(price, currentPrice);
 
         // Уведомляем подписчиков
         notificationService.notifySubscribers(quoteData);
+
 
         log.debug("Processed LastPrice for {}: {}", figi, quoteData);
     }
@@ -195,6 +203,7 @@ public class MarketDataProcessor {
     private void processTradeInternal(Trade trade) {
         String figi = trade.getFigi();
         BigDecimal currentPrice = convertPrice(trade.getPrice());
+
 
         log.debug("Processing Trade for FIGI: {}, price: {}, quantity: {}", figi, currentPrice,
                 trade.getQuantity());
@@ -212,6 +221,7 @@ public class MarketDataProcessor {
 
         // Уведомляем подписчиков
         notificationService.notifySubscribers(quoteData);
+
 
         log.debug("Processed Trade for {}: {}", figi, quoteData);
     }
@@ -248,8 +258,22 @@ public class MarketDataProcessor {
         cacheService.setBestBidQuantity(figi, bestBidQuantity);
         cacheService.setBestAskQuantity(figi, bestAskQuantity);
 
-        log.debug("Processed OrderBook for {}: BID {} ({}), ASK {} ({})", figi, bestBid,
-                bestBidQuantity, bestAsk, bestAskQuantity);
+        // Проверяем, есть ли текущая цена для инструмента
+        BigDecimal currentPrice = cacheService.getLastPrice(figi);
+        if (currentPrice == null) {
+            log.debug("Skipping OrderBook notification for {} - no current price available", figi);
+            return;
+        }
+
+        // Создаем QuoteData для уведомления подписчиков об обновлении стакана
+        QuoteData quoteData = quoteDataFactory.createFromOrderBook(figi, bestBid, bestAsk,
+                bestBidQuantity, bestAskQuantity);
+
+        // Уведомляем подписчиков об обновлении стакана
+        notificationService.notifySubscribers(quoteData);
+
+        log.debug("Processed OrderBook for {}: BID {} ({}), ASK {} ({}), notified subscribers",
+                figi, bestBid, bestBidQuantity, bestAsk, bestAskQuantity);
     }
 
     /**

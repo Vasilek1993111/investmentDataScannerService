@@ -810,6 +810,7 @@
                             <option value="volume_desc">Наибольший объем</option>
                             <option value="volume_asc">Наименьший объем</option>
                             <option value="spread_desc">Наибольший спред</option>
+                            <option value="volume_excess_desc">Превышение исторического объема</option>
                         </select>
                     </div>
                     <div class="sort-group">
@@ -870,6 +871,7 @@
                             <option value="volume_desc">Наибольший объем</option>
                             <option value="volume_asc">Наименьший объем</option>
                             <option value="spread_desc">Наибольший спред</option>
+                            <option value="volume_excess_desc">Превышение исторического объема</option>
                         </select>
                     </div>
                     <div class="sort-group">
@@ -968,6 +970,9 @@
         let updateCount = 0;
         let lastUpdateTime = null;
         let updateTimer = null;
+        let baseVolumeCache = new Map();          // Базовые объемы (из todayVolume или первого totalVolume)
+        let incrementVolumeCache = new Map();     // Накопленные новые объемы сверх базового значения
+        let totalVolumeCache = new Map();         // Текущие суммарные объемы для отображения
 
         // Индексы для полоски (динамический список)
         let indices = new Map();
@@ -1005,9 +1010,13 @@
                     gainersTableBody.innerHTML = '<tr><td colspan="12" class="no-data">Нет данных</td></tr>';
                     losersTableBody.innerHTML = '<tr><td colspan="12" class="no-data">Нет данных</td></tr>';
                     quotes.clear();
+                    baseVolumeCache.clear();
+                    incrementVolumeCache.clear();
+                    totalVolumeCache.clear();
                     gainers = [];
                     losers = [];
                     updateCount = 0;
+
 
                     // Инициализируем полоску индексов
                     initializeIndicesBar();
@@ -1100,14 +1109,13 @@
         function updateVolumeDataForQuote(quoteData) {
             const figi = quoteData.figi;
 
-            // Добавляем объем из today_volume_view если сегодня выходной день
-            if (isWeekend() && todayVolumeData && todayVolumeData.volumes) {
-                quoteData.totalVolume = todayVolumeData.volumes[figi] || 0;
-            } else {
-                quoteData.totalVolume = 0;
-            }
+            const baseVolume = ensureBaseVolume(figi, quoteData);
+            const increment = updateIncrementalVolume(figi, quoteData, baseVolume);
 
-            // Добавляем средний объем за день из исторических данных
+            const totalVolume = baseVolume + increment;
+            totalVolumeCache.set(figi, totalVolume);
+            quoteData.totalVolume = totalVolume;
+
             if (historyVolumeData && historyVolumeData.weekendExchangeAvgVolumesPerDay) {
                 quoteData.avgVolumeWeekend = historyVolumeData.weekendExchangeAvgVolumesPerDay[figi] || 0;
             } else {
@@ -1117,12 +1125,15 @@
 
         function updateTotalVolume() {
             let total = 0;
-            quotes.forEach(quote => {
-                // Используем объем из today_volume_view только если сегодня выходной день
-                if (isWeekend() && todayVolumeData && todayVolumeData.volumes) {
-                    total += todayVolumeData.volumes[quote.figi] || 0;
+            quotes.forEach((quote, figi) => {
+                const cachedTotal = totalVolumeCache.get(figi);
+                if (cachedTotal !== undefined) {
+                    total += cachedTotal;
+                } else {
+                    const baseVolume = ensureBaseVolume(figi, quote);
+                    const increment = getIncrementalVolume(figi);
+                    total += baseVolume + increment;
                 }
-                // В будние дни показываем 0
             });
             totalVolume.textContent = total.toLocaleString();
         }
@@ -1305,6 +1316,8 @@
                 gainersSortText = 'по объему';
             } else if (gainersSortOrder === 'spread_desc') {
                 gainersSortText = 'по спреду';
+            } else if (gainersSortOrder === 'volume_excess_desc') {
+                gainersSortText = 'по превышению исторического объема';
             } else {
                 switch (gainersSortBy) {
                     case 'changeOS':
@@ -1326,6 +1339,8 @@
                 gainersOrderText = 'наименьший объем';
             } else if (gainersSortOrder === 'spread_desc') {
                 gainersOrderText = 'наибольший спред';
+            } else if (gainersSortOrder === 'volume_excess_desc') {
+                gainersOrderText = 'максимальное превышение';
             }
             const gainersResultsText = `Топ-${gainersMaxResults}`;
             gainersTitle.textContent = `🚀 ${gainersResultsText} растущих (${gainersSortText}, ${gainersOrderText})`;
@@ -1336,6 +1351,8 @@
                 losersSortText = 'по объему';
             } else if (losersSortOrder === 'spread_desc') {
                 losersSortText = 'по спреду';
+            } else if (losersSortOrder === 'volume_excess_desc') {
+                losersSortText = 'по превышению исторического объема';
             } else {
                 switch (losersSortBy) {
                     case 'changeOS':
@@ -1357,6 +1374,8 @@
                 losersOrderText = 'наименьший объем';
             } else if (losersSortOrder === 'spread_desc') {
                 losersOrderText = 'наибольший спред';
+            } else if (losersSortOrder === 'volume_excess_desc') {
+                losersOrderText = 'максимальное превышение';
             }
             const losersResultsText = `Топ-${losersMaxResults}`;
             losersTitle.textContent = `📉 ${losersResultsText} падающих (${losersSortText}, ${losersOrderText})`;
@@ -1410,6 +1429,22 @@
                     } else {
                         return valueA - valueB; // по возрастанию объема (наименьший объем сверху)
                     }
+                }
+
+                // Если sortOrder содержит volume_excess, сортируем по превышению исторического объема
+                if (sortOrder === 'volume_excess_desc') {
+                    const currentVolumeA = a.totalVolume || 0;
+                    const historicalVolumeA = getAvgVolumeFromHistory(a.figi) || 0;
+                    const excessA = historicalVolumeA > 0 ? (currentVolumeA / historicalVolumeA) : 0;
+
+                    const currentVolumeB = b.totalVolume || 0;
+                    const historicalVolumeB = getAvgVolumeFromHistory(b.figi) || 0;
+                    const excessB = historicalVolumeB > 0 ? (currentVolumeB / historicalVolumeB) : 0;
+
+                    valueA = excessA;
+                    valueB = excessB;
+
+                    return valueB - valueA; // по убыванию превышения (наибольшее превышение сверху)
                 }
 
                 // Если sortOrder содержит spread, принудительно сортируем по спреду
@@ -1472,6 +1507,22 @@
                     } else {
                         return valueA - valueB; // по возрастанию объема (наименьший объем сверху)
                     }
+                }
+
+                // Если sortOrder содержит volume_excess, сортируем по превышению исторического объема
+                if (sortOrder === 'volume_excess_desc') {
+                    const currentVolumeA = a.totalVolume || 0;
+                    const historicalVolumeA = getAvgVolumeFromHistory(a.figi) || 0;
+                    const excessA = historicalVolumeA > 0 ? (currentVolumeA / historicalVolumeA) : 0;
+
+                    const currentVolumeB = b.totalVolume || 0;
+                    const historicalVolumeB = getAvgVolumeFromHistory(b.figi) || 0;
+                    const excessB = historicalVolumeB > 0 ? (currentVolumeB / historicalVolumeB) : 0;
+
+                    valueA = excessA;
+                    valueB = excessB;
+
+                    return valueB - valueA; // по убыванию превышения (наибольшее превышение сверху)
                 }
 
                 // Если sortOrder содержит spread, принудительно сортируем по спреду
@@ -1553,7 +1604,7 @@
             const changeClass = changePercentFromOS > 0 ? 'positive' : changePercentFromOS < 0 ? 'negative' : '';
 
             // Получаем объем для отображения
-            const displayVolume = getDisplayVolume(quoteData.figi);
+            const displayVolume = getDisplayVolume(quoteData);
 
             // Получаем средний объем из исторических данных
             const avgVolume = getAvgVolumeFromHistory(quoteData.figi);
@@ -1578,14 +1629,65 @@
             return row;
         }
 
-        // Функция для получения объема для отображения
-        function getDisplayVolume(figi) {
-            // Если сегодня выходной день, показываем total_volume из today_volume_view
-            if (isWeekend() && todayVolumeData && todayVolumeData.volumes) {
-                return todayVolumeData.volumes[figi] || 0;
+        // --- Обработка объемов ---
+
+        function ensureBaseVolume(figi, quoteData) {
+            if (baseVolumeCache.has(figi)) {
+                return baseVolumeCache.get(figi);
             }
-            // Иначе показываем 0
-            return 0;
+
+            let base = 0;
+            if (todayVolumeData && todayVolumeData.volumes) {
+                base = todayVolumeData.volumes[figi] || 0;
+            } else if (quoteData && typeof quoteData.totalVolume === 'number' && quoteData.totalVolume > 0) {
+                base = quoteData.totalVolume;
+            }
+
+            baseVolumeCache.set(figi, base);
+            return base;
+        }
+
+        function updateIncrementalVolume(figi, quoteData, baseVolume) {
+            const serverTotal = (quoteData && typeof quoteData.totalVolume === 'number') ? quoteData.totalVolume : null;
+
+            if (serverTotal !== null && serverTotal >= baseVolume) {
+                const increment = serverTotal - baseVolume;
+                incrementVolumeCache.set(figi, increment);
+                totalVolumeCache.set(figi, serverTotal);
+                return increment;
+            }
+
+            const lastIncrement = incrementVolumeCache.get(figi) || 0;
+
+            const newVolume = (quoteData && typeof quoteData.volume === 'number') ? quoteData.volume : 0;
+            if (newVolume > 0) {
+                const updatedIncrement = lastIncrement + newVolume;
+                incrementVolumeCache.set(figi, updatedIncrement);
+                totalVolumeCache.set(figi, baseVolume + updatedIncrement);
+                return updatedIncrement;
+            }
+
+            incrementVolumeCache.set(figi, lastIncrement);
+            totalVolumeCache.set(figi, baseVolume + lastIncrement);
+            return lastIncrement;
+        }
+
+        function getIncrementalVolume(figi) {
+            return incrementVolumeCache.get(figi) || 0;
+        }
+
+        function getDisplayVolume(quoteData) {
+            const figi = quoteData.figi;
+
+            if (totalVolumeCache.has(figi)) {
+                return totalVolumeCache.get(figi) || 0;
+            }
+
+            const baseVolume = ensureBaseVolume(figi, quoteData);
+            const increment = getIncrementalVolume(figi);
+            const total = baseVolume + increment;
+            totalVolumeCache.set(figi, total);
+            return total;
         }
 
         // Функция для получения исторического объема за выходной день
