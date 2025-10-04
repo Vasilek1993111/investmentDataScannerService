@@ -1,6 +1,7 @@
 package com.example.investmentdatascannerservice.service;
 
 import java.math.BigDecimal;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -270,6 +271,10 @@ public class PriceCacheService {
         return lastOpenPriceDate != null ? lastOpenPriceDate.toString() : "N/A";
     }
 
+    public String getLastEveningSessionDate() {
+        return lastEveningSessionDate != null ? lastEveningSessionDate.toString() : "N/A";
+    }
+
     /**
      * Получение статистики кэша
      */
@@ -284,5 +289,133 @@ public class PriceCacheService {
                 lastEveningSessionDate != null ? lastEveningSessionDate.toString() : "N/A",
                 "lastOpenPriceDate",
                 lastOpenPriceDate != null ? lastOpenPriceDate.toString() : "N/A");
+    }
+
+    /**
+     * Принудительная перезагрузка кэша цен закрытия
+     */
+    public void forceReloadClosePricesCache() {
+        log.info("Force reloading close prices cache...");
+        lastClosePricesCache.clear();
+        lastClosePriceDate = null;
+        loadAllClosePrices();
+        log.info("Close prices cache force reload completed. Cache size: {}, Last date: {}",
+                lastClosePricesCache.size(), lastClosePriceDate);
+    }
+
+    /**
+     * Получение последней торговой даты (если выходные - возвращает пятницу)
+     */
+    private LocalDate getLastTradingDate() {
+        LocalDate today = LocalDate.now();
+        DayOfWeek dayOfWeek = today.getDayOfWeek();
+
+        // Если сегодня выходные (суббота или воскресенье), возвращаем пятницу
+        if (dayOfWeek == DayOfWeek.SATURDAY || dayOfWeek == DayOfWeek.SUNDAY) {
+            // Находим последнюю пятницу
+            int daysToSubtract = dayOfWeek == DayOfWeek.SATURDAY ? 1 : 2;
+            return today.minusDays(daysToSubtract);
+        }
+
+        // Если сегодня рабочий день, возвращаем сегодняшнюю дату
+        return today;
+    }
+
+    /**
+     * Принудительная перезагрузка всех типов цен с учетом выходных дней
+     */
+    public void forceReloadAllPricesCache() {
+        log.info("Force reloading all prices cache with weekend logic...");
+
+        LocalDate targetDate = getLastTradingDate();
+        log.info("Target trading date for price reload: {} (weekend logic applied)", targetDate);
+
+        // Очищаем все кэши
+        lastClosePricesCache.clear();
+        lastEveningSessionPricesCache.clear();
+        lastOpenPricesCache.clear();
+        lastClosePriceDate = null;
+        lastEveningSessionDate = null;
+        lastOpenPriceDate = null;
+
+        // Загружаем цены закрытия
+        loadClosePricesForDate(targetDate);
+
+        // Загружаем цены вечерней сессии
+        loadEveningSessionPricesForDate(targetDate);
+
+        // Загружаем цены открытия
+        loadOpenPricesForDate(targetDate);
+
+        log.info(
+                "All prices cache force reload completed. Close prices: {}, Evening session: {}, Open prices: {}",
+                lastClosePricesCache.size(), lastEveningSessionPricesCache.size(),
+                lastOpenPricesCache.size());
+    }
+
+    /**
+     * Загрузка цен закрытия для конкретной даты
+     */
+    private void loadClosePricesForDate(LocalDate targetDate) {
+        try {
+            // Получаем цены закрытия для целевой даты
+            List<ClosePriceEntity> closePrices = closePriceRepository.findByIdPriceDate(targetDate);
+
+            for (ClosePriceEntity entity : closePrices) {
+                String figi = entity.getId().getFigi();
+                BigDecimal price = entity.getClosePrice();
+                lastClosePricesCache.put(figi, price);
+            }
+
+            lastClosePriceDate = targetDate;
+            log.info("Loaded {} close prices for date: {}", closePrices.size(), targetDate);
+
+        } catch (Exception e) {
+            log.error("Error loading close prices for date: {}", targetDate, e);
+        }
+    }
+
+    /**
+     * Загрузка цен вечерней сессии для конкретной даты
+     */
+    private void loadEveningSessionPricesForDate(LocalDate targetDate) {
+        try {
+            List<ClosePriceEveningSessionEntity> eveningSessionPrices =
+                    closePriceEveningSessionRepository.findByPriceDate(targetDate);
+
+            for (ClosePriceEveningSessionEntity entity : eveningSessionPrices) {
+                String figi = entity.getFigi();
+                BigDecimal price = entity.getClosePrice();
+                lastEveningSessionPricesCache.put(figi, price);
+            }
+
+            lastEveningSessionDate = targetDate;
+            log.info("Loaded {} evening session prices for date: {}", eveningSessionPrices.size(),
+                    targetDate);
+
+        } catch (Exception e) {
+            log.error("Error loading evening session prices for date: {}", targetDate, e);
+        }
+    }
+
+    /**
+     * Загрузка цен открытия для конкретной даты
+     */
+    private void loadOpenPricesForDate(LocalDate targetDate) {
+        try {
+            List<OpenPriceEntity> openPrices = openPriceRepository.findByIdPriceDate(targetDate);
+
+            for (OpenPriceEntity entity : openPrices) {
+                String figi = entity.getId().getFigi();
+                BigDecimal price = entity.getOpenPrice();
+                lastOpenPricesCache.put(figi, price);
+            }
+
+            lastOpenPriceDate = targetDate;
+            log.info("Loaded {} open prices for date: {}", openPrices.size(), targetDate);
+
+        } catch (Exception e) {
+            log.error("Error loading open prices for date: {}", targetDate, e);
+        }
     }
 }

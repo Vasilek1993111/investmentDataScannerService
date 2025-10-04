@@ -50,6 +50,32 @@ public class PriceCacheController {
     }
 
     /**
+     * Получение информации о планировщике обновлений
+     */
+    @GetMapping("/scheduler-info")
+    public ResponseEntity<Map<String, Object>> getSchedulerInfo() {
+        try {
+            Map<String, Object> info = new java.util.HashMap<>();
+            info.put("schedulerEnabled", true);
+            info.put("allPricesUpdateTime", "06:00 MSK (daily with weekend logic)");
+            info.put("weekendLogic", "In weekends, takes prices from Friday");
+            info.put("healthCheckInterval", "Every hour");
+            info.put("timezone", "Europe/Moscow");
+            info.put("lastClosePriceDate", priceCacheService.getLastClosePriceDate());
+            info.put("lastEveningSessionDate", priceCacheService.getLastEveningSessionDate());
+            info.put("lastOpenPriceDate", priceCacheService.getLastOpenPriceDate());
+            info.put("closePricesCount", priceCacheService.getAllClosePrices().size());
+            info.put("eveningSessionCount", priceCacheService.getAllEveningSessionPrices().size());
+            info.put("openPricesCount", priceCacheService.getAllOpenPrices().size());
+
+            return ResponseEntity.ok(info);
+        } catch (Exception e) {
+            log.error("Error getting scheduler info", e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
      * Получение всех цен закрытия из кэша
      */
     @GetMapping("/close-price")
@@ -136,6 +162,58 @@ public class PriceCacheController {
             log.error("Error reloading all prices", e);
             return ResponseEntity.internalServerError()
                     .body("Error reloading all prices: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Принудительная перезагрузка всех типов цен с учетом выходных дней
+     */
+    @PostMapping("/force-reload-all")
+    public ResponseEntity<Map<String, Object>> forceReloadAllPrices() {
+        try {
+            log.info("Force reload all prices with weekend logic requested");
+            priceCacheService.forceReloadAllPricesCache();
+
+            Map<String, Object> result = new java.util.HashMap<>();
+            result.put("success", true);
+            result.put("message",
+                    "All prices cache force reloaded successfully with weekend logic");
+            result.put("closePricesDate", priceCacheService.getLastClosePriceDate());
+            result.put("eveningSessionDate", priceCacheService.getLastEveningSessionDate());
+            result.put("openPricesDate", priceCacheService.getLastOpenPriceDate());
+            result.put("closePricesCount", priceCacheService.getAllClosePrices().size());
+            result.put("eveningSessionCount",
+                    priceCacheService.getAllEveningSessionPrices().size());
+            result.put("openPricesCount", priceCacheService.getAllOpenPrices().size());
+
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("Error force reloading all prices", e);
+            return ResponseEntity.internalServerError().body(Map.of("success", false, "message",
+                    "Error force reloading all prices: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Ручное обновление только цен закрытия
+     */
+    @PostMapping("/reload-close-prices")
+    public ResponseEntity<Map<String, Object>> reloadClosePrices() {
+        try {
+            log.info("Manual reload close prices requested");
+            priceCacheService.forceReloadClosePricesCache();
+
+            Map<String, Object> result = new java.util.HashMap<>();
+            result.put("success", true);
+            result.put("message", "Close prices cache reloaded successfully");
+            result.put("lastUpdateDate", priceCacheService.getLastClosePriceDate());
+            result.put("pricesCount", priceCacheService.getAllClosePrices().size());
+
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("Error reloading close prices", e);
+            return ResponseEntity.internalServerError().body(Map.of("success", false, "message",
+                    "Error reloading close prices: " + e.getMessage()));
         }
     }
 

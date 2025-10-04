@@ -961,6 +961,20 @@
 
         // Фильтры (удалены, так как не используются в выходном сканере)
 
+        // Функция для определения порта WebSocket
+        function getWebSocketPort() {
+            // Определяем порт на основе текущего URL
+            const currentPort = window.location.port;
+            if (currentPort === '8088') {
+                return '8088'; // Тестовое окружение
+            } else if (currentPort === '8085') {
+                return '8085'; // Продакшн окружение
+            } else {
+                // По умолчанию используем тестовый порт
+                return '8088';
+            }
+        }
+
         // Состояние
         let websocket = null;
         let isConnected = false;
@@ -997,7 +1011,8 @@
             if (isConnected) return;
 
             try {
-                websocket = new WebSocket('ws://localhost:8085/ws/quotes');
+                const port = getWebSocketPort();
+                websocket = new WebSocket(`ws://localhost:${port}/ws/quotes`);
 
                 websocket.onopen = function () {
                     isConnected = true;

@@ -175,9 +175,19 @@
         </div>
 
         <div class="footer">
-            <p>Investment Data Scanner Service v1.0 | Порт: 8085 | Статус: Online</p>
+            <p>Investment Data Scanner Service v1.0 | Порт: <span id="currentPort">--</span> | Статус: Online</p>
         </div>
     </div>
+
+    <script>
+        // Отображаем текущий порт в футере
+        document.addEventListener('DOMContentLoaded', function () {
+            const currentPortElement = document.getElementById('currentPort');
+            if (currentPortElement) {
+                currentPortElement.textContent = window.location.port || '8088';
+            }
+        });
+    </script>
 </body>
 
 </html>

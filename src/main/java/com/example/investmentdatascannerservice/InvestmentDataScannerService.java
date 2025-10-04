@@ -3,6 +3,7 @@ package com.example.investmentdatascannerservice;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import com.example.investmentdatascannerservice.config.AppConfig;
 import com.example.investmentdatascannerservice.config.InstrumentPairConfig;
 import com.example.investmentdatascannerservice.config.QuoteScannerConfig;
@@ -20,6 +21,7 @@ import com.example.investmentdatascannerservice.config.QuoteScannerConfig;
 @SpringBootApplication
 @EnableConfigurationProperties({AppConfig.class, QuoteScannerConfig.class,
         InstrumentPairConfig.class})
+@EnableScheduling
 public class InvestmentDataScannerService {
 
     /**
