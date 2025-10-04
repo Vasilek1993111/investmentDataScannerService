@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Сканер выходного дня</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <link rel="stylesheet" href="../css/weekend-scanner.css">
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌅 Сканер выходного дня</h1>
+            <p>Мониторинг активности инструментов в выходные дни</p>
+        </div>
+
+        <!-- Полоска с индексами -->
+        <div class="indices-bar">
+            <div class="indices-container" id="indicesContainer">
+                <!-- Индексы будут добавлены динамически -->
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Активных инструментов</h3>
+                <div class="value" id="activeInstruments">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Объем торгов</h3>
+                <div class="value" id="totalVolume">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Скорость обновления</h3>
+                <div class="value" id="updateRate">0/сек</div>
+            </div>
+            <div class="stat-card">
+                <h3>Последнее обновление</h3>
+                <div class="value" id="lastUpdate">--:--:--</div>
+            </div>
+            <div class="stat-card">
+                <h3>Режим выходного дня</h3>
+                <div class="value" id="weekendStatus">Проверка...</div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button id="connectBtn" class="btn btn-primary">Подключиться</button>
+            <button id="disconnectBtn" class="btn btn-danger" disabled>Отключиться</button>
+            <button id="manageIndicesBtn" class="btn btn-secondary" onclick="toggleIndexManagement()">Управление
+                индексами</button>
+            <a href="/" class="btn btn-primary">← На главную</a>
+            <div id="connectionStatus" class="status disconnected">Отключено</div>
+        </div>
+
+
+        <div class="scanner-container">
+            <!-- Растущие бумаги -->
+            <div class="scanner-section gainers">
+                <h2 id="gainersTitle">🚀 Топ-15 растущих относительно ОС</h2>
+
+                <!-- Настройки сортировки для растущих акций -->
+                <div class="sorting-controls-inline">
+                    <div class="sort-group">
+                        <label for="gainersSortBy">Сортировать по:</label>
+                        <select id="gainersSortBy" class="sort-select">
+                            <option value="changeOS">Изменение от ОС %</option>
+                            <option value="priceVS">Изменение от ВС %</option>
+                        </select>
+                    </div>
+                    <div class="sort-group">
+                        <label for="gainersSortOrder">Порядок:</label>
+                        <select id="gainersSortOrder" class="sort-select">
+                            <option value="desc">Сначала самые растущие</option>
+                            <option value="asc">Сначала менее растущие</option>
+                            <option value="volume_desc">Наибольший объем</option>
+                            <option value="volume_asc">Наименьший объем</option>
+                            <option value="spread_desc">Наибольший спред</option>
+                            <option value="volume_excess_desc">Превышение исторического объема</option>
+                        </select>
+                    </div>
+                    <div class="sort-group">
+                        <label for="gainersMaxResults">Показать:</label>
+                        <select id="gainersMaxResults" class="sort-select">
+                            <option value="5">Топ-5</option>
+                            <option value="10">Топ-10</option>
+                            <option value="15">Топ-15</option>
+                            <option value="20">Топ-20</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Инструмент</th>
+                                <th>Текущая</th>
+                                <th>Цена ОС</th>
+                                <th>Цена ВС</th>
+                                <th>Изменение от ОС %</th>
+                                <th>BID (лоты)</th>
+                                <th>ASK (лоты)</th>
+                                <th>Объем</th>
+                                <th>Исторический объем</th>
+                                <th>Спред</th>
+                                <th>Время</th>
+                            </tr>
+                        </thead>
+                        <tbody id="gainersTableBody">
+                            <tr>
+                                <td colspan="12" class="no-data">Нет данных</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Падающие бумаги -->
+            <div class="scanner-section losers">
+                <h2 id="losersTitle">📉 Топ-15 падающих относительно ОС</h2>
+
+                <!-- Настройки сортировки для падающих акций -->
+                <div class="sorting-controls-inline">
+                    <div class="sort-group">
+                        <label for="losersSortBy">Сортировать по:</label>
+                        <select id="losersSortBy" class="sort-select">
+                            <option value="changeOS">Изменение от ОС %</option>
+                            <option value="priceVS">Изменение от ВС %</option>
+                        </select>
+                    </div>
+                    <div class="sort-group">
+                        <label for="losersSortOrder">Порядок:</label>
+                        <select id="losersSortOrder" class="sort-select">
+                            <option value="desc">Сначала самые падающие</option>
+                            <option value="asc">Сначала менее падающие</option>
+                            <option value="volume_desc">Наибольший объем</option>
+                            <option value="volume_asc">Наименьший объем</option>
+                            <option value="spread_desc">Наибольший спред</option>
+                            <option value="volume_excess_desc">Превышение исторического объема</option>
+                        </select>
+                    </div>
+                    <div class="sort-group">
+                        <label for="losersMaxResults">Показать:</label>
+                        <select id="losersMaxResults" class="sort-select">
+                            <option value="5">Топ-5</option>
+                            <option value="10">Топ-10</option>
+                            <option value="15">Топ-15</option>
+                            <option value="20">Топ-20</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Инструмент</th>
+                                <th>Текущая</th>
+                                <th>Цена ОС</th>
+                                <th>Цена ВС</th>
+                                <th>Изменение от ОС %</th>
+                                <th>BID (лоты)</th>
+                                <th>ASK (лоты)</th>
+                                <th>Объем</th>
+                                <th>Исторический объем</th>
+                                <th>Спред</th>
+                                <th>Время</th>
+                            </tr>
+                        </thead>
+                        <tbody id="losersTableBody">
+                            <tr>
+                                <td colspan="12" class="no-data">Нет данных</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно для управления индексами -->
+    <div id="indexManagementModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Управление индексами</h2>
+                <span class="close" onclick="toggleIndexManagement()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="add-index-section">
+                    <h3>Добавить новый индекс</h3>
+                    <div class="form-group">
+                        <label for="newIndexTicker">Ticker:</label>
+                        <input type="text" id="newIndexTicker" placeholder="XAG">
+                    </div>
+                    <div class="form-group">
+                        <label for="newIndexDisplayName">Display Name:</label>
+                        <input type="text" id="newIndexDisplayName" placeholder="XAG">
+                    </div>
+                    <button onclick="addIndex()" class="btn btn-primary">Добавить</button>
+                </div>
+
+                <div class="current-indices-section">
+                    <h3>Текущие индексы</h3>
+                    <div id="currentIndicesList" class="indices-list">
+                        <!-- Список индексов будет загружен динамически -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script defer src="../js/weekend-scanner.js"></script>
+</body>
+
+</html>
