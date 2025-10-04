@@ -57,8 +57,9 @@ public class PriceCacheController {
         try {
             Map<String, Object> info = new java.util.HashMap<>();
             info.put("schedulerEnabled", true);
-            info.put("allPricesUpdateTime", "06:00 MSK (daily with weekend logic)");
-            info.put("weekendLogic", "In weekends, takes prices from Friday");
+            info.put("allPricesUpdateTime", "06:00 MSK (daily with unified weekend logic)");
+            info.put("weekendLogic",
+                    "Unified logic: weekends use Friday, weekdays use today or last available data");
             info.put("healthCheckInterval", "Every hour");
             info.put("timezone", "Europe/Moscow");
             info.put("lastClosePriceDate", priceCacheService.getLastClosePriceDate());
@@ -166,18 +167,18 @@ public class PriceCacheController {
     }
 
     /**
-     * Принудительная перезагрузка всех типов цен с учетом выходных дней
+     * Принудительная перезагрузка всех типов цен с унифицированной логикой выходных дней
      */
     @PostMapping("/force-reload-all")
     public ResponseEntity<Map<String, Object>> forceReloadAllPrices() {
         try {
-            log.info("Force reload all prices with weekend logic requested");
+            log.info("Force reload all prices with unified weekend logic requested");
             priceCacheService.forceReloadAllPricesCache();
 
             Map<String, Object> result = new java.util.HashMap<>();
             result.put("success", true);
             result.put("message",
-                    "All prices cache force reloaded successfully with weekend logic");
+                    "All prices cache force reloaded successfully with unified weekend logic");
             result.put("closePricesDate", priceCacheService.getLastClosePriceDate());
             result.put("eveningSessionDate", priceCacheService.getLastEveningSessionDate());
             result.put("openPricesDate", priceCacheService.getLastOpenPriceDate());

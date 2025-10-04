@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.example.investmentdatascannerservice.entity.ClosePriceEntity;
@@ -55,38 +54,18 @@ public class PriceCacheService {
     }
 
     /**
-     * Загрузка последних цен закрытия в кэш
+     * Загрузка последних цен закрытия в кэш с унифицированной логикой определения даты
      */
     @Transactional(readOnly = true)
     public void loadAllClosePrices() {
         try {
-            // Получаем последнюю дату с ценами закрытия
-            Optional<LocalDate> latestDate = closePriceRepository.findLatestPriceDate();
-            if (latestDate.isEmpty()) {
-                log.warn("No close prices found in database");
-                return;
-            }
+            // Используем унифицированную логику определения даты (с учетом выходных)
+            LocalDate targetDate = getLastTradingDate();
+            log.info("Loading close prices for target date: {} (unified weekend logic)",
+                    targetDate);
 
-            lastClosePriceDate = latestDate.get();
-            lastClosePricesCache.clear();
-
-            // Получаем все уникальные FIGI из базы данных
-            List<String> allFigis =
-                    closePriceRepository.findAll().stream().map(entity -> entity.getId().getFigi())
-                            .distinct().collect(Collectors.toList());
-
-            // Получаем последние цены для всех инструментов
-            List<ClosePriceEntity> latestClosePrices =
-                    closePriceRepository.findLatestClosePricesByFigis(allFigis);
-
-            for (ClosePriceEntity entity : latestClosePrices) {
-                String figi = entity.getId().getFigi();
-                BigDecimal price = entity.getClosePrice();
-                lastClosePricesCache.put(figi, price);
-            }
-
-            log.info("Loaded {} latest close prices for {} instruments, date: {}",
-                    latestClosePrices.size(), lastClosePricesCache.size(), lastClosePriceDate);
+            // Загружаем цены для целевой даты
+            loadClosePricesForDate(targetDate);
 
         } catch (Exception e) {
             log.error("Error loading latest close prices into cache", e);
@@ -94,34 +73,18 @@ public class PriceCacheService {
     }
 
     /**
-     * Загрузка последних цен вечерней сессии в кэш
+     * Загрузка последних цен вечерней сессии в кэш с унифицированной логикой определения даты
      */
     @Transactional(readOnly = true)
     public void loadAllEveningSessionPrices() {
         try {
-            // Получаем последнюю дату с ценами вечерней сессии
-            LocalDate latestDate = closePriceEveningSessionRepository.findLastPriceDate();
-            if (latestDate == null) {
-                log.warn("No evening session prices found in database");
-                return;
-            }
+            // Используем унифицированную логику определения даты (с учетом выходных)
+            LocalDate targetDate = getLastTradingDate();
+            log.info("Loading evening session prices for target date: {} (unified weekend logic)",
+                    targetDate);
 
-            lastEveningSessionDate = latestDate;
-            lastEveningSessionPricesCache.clear();
-
-            // Получаем все цены за последнюю дату
-            List<ClosePriceEveningSessionEntity> latestEveningPrices =
-                    closePriceEveningSessionRepository.findByPriceDate(latestDate);
-
-            for (ClosePriceEveningSessionEntity entity : latestEveningPrices) {
-                String figi = entity.getFigi();
-                BigDecimal price = entity.getClosePrice();
-                lastEveningSessionPricesCache.put(figi, price);
-            }
-
-            log.info("Loaded {} latest evening session prices for {} instruments, date: {}",
-                    latestEveningPrices.size(), lastEveningSessionPricesCache.size(),
-                    lastEveningSessionDate);
+            // Загружаем цены для целевой даты
+            loadEveningSessionPricesForDate(targetDate);
 
         } catch (Exception e) {
             log.error("Error loading latest evening session prices into cache", e);
@@ -159,50 +122,29 @@ public class PriceCacheService {
     }
 
     /**
-     * Перезагрузка кэша
+     * Перезагрузка кэша с унифицированной логикой
      */
     public void reloadCache() {
-        log.info("Reloading price cache...");
+        log.info("Reloading price cache with unified weekend logic...");
         clearCache();
         loadAllClosePrices();
         loadAllEveningSessionPrices();
         loadAllOpenPrices();
-        log.info("Price cache reloaded successfully");
+        log.info("Price cache reloaded successfully with unified weekend logic");
     }
 
     /**
-     * Загрузка последних цен открытия в кэш
+     * Загрузка последних цен открытия в кэш с унифицированной логикой определения даты
      */
     @Transactional(readOnly = true)
     public void loadAllOpenPrices() {
         try {
-            // Получаем последнюю дату с ценами открытия
-            Optional<LocalDate> latestDate = openPriceRepository.findLatestPriceDate();
-            if (latestDate.isEmpty()) {
-                log.warn("No open prices found in database");
-                return;
-            }
+            // Используем унифицированную логику определения даты (с учетом выходных)
+            LocalDate targetDate = getLastTradingDate();
+            log.info("Loading open prices for target date: {} (unified weekend logic)", targetDate);
 
-            lastOpenPriceDate = latestDate.get();
-            lastOpenPricesCache.clear();
-
-            // Получаем все уникальные FIGI из базы данных
-            List<String> allFigis =
-                    openPriceRepository.findAll().stream().map(entity -> entity.getId().getFigi())
-                            .distinct().collect(Collectors.toList());
-
-            // Получаем последние цены для всех инструментов
-            List<OpenPriceEntity> latestOpenPrices =
-                    openPriceRepository.findLastOpenPricesByFigis(allFigis);
-
-            for (OpenPriceEntity entity : latestOpenPrices) {
-                String figi = entity.getId().getFigi();
-                BigDecimal price = entity.getOpenPrice();
-                lastOpenPricesCache.put(figi, price);
-            }
-
-            log.info("Loaded {} open prices for date: {}", lastOpenPricesCache.size(),
-                    lastOpenPriceDate);
+            // Загружаем цены для целевой даты
+            loadOpenPricesForDate(targetDate);
 
         } catch (Exception e) {
             log.error("Error loading open prices", e);
@@ -304,7 +246,7 @@ public class PriceCacheService {
     }
 
     /**
-     * Получение последней торговой даты (если выходные - возвращает пятницу)
+     * Получение последней торговой даты с учетом выходных дней и доступности данных в базе
      */
     private LocalDate getLastTradingDate() {
         LocalDate today = LocalDate.now();
@@ -314,11 +256,63 @@ public class PriceCacheService {
         if (dayOfWeek == DayOfWeek.SATURDAY || dayOfWeek == DayOfWeek.SUNDAY) {
             // Находим последнюю пятницу
             int daysToSubtract = dayOfWeek == DayOfWeek.SATURDAY ? 1 : 2;
-            return today.minusDays(daysToSubtract);
+            LocalDate targetDate = today.minusDays(daysToSubtract);
+            log.debug("Weekend detected ({}), using last Friday: {}", dayOfWeek, targetDate);
+            return targetDate;
         }
 
-        // Если сегодня рабочий день, возвращаем сегодняшнюю дату
-        return today;
+        // Если сегодня рабочий день, проверяем есть ли данные за сегодня
+        // Если данных за сегодня нет, ищем последний рабочий день с данными
+        if (hasDataForDate(today)) {
+            log.debug("Using today's date: {}", today);
+            return today;
+        } else {
+            // Ищем последний рабочий день с данными
+            LocalDate lastWorkingDay = findLastWorkingDayWithData(today);
+            log.debug("No data for today ({}), using last working day with data: {}", today,
+                    lastWorkingDay);
+            return lastWorkingDay;
+        }
+    }
+
+    /**
+     * Проверяет, есть ли данные в базе для указанной даты
+     */
+    private boolean hasDataForDate(LocalDate date) {
+        try {
+            // Проверяем наличие данных в любой из таблиц цен
+            Optional<LocalDate> latestCloseDate = closePriceRepository.findLatestPriceDate();
+            if (latestCloseDate.isPresent() && !latestCloseDate.get().isBefore(date)) {
+                return true;
+            }
+            return false;
+        } catch (Exception e) {
+            log.warn("Error checking data availability for date: {}", date, e);
+            return false;
+        }
+    }
+
+    /**
+     * Находит последний рабочий день с данными в базе
+     */
+    private LocalDate findLastWorkingDayWithData(LocalDate fromDate) {
+        try {
+            // Получаем максимальную дату из базы данных
+            Optional<LocalDate> latestDate = closePriceRepository.findLatestPriceDate();
+            if (latestDate.isPresent()) {
+                LocalDate maxDate = latestDate.get();
+                log.debug("Found latest date in database: {}", maxDate);
+                return maxDate;
+            }
+
+            // Если данных нет, возвращаем вчерашний день
+            LocalDate yesterday = fromDate.minusDays(1);
+            log.warn("No data found in database, using yesterday: {}", yesterday);
+            return yesterday;
+        } catch (Exception e) {
+            log.error("Error finding last working day with data", e);
+            return fromDate.minusDays(1);
+        }
     }
 
     /**

@@ -20,8 +20,9 @@ public class ScheduledPriceUpdateService {
     private final PriceCacheService priceCacheService;
 
     /**
-     * Автоматическое обновление всех типов цен каждый день в 6:00 по московскому времени с учетом
-     * выходных дней (в выходные берет цены от пятницы)
+     * Автоматическое обновление всех типов цен каждый день в 6:00 по московскому времени с
+     * унифицированной логикой выходных дней (выходные используют пятницу, рабочие дни используют
+     * сегодня или последние доступные данные)
      * 
      * Cron выражение: 0 0 6 * * ? - каждый день в 6:00:00 Timezone: Europe/Moscow
      */
@@ -29,17 +30,19 @@ public class ScheduledPriceUpdateService {
     public void updateAllPricesCacheWithWeekendLogic() {
         try {
             LocalDateTime now = LocalDateTime.now(ZoneId.of("Europe/Moscow"));
-            log.info("Starting scheduled all prices cache update with weekend logic at {}", now);
+            log.info("Starting scheduled all prices cache update with unified weekend logic at {}",
+                    now);
 
-            // Обновляем все типы цен с учетом выходных дней
+            // Обновляем все типы цен с унифицированной логикой выходных дней
             priceCacheService.forceReloadAllPricesCache();
 
             log.info(
-                    "Scheduled all prices cache update with weekend logic completed successfully at {}",
+                    "Scheduled all prices cache update with unified weekend logic completed successfully at {}",
                     LocalDateTime.now(ZoneId.of("Europe/Moscow")));
 
         } catch (Exception e) {
-            log.error("Error during scheduled all prices cache update with weekend logic", e);
+            log.error("Error during scheduled all prices cache update with unified weekend logic",
+                    e);
         }
     }
 
