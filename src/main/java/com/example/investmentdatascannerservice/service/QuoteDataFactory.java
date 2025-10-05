@@ -65,7 +65,8 @@ public class QuoteDataFactory {
                 bestBid, bestAsk, bestBidQuantity, bestAskQuantity,
                 convertTimestamp(price.getTime()), 0L, // volume = 0 для LastPrice
                 accumulatedVolume, // totalVolume
-                direction, avgVolumeMorning, avgVolumeWeekend);
+                direction, avgVolumeMorning, avgVolumeWeekend, cacheService.isShortEnabled(figi),
+                cacheService.hasRecentDividend(figi));
     }
 
     /**
@@ -109,7 +110,8 @@ public class QuoteDataFactory {
                 bestBid, bestAsk, bestBidQuantity, bestAskQuantity,
                 convertTimestamp(trade.getTime()), trade.getQuantity(), // volume из сделки
                 accumulatedVolume, // totalVolume
-                direction, avgVolumeMorning, avgVolumeWeekend);
+                direction, avgVolumeMorning, avgVolumeWeekend, cacheService.isShortEnabled(figi),
+                cacheService.hasRecentDividend(figi));
     }
 
     /**
@@ -152,7 +154,8 @@ public class QuoteDataFactory {
                                                                                              // volume
                                                                                              // = 0
                 accumulatedVolume, // totalVolume
-                direction, avgVolumeMorning, avgVolumeWeekend);
+                direction, avgVolumeMorning, avgVolumeWeekend, cacheService.isShortEnabled(figi),
+                cacheService.hasRecentDividend(figi));
     }
 
     /**

@@ -8,6 +8,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.stereotype.Service;
 import com.example.investmentdatascannerservice.config.QuoteScannerConfig;
+import com.example.investmentdatascannerservice.repository.DividendRepository;
+import com.example.investmentdatascannerservice.repository.FutureRepository;
 import com.example.investmentdatascannerservice.service.TodayVolumeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,6 +29,8 @@ public class InstrumentCacheService {
     private final IndicativeService indicativeService;
     private final SharesAggregatedDataService sharesAggregatedDataService;
     private final TodayVolumeService todayVolumeService;
+    private final FutureRepository futureRepository;
+    private final DividendRepository dividendRepository;
 
     // Кэш последних цен инструментов
     private final Map<String, BigDecimal> lastPrices = new ConcurrentHashMap<>();
@@ -58,6 +62,12 @@ public class InstrumentCacheService {
     private final Map<String, Long> bestBidQuantities = new ConcurrentHashMap<>();
     private final Map<String, Long> bestAskQuantities = new ConcurrentHashMap<>();
 
+    // Кэш short-флагов (FIGI -> доступен ли шорт)
+    private final Map<String, Boolean> shortFlagsByFigi = new ConcurrentHashMap<>();
+
+    // Кэш дивидендных событий (FIGI -> true если есть событие с declared_date >= NOW-1)
+    private final Map<String, Boolean> dividendFlagsByFigi = new ConcurrentHashMap<>();
+
     /**
      * Инициализация кэша инструментов
      */
@@ -82,6 +92,37 @@ public class InstrumentCacheService {
                     instrumentTickers.entrySet().stream().limit(5)
                             .map(entry -> entry.getKey() + "=" + entry.getValue())
                             .collect(java.util.stream.Collectors.toList()));
+        }
+
+        // Загружаем short-флаги акций и фьючерсов
+        try {
+            Map<String, Boolean> shareShortFlags = shareService.getShareShortFlags();
+            shortFlagsByFigi.putAll(shareShortFlags);
+            log.info("Loaded {} share short flags", shareShortFlags.size());
+        } catch (Exception e) {
+            log.warn("Failed to load share short flags: {}", e.getMessage());
+        }
+        try {
+            java.util.List<Object[]> futureFlags = futureRepository.findShortFlags();
+            for (Object[] row : futureFlags) {
+                String figi = (String) row[0];
+                Boolean enabled = (Boolean) row[1];
+                if (figi != null)
+                    shortFlagsByFigi.put(figi, enabled != null && enabled);
+            }
+            log.info("Loaded {} future short flags", futureFlags.size());
+        } catch (Exception e) {
+            log.warn("Failed to load future short flags: {}", e.getMessage());
+        }
+
+        // Загружаем дивидендные события за период (now - 1 день) и позднее
+        try {
+            java.time.LocalDate fromDate = java.time.LocalDate.now().minusDays(1);
+            java.util.List<String> figis = dividendRepository.findFigiWithDeclaredSince(fromDate);
+            figis.forEach(f -> dividendFlagsByFigi.put(f, true));
+            log.info("Loaded {} dividend events since {}", figis.size(), fromDate);
+        } catch (Exception e) {
+            log.warn("Failed to load dividend events: {}", e.getMessage());
         }
 
         log.info("Instrument cache initialized successfully");
@@ -606,5 +647,19 @@ public class InstrumentCacheService {
      */
     public ShareService getShareService() {
         return shareService;
+    }
+
+    /**
+     * Получить short-флаг по FIGI (true если шорт доступен)
+     */
+    public boolean isShortEnabled(String figi) {
+        return Boolean.TRUE.equals(shortFlagsByFigi.get(figi));
+    }
+
+    /**
+     * Есть ли дивидендное событие (declared_date >= now-1d)
+     */
+    public boolean hasRecentDividend(String figi) {
+        return Boolean.TRUE.equals(dividendFlagsByFigi.get(figi));
     }
 }

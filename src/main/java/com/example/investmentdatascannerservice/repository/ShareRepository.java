@@ -24,4 +24,10 @@ public interface ShareRepository extends JpaRepository<ShareEntity, String> {
      */
     @Query("SELECT s FROM ShareEntity s WHERE s.ticker = :ticker")
     List<ShareEntity> findByTicker(@Param("ticker") String ticker);
+
+    /**
+     * Получить карту short_enabled по FIGI
+     */
+    @Query("SELECT s.figi, s.shortEnabled FROM ShareEntity s")
+    List<Object[]> findShortFlags();
 }

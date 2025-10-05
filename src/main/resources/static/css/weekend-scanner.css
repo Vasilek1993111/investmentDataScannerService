@@ -264,6 +264,36 @@ body {
   font-family: monospace;
 }
 
+/* Бейдж шорта рядом с тикером */
+.badge-short {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  line-height: 1.4;
+  border-radius: 10px;
+  background: linear-gradient(45deg, #ff6b6b, #ffa502);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(255, 107, 107, 0.4);
+  position: relative;
+  top: -1px; /* легкий подъем для лучшей центровки с текстом тикера */
+}
+
+/* Бейдж дивидендного события */
+.badge-div {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  font-size: 10px;
+  line-height: 1.4;
+  border-radius: 10px;
+  background: linear-gradient(45deg, #3f87ff, #00bcd4);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(0, 188, 212, 0.35);
+  position: relative;
+  top: -1px;
+}
+
 .btn-remove {
   background: #dc3545;
   color: white;
@@ -575,6 +605,33 @@ tr:last-child td:last-child {
 .price-down {
   color: #e74c3c;
   font-weight: 600;
+}
+
+/* Мягкая подсветка фона при изменении */
+.flash-up {
+  animation: flashGreen 0.9s ease;
+}
+
+.flash-down {
+  animation: flashRed 0.9s ease;
+}
+
+@keyframes flashGreen {
+  0% {
+    background-color: rgba(39, 174, 96, 0.25);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@keyframes flashRed {
+  0% {
+    background-color: rgba(231, 76, 60, 0.25);
+  }
+  100% {
+    background-color: transparent;
+  }
 }
 
 .price-neutral {

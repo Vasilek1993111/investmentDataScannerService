@@ -82,6 +82,22 @@ public class ShareService {
     }
 
     /**
+     * Получить short-флаги по FIGI
+     */
+    public Map<String, Boolean> getShareShortFlags() {
+        try {
+            List<Object[]> rows = shareRepository.findShortFlags();
+            Map<String, Boolean> map = rows.stream().collect(Collectors.toMap(r -> (String) r[0],
+                    r -> (Boolean) r[1] == null ? false : (Boolean) r[1], (a, b) -> a));
+            log.info("Loaded {} share short flags from database", map.size());
+            return map;
+        } catch (Exception e) {
+            log.error("Error loading share short flags", e);
+            return Map.of();
+        }
+    }
+
+    /**
      * Получить количество всех акций
      */
     public long getAllSharesCount() {

@@ -38,6 +38,7 @@ let updateTimer = null;
 let baseVolumeCache = new Map();
 let incrementVolumeCache = new Map();
 let totalVolumeCache = new Map();
+let previousValues = new Map(); // хранение предыдущих значений для подсветки изменений
 
 // Индексы для полоски (динамический список)
 let indices = new Map();
@@ -55,6 +56,17 @@ let losersMaxResults = 15;
 
 const WEEKEND_MODE = true;
 
+// Рендер названия инструмента с бейджем шорта
+function renderInstrumentCell(quote) {
+    const shortBadge = quote && quote.shortEnabled
+        ? '<span class="badge-short" title="Шорт доступен">S</span>'
+        : '';
+    const divBadge = quote && quote.hasDividend
+        ? '<span class="badge-div" title="Дивидендное событие: последний день покупки — на день раньше заявленной даты">D</span>'
+        : '';
+    return `<strong>${quote.ticker || quote.figi}</strong>${shortBadge}${divBadge}`;
+}
+
 function connect() {
     if (isConnected) return;
 
@@ -63,6 +75,7 @@ function connect() {
         websocket = new WebSocket(`ws://localhost:${port}/ws/quotes`);
 
         websocket.onopen = function () {
+            console.log('WebSocket connected successfully');
             isConnected = true;
             connectBtn.disabled = true;
             disconnectBtn.disabled = false;
@@ -94,7 +107,9 @@ function connect() {
 
         websocket.onmessage = function (event) {
             try {
+                console.log('WebSocket received data:', event.data);
                 const quoteData = JSON.parse(event.data);
+                console.log('Parsed quote data:', quoteData);
                 updateQuote(quoteData);
             } catch (error) {
                 console.error('Error parsing quote data:', error);
@@ -102,6 +117,7 @@ function connect() {
         };
 
         websocket.onclose = function () {
+            console.log('WebSocket connection closed');
             isConnected = false;
             connectBtn.disabled = false;
             disconnectBtn.disabled = true;
@@ -116,6 +132,7 @@ function connect() {
 
         websocket.onerror = function (error) {
             console.error('WebSocket error:', error);
+            console.log('WebSocket error details:', error);
         };
     } catch (error) {
         console.error('Connection error:', error);
@@ -529,6 +546,18 @@ function sortQuotesAdvanced(quotes, sortBy, sortOrder) {
     });
 }
 
+// Возвращает исторический (средний) объем для FIGI из загруженных данных
+function getAvgVolumeFromHistory(figi) {
+    if (!historyVolumeData) return 0;
+    // Пытаемся взять точечное среднее по инструменту, если есть
+    if (historyVolumeData.weekendExchangeAvgVolumesPerDay
+        && historyVolumeData.weekendExchangeAvgVolumesPerDay[figi] !== undefined) {
+        return Number(historyVolumeData.weekendExchangeAvgVolumesPerDay[figi]) || 0;
+    }
+    // Фоллбек: если в исторических данных ничего нет, вернем 0
+    return 0;
+}
+
 // --- Форматирование ---
 function getPriceChangeClass(priceChange) {
     if (!priceChange) return 'price-neutral';
@@ -870,6 +899,168 @@ setInterval(updateWeekendStatus, 60000);
 updateIndicesFromServer();
 loadIndexPrices();
 setTimeout(() => { loadClosePricesForAllQuotes(); }, 2000);
+
+// Функции для обновления таблиц
+function updateGainersTable() {
+    const tbody = document.getElementById('gainersTableBody');
+    if (!tbody) return;
+
+    if (gainers.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="12" class="no-data">Нет данных</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = '';
+    gainers.forEach(quote => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${renderInstrumentCell(quote)}</td>
+            <td>${formatPrice(quote.currentPrice)}</td>
+            <td>${formatPrice(quote.closePriceOS || quote.closePrice)}</td>
+            <td>${formatPrice(quote.closePriceVS)}</td>
+            <td class="${getChangeClass(quote.closePriceChangePercent)}">${formatPercentValue(quote.closePriceChangePercent)}</td>
+            <td>${formatBidAsk(quote.bestBid, quote.bestBidQuantity)}</td>
+            <td>${formatBidAsk(quote.bestAsk, quote.bestAskQuantity)}</td>
+            <td>${formatVolume(quote.totalVolume ?? quote.volume)}</td>
+            <td>${formatVolume(quote.avgVolumeWeekend)}</td>
+            <td>${formatPercentValue(calculateSpreadPercent(quote.bestBid, quote.bestAsk, quote.currentPrice))}</td>
+            <td>${formatTime(quote.timestamp)}</td>
+        `;
+        tbody.appendChild(row);
+
+        // Подсветка изменений по ключевым полям
+        const cells = row.querySelectorAll('td');
+        flashValueChange(cells[1], quote.figi, 'currentPrice', Number(quote.currentPrice));
+        flashValueChange(cells[5], quote.figi, 'bestBid', Number(quote.bestBid));
+        flashValueChange(cells[6], quote.figi, 'bestAsk', Number(quote.bestAsk));
+        // объем подcвечиваем только при увеличении
+        flashValueChange(cells[7], quote.figi, 'totalVolume', Number(quote.totalVolume ?? quote.volume ?? 0), { onlyUp: true });
+    });
+}
+
+function updateLosersTable() {
+    const tbody = document.getElementById('losersTableBody');
+    if (!tbody) return;
+
+    if (losers.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="12" class="no-data">Нет данных</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = '';
+    losers.forEach(quote => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${renderInstrumentCell(quote)}</td>
+            <td>${formatPrice(quote.currentPrice)}</td>
+            <td>${formatPrice(quote.closePriceOS || quote.closePrice)}</td>
+            <td>${formatPrice(quote.closePriceVS)}</td>
+            <td class="${getChangeClass(quote.closePriceChangePercent)}">${formatPercentValue(quote.closePriceChangePercent)}</td>
+            <td>${formatBidAsk(quote.bestBid, quote.bestBidQuantity)}</td>
+            <td>${formatBidAsk(quote.bestAsk, quote.bestAskQuantity)}</td>
+            <td>${formatVolume(quote.totalVolume ?? quote.volume)}</td>
+            <td>${formatVolume(quote.avgVolumeWeekend)}</td>
+            <td>${formatPercentValue(calculateSpreadPercent(quote.bestBid, quote.bestAsk, quote.currentPrice))}</td>
+            <td>${formatTime(quote.timestamp)}</td>
+        `;
+        tbody.appendChild(row);
+
+        // Подсветка изменений по ключевым полям
+        const cells = row.querySelectorAll('td');
+        flashValueChange(cells[1], quote.figi, 'currentPrice', Number(quote.currentPrice));
+        flashValueChange(cells[5], quote.figi, 'bestBid', Number(quote.bestBid));
+        flashValueChange(cells[6], quote.figi, 'bestAsk', Number(quote.bestAsk));
+        // объем подcвечиваем только при увеличении
+        flashValueChange(cells[7], quote.figi, 'totalVolume', Number(quote.totalVolume ?? quote.volume ?? 0), { onlyUp: true });
+    });
+}
+
+// Вспомогательные функции форматирования
+function formatPrice(price) {
+    if (price === null || price === undefined) return '--';
+    return Number(price).toFixed(2);
+}
+
+function formatPercent(percent) {
+    if (percent === null || percent === undefined) return '--';
+    return (percent * 100).toFixed(2) + '%';
+}
+
+// Форматирование процентов, если значение уже в процентах (например, 1.23 -> 1.23%)
+function formatPercentValue(percentValue) {
+    if (percentValue === null || percentValue === undefined) return '--';
+    return Number(percentValue).toFixed(2) + '%';
+}
+
+function formatLots(lots) {
+    if (lots === null || lots === undefined) return '--';
+    return Number(lots).toLocaleString();
+}
+
+function formatVolume(volume) {
+    if (volume === null || volume === undefined) return '--';
+    const v = Number(volume);
+    if (!Number.isFinite(v)) return '--';
+    return Math.round(v).toLocaleString();
+}
+
+function formatSpread(spread) {
+    if (spread === null || spread === undefined) return '--';
+    return Number(spread).toFixed(2);
+}
+
+// Расчет спреда по лучшему бид/аск
+function calculateSpread(bestBid, bestAsk) {
+    if (bestBid === null || bestBid === undefined || bestAsk === null || bestAsk === undefined) return null;
+    return Number(bestAsk) - Number(bestBid);
+}
+
+// Процентный спред: (ask - bid) / basePrice * 100, где basePrice = currentPrice или mid
+function calculateSpreadPercent(bestBid, bestAsk, currentPrice) {
+    const bid = Number(bestBid);
+    const ask = Number(bestAsk);
+    if (!isFinite(bid) || !isFinite(ask) || bid <= 0 || ask <= 0) return null;
+    const spreadAbs = ask - bid;
+    let base = Number(currentPrice);
+    if (!(base > 0)) {
+        base = (ask + bid) / 2;
+    }
+    if (!(base > 0)) return null;
+    return (spreadAbs / base) * 100;
+}
+
+// Подсветка изменения значения: сравнение с предыдущим сохраненным значением
+function flashValueChange(cell, figi, key, newValue, options) {
+    const onlyUp = options && options.onlyUp === true;
+    if (newValue === null || newValue === undefined || Number.isNaN(newValue)) return;
+    const prevStore = previousValues.get(figi) || {};
+    const prev = prevStore[key];
+    if (typeof prev === 'number' && !Number.isNaN(prev)) {
+        if (newValue > prev) {
+            cell.classList.remove('price-down', 'flash-down');
+            cell.classList.add('price-up', 'flash-up');
+        } else if (!onlyUp && newValue < prev) {
+            cell.classList.remove('price-up', 'flash-up');
+            cell.classList.add('price-down', 'flash-down');
+        }
+        setTimeout(() => {
+            cell.classList.remove('price-up', 'price-down', 'flash-up', 'flash-down');
+        }, 1200);
+    }
+    prevStore[key] = newValue;
+    previousValues.set(figi, prevStore);
+}
+
+function formatTime(time) {
+    if (!time) return '--';
+    const date = new Date(time);
+    return date.toLocaleTimeString('ru-RU');
+}
+
+function getChangeClass(change) {
+    if (change === null || change === undefined) return '';
+    return change > 0 ? 'positive' : change < 0 ? 'negative' : '';
+}
 
 // Закрытие модалки
 window.onclick = function (event) {

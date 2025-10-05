@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.example.investmentdatascannerservice.service.HistoryVolumeService;
 import com.example.investmentdatascannerservice.service.InstrumentStartupLoader;
@@ -233,6 +234,24 @@ public class PriceCacheController {
             log.error("Error reloading all instruments", e);
             return ResponseEntity.internalServerError()
                     .body("Error reloading all instruments: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Получение последней цены закрытия для конкретного инструмента
+     */
+    @GetMapping("/last-close-price")
+    public ResponseEntity<Map<String, Object>> getLastClosePrice(@RequestParam String figi) {
+        try {
+            BigDecimal closePrice = priceCacheService.getLastClosePrice(figi);
+            Map<String, Object> result = new java.util.HashMap<>();
+            result.put("figi", figi);
+            result.put("closePrice", closePrice);
+            result.put("date", priceCacheService.getLastClosePriceDate());
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("Error getting last close price for figi: {}", figi, e);
+            return ResponseEntity.internalServerError().build();
         }
     }
 

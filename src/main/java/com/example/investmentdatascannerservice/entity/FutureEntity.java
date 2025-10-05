@@ -42,4 +42,8 @@ public class FutureEntity {
 
     @Column(name = "stock_ticker", length = 255)
     private String stockTicker;
+
+    // Признак доступности коротких продаж (если столбец отсутствует в БД, будет null)
+    @Column(name = "short_enabled")
+    private Boolean shortEnabled;
 }

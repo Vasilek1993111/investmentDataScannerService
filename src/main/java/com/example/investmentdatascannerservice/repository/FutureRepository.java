@@ -31,4 +31,10 @@ public interface FutureRepository extends JpaRepository<FutureEntity, String> {
      */
     @Query("SELECT f.figi FROM FutureEntity f")
     List<String> findAllFigis();
+
+    /**
+     * Получить short-флаги фьючерсов (FIGI, shortEnabled)
+     */
+    @Query("SELECT f.figi, f.shortEnabled FROM FutureEntity f")
+    List<Object[]> findShortFlags();
 }

@@ -37,18 +37,21 @@ public class QuoteData {
     private final BigDecimal avgVolumeMorning; // Средний утренний объем
     private final BigDecimal avgVolumeWeekend; // Средний объем выходного дня
     private final String direction;
+    private final boolean shortEnabled; // признак доступности шорта
+    private final boolean hasDividend; // признак дивидендного события (declared_date >= now-1d)
 
     public QuoteData(String figi, String ticker, String instrumentName, BigDecimal currentPrice,
             BigDecimal previousPrice, LocalDateTime timestamp, long volume, String direction) {
         this(figi, ticker, instrumentName, currentPrice, previousPrice, null, null, null, null,
-                null, null, 0, 0, timestamp, volume, volume, direction, null, null);
+                null, null, 0, 0, timestamp, volume, volume, direction, null, null, false, false);
     }
 
     public QuoteData(String figi, String ticker, String instrumentName, BigDecimal currentPrice,
             BigDecimal previousPrice, BigDecimal closePrice, LocalDateTime timestamp, long volume,
             String direction) {
         this(figi, ticker, instrumentName, currentPrice, previousPrice, closePrice, null, null,
-                null, null, null, 0, 0, timestamp, volume, volume, direction, null, null);
+                null, null, null, 0, 0, timestamp, volume, volume, direction, null, null, false,
+                false);
     }
 
     public QuoteData(String figi, String ticker, String instrumentName, BigDecimal currentPrice,
@@ -56,7 +59,7 @@ public class QuoteData {
             BigDecimal closePriceOS, BigDecimal closePriceVS, BigDecimal bestBid,
             BigDecimal bestAsk, long bestBidQuantity, long bestAskQuantity, LocalDateTime timestamp,
             long volume, long totalVolume, String direction, BigDecimal avgVolumeMorning,
-            BigDecimal avgVolumeWeekend) {
+            BigDecimal avgVolumeWeekend, boolean shortEnabled, boolean hasDividend) {
         this.figi = figi;
         this.ticker = ticker;
         this.instrumentName = instrumentName;
@@ -76,6 +79,8 @@ public class QuoteData {
         this.avgVolumeMorning = avgVolumeMorning;
         this.avgVolumeWeekend = avgVolumeWeekend;
         this.direction = direction;
+        this.shortEnabled = shortEnabled;
+        this.hasDividend = hasDividend;
 
         // Вычисляем разницу в цене от предыдущей цены
         if (previousPrice != null && previousPrice.compareTo(BigDecimal.ZERO) > 0) {

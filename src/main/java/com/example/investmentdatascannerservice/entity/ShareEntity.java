@@ -30,6 +30,10 @@ public class ShareEntity {
     @Column(name = "exchange", nullable = false, length = 50)
     private String exchange;
 
+    // Признак доступности коротких продаж (если столбец отсутствует в БД, будет null)
+    @Column(name = "short_enabled")
+    private Boolean shortEnabled;
+
     // Конструкторы
     public ShareEntity() {}
 
