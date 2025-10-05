@@ -738,6 +738,18 @@ function isWeekend() {
     return dayOfWeek === 0 || dayOfWeek === 6;
 }
 
+// Корректная проверка выходного дня по московскому времени через Intl API
+function isWeekendMoscow() {
+    try {
+        const label = new Date().toLocaleDateString('en-US', { timeZone: 'Europe/Moscow', weekday: 'short' });
+        return label === 'Sat' || label === 'Sun';
+    } catch (e) {
+        // Фоллбек: если браузер не поддерживает timeZone, используем локальную зону
+        const day = new Date().getDay();
+        return day === 0 || day === 6;
+    }
+}
+
 async function loadHistoryVolumeData() {
     try {
         const response = await fetch('/api/price-cache/volumes');
@@ -873,7 +885,26 @@ function removeIndex(name) {
 
 async function updateWeekendStatus() {
     const weekendStatusElement = document.getElementById('weekendStatus');
-    const isWeekendDay = isWeekend();
+    try {
+        const resp = await fetch('/api/scanner/weekend-scanner/is-weekend-session');
+        if (resp && resp.ok) {
+            const data = await resp.json();
+            const isWeekendSession = !!data.isWeekendSession;
+            if (isWeekendSession) {
+                weekendStatusElement.textContent = 'Активен';
+                weekendStatusElement.style.color = '#2e7d32';
+            } else {
+                weekendStatusElement.textContent = 'Будний день';
+                weekendStatusElement.style.color = '#f57c00';
+            }
+            return;
+        }
+    } catch (e) {
+        console.warn('Не удалось получить статус выходного дня с сервера, используем локальную проверку', e);
+    }
+
+    // Фоллбек: определяем по московскому времени на клиенте
+    const isWeekendDay = isWeekendMoscow();
     if (isWeekendDay) {
         weekendStatusElement.textContent = 'Активен';
         weekendStatusElement.style.color = '#2e7d32';
@@ -978,7 +1009,12 @@ function updateLosersTable() {
 // Вспомогательные функции форматирования
 function formatPrice(price) {
     if (price === null || price === undefined) return '--';
-    return Number(price).toFixed(2);
+    const num = Number(price);
+    if (!isFinite(num)) return '--';
+    if (num === 0) return '0';
+    if (Math.abs(num) < 0.01) return num.toFixed(6); // очень мелкие цены
+    if (Math.abs(num) < 1) return num.toFixed(4);    // больше значащих цифр для цен < 1
+    return num.toFixed(2);
 }
 
 function formatPercent(percent) {

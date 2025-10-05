@@ -115,12 +115,20 @@ public class InstrumentCacheService {
             log.warn("Failed to load future short flags: {}", e.getMessage());
         }
 
-        // Загружаем дивидендные события за период (now - 1 день) и позднее
+        // Загружаем дивидендные события для всего уикенда: [Friday, Tuesday) по Москве
         try {
-            java.time.LocalDate fromDate = java.time.LocalDate.now().minusDays(1);
-            java.util.List<String> figis = dividendRepository.findFigiWithDeclaredSince(fromDate);
+            java.time.LocalDate todayMsk =
+                    java.time.LocalDate.now(java.time.ZoneId.of("Europe/Moscow"));
+            java.time.LocalDate friday = todayMsk.with(java.time.temporal.TemporalAdjusters
+                    .previousOrSame(java.time.DayOfWeek.FRIDAY));
+            java.time.LocalDate fromDate = friday; // Пятница (включительно)
+            java.time.LocalDate toDate = friday.plusDays(4); // Вторник (исключая)
+
+            java.util.List<String> figis =
+                    dividendRepository.findFigiWithDeclaredBetween(fromDate, toDate);
             figis.forEach(f -> dividendFlagsByFigi.put(f, true));
-            log.info("Loaded {} dividend events since {}", figis.size(), fromDate);
+            log.info("Loaded {} dividend events for weekend window between {} and {} (MSK)",
+                    figis.size(), fromDate, toDate);
         } catch (Exception e) {
             log.warn("Failed to load dividend events: {}", e.getMessage());
         }

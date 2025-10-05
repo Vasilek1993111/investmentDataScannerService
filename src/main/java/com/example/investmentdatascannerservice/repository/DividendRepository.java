@@ -13,6 +13,10 @@ public interface DividendRepository extends JpaRepository<DividendEntity, Long> 
 
     @Query("SELECT d.figi FROM DividendEntity d WHERE d.declaredDate >= :fromDate")
     List<String> findFigiWithDeclaredSince(@Param("fromDate") LocalDate fromDate);
+
+    @Query("SELECT d.figi FROM DividendEntity d WHERE d.declaredDate >= :fromDate AND d.declaredDate < :toDate")
+    List<String> findFigiWithDeclaredBetween(@Param("fromDate") LocalDate fromDate,
+            @Param("toDate") LocalDate toDate);
 }
 
 
