@@ -885,31 +885,48 @@ function removeIndex(name) {
 
 async function updateWeekendStatus() {
     const weekendStatusElement = document.getElementById('weekendStatus');
+    let isTestMode = false;
+    let isWeekendActiveServer = null;
+
     try {
-        const resp = await fetch('/api/scanner/weekend-scanner/is-weekend-session');
-        if (resp && resp.ok) {
-            const data = await resp.json();
-            const isWeekendSession = !!data.isWeekendSession;
-            if (isWeekendSession) {
-                weekendStatusElement.textContent = 'Активен';
-                weekendStatusElement.style.color = '#2e7d32';
-            } else {
-                weekendStatusElement.textContent = 'Будний день';
-                weekendStatusElement.style.color = '#f57c00';
-            }
-            return;
+        const [testResp, sessionResp] = await Promise.all([
+            fetch('/api/scanner/test-mode').catch(() => null),
+            fetch('/api/scanner/weekend-scanner/is-weekend-session').catch(() => null)
+        ]);
+
+        if (testResp && testResp.ok) {
+            const data = await testResp.json();
+            isTestMode = !!data.testModeEnabled;
+        }
+        if (sessionResp && sessionResp.ok) {
+            const data = await sessionResp.json();
+            isWeekendActiveServer = !!data.isWeekendSession;
         }
     } catch (e) {
         console.warn('Не удалось получить статус выходного дня с сервера, используем локальную проверку', e);
     }
 
+    // Локальный оверрайд тестового режима через URL/LocalStorage (для отладки)
+    try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('test') === '1' || localStorage.getItem('forceTestMode') === '1') {
+            isTestMode = true;
+        }
+    } catch (e) { /* ignore */ }
+
     // Фоллбек: определяем по московскому времени на клиенте
     const isWeekendDay = isWeekendMoscow();
-    if (isWeekendDay) {
+    const isActive = isTestMode || (isWeekendActiveServer !== null ? isWeekendActiveServer : isWeekendDay);
+
+    if (!weekendStatusElement) return;
+    if (isTestMode) {
+        weekendStatusElement.textContent = 'Тестовый режим';
+        weekendStatusElement.style.color = '#1976d2';
+    } else if (isActive) {
         weekendStatusElement.textContent = 'Активен';
         weekendStatusElement.style.color = '#2e7d32';
     } else {
-        weekendStatusElement.textContent = 'Будний день';
+        weekendStatusElement.textContent = 'Выключен';
         weekendStatusElement.style.color = '#f57c00';
     }
 }
@@ -927,6 +944,7 @@ document.getElementById('losersMaxResults').addEventListener('change', updateSor
 initializeIndicesBar();
 initializeVolumeData();
 setInterval(updateWeekendStatus, 60000);
+updateWeekendStatus();
 updateIndicesFromServer();
 loadIndexPrices();
 setTimeout(() => { loadClosePricesForAllQuotes(); }, 2000);
@@ -959,13 +977,16 @@ function updateGainersTable() {
         `;
         tbody.appendChild(row);
 
-        // Подсветка изменений по ключевым полям
+        // Подсветка изменений по ключевым полям (как в индексах)
         const cells = row.querySelectorAll('td');
-        flashValueChange(cells[1], quote.figi, 'currentPrice', Number(quote.currentPrice));
-        flashValueChange(cells[5], quote.figi, 'bestBid', Number(quote.bestBid));
-        flashValueChange(cells[6], quote.figi, 'bestAsk', Number(quote.bestAsk));
-        // объем подcвечиваем только при увеличении
-        flashValueChange(cells[7], quote.figi, 'totalVolume', Number(quote.totalVolume ?? quote.volume ?? 0), { onlyUp: true });
+        flashValueChange(cells[1], quote.figi, 'currentPrice', Number(quote.currentPrice)); // Текущая цена
+        flashValueChange(cells[4], quote.figi, 'changeOS', Number(quote.closePriceChangePercent)); // Изменение от ОС %
+        flashValueChange(cells[5], quote.figi, 'bestBid', Number(quote.bestBid)); // BID
+        flashValueChange(cells[6], quote.figi, 'bestAsk', Number(quote.bestAsk)); // ASK
+        const spreadPercent = calculateSpreadPercent(quote.bestBid, quote.bestAsk, quote.currentPrice);
+        if (spreadPercent !== null) {
+            flashValueChange(cells[9], quote.figi, 'spread', spreadPercent); // Спред
+        }
     });
 }
 
@@ -996,13 +1017,16 @@ function updateLosersTable() {
         `;
         tbody.appendChild(row);
 
-        // Подсветка изменений по ключевым полям
+        // Подсветка изменений по ключевым полям (как в индексах)
         const cells = row.querySelectorAll('td');
-        flashValueChange(cells[1], quote.figi, 'currentPrice', Number(quote.currentPrice));
-        flashValueChange(cells[5], quote.figi, 'bestBid', Number(quote.bestBid));
-        flashValueChange(cells[6], quote.figi, 'bestAsk', Number(quote.bestAsk));
-        // объем подcвечиваем только при увеличении
-        flashValueChange(cells[7], quote.figi, 'totalVolume', Number(quote.totalVolume ?? quote.volume ?? 0), { onlyUp: true });
+        flashValueChange(cells[1], quote.figi, 'currentPrice', Number(quote.currentPrice)); // Текущая цена
+        flashValueChange(cells[4], quote.figi, 'changeOS', Number(quote.closePriceChangePercent)); // Изменение от ОС %
+        flashValueChange(cells[5], quote.figi, 'bestBid', Number(quote.bestBid)); // BID
+        flashValueChange(cells[6], quote.figi, 'bestAsk', Number(quote.bestAsk)); // ASK
+        const spreadPercent = calculateSpreadPercent(quote.bestBid, quote.bestAsk, quote.currentPrice);
+        if (spreadPercent !== null) {
+            flashValueChange(cells[9], quote.figi, 'spread', spreadPercent); // Спред
+        }
     });
 }
 
@@ -1065,7 +1089,7 @@ function calculateSpreadPercent(bestBid, bestAsk, currentPrice) {
     return (spreadAbs / base) * 100;
 }
 
-// Подсветка изменения значения: сравнение с предыдущим сохраненным значением
+// Подсветка изменения значения: сравнение с предыдущим сохраненным значением (как в индексах)
 function flashValueChange(cell, figi, key, newValue, options) {
     const onlyUp = options && options.onlyUp === true;
     if (newValue === null || newValue === undefined || Number.isNaN(newValue)) return;
@@ -1073,15 +1097,15 @@ function flashValueChange(cell, figi, key, newValue, options) {
     const prev = prevStore[key];
     if (typeof prev === 'number' && !Number.isNaN(prev)) {
         if (newValue > prev) {
-            cell.classList.remove('price-down', 'flash-down');
-            cell.classList.add('price-up', 'flash-up');
+            cell.classList.remove('price-down');
+            cell.classList.add('price-up');
         } else if (!onlyUp && newValue < prev) {
-            cell.classList.remove('price-up', 'flash-up');
-            cell.classList.add('price-down', 'flash-down');
+            cell.classList.remove('price-up');
+            cell.classList.add('price-down');
         }
         setTimeout(() => {
-            cell.classList.remove('price-up', 'price-down', 'flash-up', 'flash-down');
-        }, 1200);
+            cell.classList.remove('price-up', 'price-down');
+        }, 2000);
     }
     prevStore[key] = newValue;
     previousValues.set(figi, prevStore);

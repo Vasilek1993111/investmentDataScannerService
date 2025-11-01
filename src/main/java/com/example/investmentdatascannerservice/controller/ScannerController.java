@@ -19,6 +19,7 @@ import com.example.investmentdatascannerservice.service.MorningScannerService;
 import com.example.investmentdatascannerservice.service.PriceCacheService;
 import com.example.investmentdatascannerservice.service.QuoteScannerService;
 import com.example.investmentdatascannerservice.service.WeekendScannerService;
+import com.example.investmentdatascannerservice.utils.FutureService;
 import com.example.investmentdatascannerservice.utils.SessionTimeService;
 import com.example.investmentdatascannerservice.utils.ShareService;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +37,7 @@ public class ScannerController {
 
     private final QuoteScannerService quoteScannerService;
     private final ShareService shareService;
+    private final FutureService futureService;
     private final QuoteScannerConfig config;
     private final SessionTimeService sessionTimeService;
     private final MorningScannerService morningScannerService;
@@ -43,11 +45,12 @@ public class ScannerController {
     private final PriceCacheService priceCacheService;
 
     public ScannerController(QuoteScannerService quoteScannerService, ShareService shareService,
-            QuoteScannerConfig config, SessionTimeService sessionTimeService,
-            MorningScannerService morningScannerService,
+            FutureService futureService, QuoteScannerConfig config,
+            SessionTimeService sessionTimeService, MorningScannerService morningScannerService,
             WeekendScannerService weekendScannerService, PriceCacheService priceCacheService) {
         this.quoteScannerService = quoteScannerService;
         this.shareService = shareService;
+        this.futureService = futureService;
         this.config = config;
         this.sessionTimeService = sessionTimeService;
         this.morningScannerService = morningScannerService;
@@ -124,6 +127,20 @@ public class ScannerController {
                     shares.size(), "found", !shares.isEmpty()));
         } catch (Exception e) {
             log.error("Error searching shares by ticker: {}", ticker, e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * Получить все фьючерсы с данными об экспирации
+     */
+    @GetMapping("/futures")
+    public ResponseEntity<Map<String, Object>> getAllFutures() {
+        try {
+            var futures = futureService.getAllFutures();
+            return ResponseEntity.ok(Map.of("futures", futures, "count", futures.size()));
+        } catch (Exception e) {
+            log.error("Error getting futures data", e);
             return ResponseEntity.internalServerError().build();
         }
     }

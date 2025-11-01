@@ -464,6 +464,11 @@ body {
   color: #333;
 }
 
+/* Увеличенный размер текста для статуса режима выходного дня */
+#weekendStatus {
+  font-size: 1.5rem;
+}
+
 .controls {
   display: flex;
   justify-content: center;
@@ -607,31 +612,17 @@ tr:last-child td:last-child {
   font-weight: 600;
 }
 
-/* Мягкая подсветка фона при изменении */
-.flash-up {
-  animation: flashGreen 0.9s ease;
+/* Анимация подсветки текста при изменении (как в индексах) */
+.price-up {
+  color: #27ae60;
+  font-weight: 600;
+  transition: color 0.3s ease;
 }
 
-.flash-down {
-  animation: flashRed 0.9s ease;
-}
-
-@keyframes flashGreen {
-  0% {
-    background-color: rgba(39, 174, 96, 0.25);
-  }
-  100% {
-    background-color: transparent;
-  }
-}
-
-@keyframes flashRed {
-  0% {
-    background-color: rgba(231, 76, 60, 0.25);
-  }
-  100% {
-    background-color: transparent;
-  }
+.price-down {
+  color: #e74c3c;
+  font-weight: 600;
+  transition: color 0.3s ease;
 }
 
 .price-neutral {

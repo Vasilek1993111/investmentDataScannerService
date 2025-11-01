@@ -9,7 +9,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.stereotype.Service;
 import com.example.investmentdatascannerservice.config.QuoteScannerConfig;
 import com.example.investmentdatascannerservice.repository.DividendRepository;
-import com.example.investmentdatascannerservice.repository.FutureRepository;
 import com.example.investmentdatascannerservice.service.TodayVolumeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,10 +25,10 @@ public class InstrumentCacheService {
 
     private final QuoteScannerConfig config;
     private final ShareService shareService;
+    private final FutureService futureService;
     private final IndicativeService indicativeService;
     private final SharesAggregatedDataService sharesAggregatedDataService;
     private final TodayVolumeService todayVolumeService;
-    private final FutureRepository futureRepository;
     private final DividendRepository dividendRepository;
 
     // Кэш последних цен инструментов
@@ -103,32 +102,30 @@ public class InstrumentCacheService {
             log.warn("Failed to load share short flags: {}", e.getMessage());
         }
         try {
-            java.util.List<Object[]> futureFlags = futureRepository.findShortFlags();
-            for (Object[] row : futureFlags) {
-                String figi = (String) row[0];
-                Boolean enabled = (Boolean) row[1];
-                if (figi != null)
-                    shortFlagsByFigi.put(figi, enabled != null && enabled);
-            }
-            log.info("Loaded {} future short flags", futureFlags.size());
+            Map<String, Boolean> futureShortFlags = futureService.getFutureShortFlags();
+            shortFlagsByFigi.putAll(futureShortFlags);
+            log.info("Loaded {} future short flags", futureShortFlags.size());
         } catch (Exception e) {
             log.warn("Failed to load future short flags: {}", e.getMessage());
         }
 
-        // Загружаем дивидендные события для всего уикенда: [Friday, Tuesday) по Москве
+        // Загружаем дивидендные события по общей логике:
+        // показываем значок D только если declared_date == today или today-1;
+        // если сегодня воскресенье, также учитываем today-2 (для вечернего сканера)
         try {
             java.time.LocalDate todayMsk =
                     java.time.LocalDate.now(java.time.ZoneId.of("Europe/Moscow"));
-            java.time.LocalDate friday = todayMsk.with(java.time.temporal.TemporalAdjusters
-                    .previousOrSame(java.time.DayOfWeek.FRIDAY));
-            java.time.LocalDate fromDate = friday; // Пятница (включительно)
-            java.time.LocalDate toDate = friday.plusDays(4); // Вторник (исключая)
+            java.time.DayOfWeek dow = todayMsk.getDayOfWeek();
+            int daysBack = (dow == java.time.DayOfWeek.SUNDAY) ? 2 : 1;
+            java.time.LocalDate fromDate = todayMsk.minusDays(daysBack); // включительно
+            java.time.LocalDate toDate = todayMsk.plusDays(1); // эксклюзивно (<= today)
 
             java.util.List<String> figis =
                     dividendRepository.findFigiWithDeclaredBetween(fromDate, toDate);
             figis.forEach(f -> dividendFlagsByFigi.put(f, true));
-            log.info("Loaded {} dividend events for weekend window between {} and {} (MSK)",
-                    figis.size(), fromDate, toDate);
+            log.info(
+                    "Loaded {} dividend events for window [{}; {}) (MSK) for D-badge logic (daysBack={})",
+                    figis.size(), fromDate, toDate, daysBack);
         } catch (Exception e) {
             log.warn("Failed to load dividend events: {}", e.getMessage());
         }
@@ -543,12 +540,16 @@ public class InstrumentCacheService {
     /**
      * Получить инструменты для сканирования
      * 
-     * Загружает все акции из таблицы invest.shares и индексы из таблицы invest.indicatives. Режим
-     * shares-mode определяет только дополнительные настройки отображения.
+     * Загружает все акции из таблицы invest.shares, фьючерсы из таблицы invest.futures и индексы из
+     * таблицы invest.indicatives. Режим shares-mode определяет только дополнительные настройки
+     * отображения.
      */
     public List<String> getInstrumentsForScanning() {
         // Загружаем все акции из базы данных
         List<String> shareFigis = shareService.getAllShareFigis();
+
+        // Загружаем все фьючерсы из базы данных
+        List<String> futureFigis = futureService.getAllFutureFigis();
 
         // Загружаем все индексы из базы данных
         List<String> indicativeFigis = indicativeService.getAllIndicativeFigis();
@@ -556,21 +557,22 @@ public class InstrumentCacheService {
         // Объединяем списки
         List<String> allFigis = new java.util.ArrayList<>();
         allFigis.addAll(shareFigis);
+        allFigis.addAll(futureFigis);
         allFigis.addAll(indicativeFigis);
 
         if (config.isEnableSharesMode()) {
             log.info(
-                    "Using shares mode: {} shares + {} indicatives = {} total instruments from database",
-                    shareFigis.size(), indicativeFigis.size(), allFigis.size());
+                    "Using shares mode: {} shares + {} futures + {} indicatives = {} total instruments from database",
+                    shareFigis.size(), futureFigis.size(), indicativeFigis.size(), allFigis.size());
         } else {
             log.info(
-                    "Using config mode: {} shares + {} indicatives = {} total instruments from database",
-                    shareFigis.size(), indicativeFigis.size(), allFigis.size());
+                    "Using config mode: {} shares + {} futures + {} indicatives = {} total instruments from database",
+                    shareFigis.size(), futureFigis.size(), indicativeFigis.size(), allFigis.size());
         }
 
         if (allFigis.isEmpty()) {
             log.warn(
-                    "No instruments found in database! Check if tables invest.shares and invest.indicatives have data");
+                    "No instruments found in database! Check if tables invest.shares, invest.futures and invest.indicatives have data");
         } else {
             log.info("First 5 instruments: {}", allFigis.subList(0, Math.min(5, allFigis.size())));
         }
@@ -593,11 +595,14 @@ public class InstrumentCacheService {
     /**
      * Получить имена инструментов для сканирования
      * 
-     * Загружает имена из таблиц invest.shares и invest.indicatives.
+     * Загружает имена из таблиц invest.shares, invest.futures и invest.indicatives.
      */
     public Map<String, String> getInstrumentNamesForScanning() {
         // Загружаем имена акций из базы данных
         Map<String, String> shareNames = shareService.getShareNames();
+
+        // Загружаем имена фьючерсов из базы данных
+        Map<String, String> futureNames = futureService.getFutureNames();
 
         // Загружаем имена индексов из базы данных
         Map<String, String> indicativeNames = indicativeService.getIndicativeNames();
@@ -605,16 +610,17 @@ public class InstrumentCacheService {
         // Объединяем карты
         Map<String, String> allNames = new java.util.HashMap<>();
         allNames.putAll(shareNames);
+        allNames.putAll(futureNames);
         allNames.putAll(indicativeNames);
 
         if (config.isEnableSharesMode()) {
             log.info(
-                    "Using shares names: {} shares + {} indicatives = {} total names from database",
-                    shareNames.size(), indicativeNames.size(), allNames.size());
+                    "Using shares names: {} shares + {} futures + {} indicatives = {} total names from database",
+                    shareNames.size(), futureNames.size(), indicativeNames.size(), allNames.size());
         } else {
             log.info(
-                    "Using config mode names: {} shares + {} indicatives = {} total names from database",
-                    shareNames.size(), indicativeNames.size(), allNames.size());
+                    "Using config mode names: {} shares + {} futures + {} indicatives = {} total names from database",
+                    shareNames.size(), futureNames.size(), indicativeNames.size(), allNames.size());
         }
 
         return allNames;
@@ -623,11 +629,14 @@ public class InstrumentCacheService {
     /**
      * Получить тикеры инструментов для сканирования
      * 
-     * Загружает тикеры из таблиц invest.shares и invest.indicatives.
+     * Загружает тикеры из таблиц invest.shares, invest.futures и invest.indicatives.
      */
     public Map<String, String> getInstrumentTickersForScanning() {
         // Загружаем тикеры акций из базы данных
         Map<String, String> shareTickers = shareService.getShareTickers();
+
+        // Загружаем тикеры фьючерсов из базы данных
+        Map<String, String> futureTickers = futureService.getFutureTickers();
 
         // Загружаем тикеры индексов из базы данных
         Map<String, String> indicativeTickers = indicativeService.getIndicativeTickers();
@@ -635,16 +644,19 @@ public class InstrumentCacheService {
         // Объединяем карты
         Map<String, String> allTickers = new java.util.HashMap<>();
         allTickers.putAll(shareTickers);
+        allTickers.putAll(futureTickers);
         allTickers.putAll(indicativeTickers);
 
         if (config.isEnableSharesMode()) {
             log.info(
-                    "Using shares tickers: {} shares + {} indicatives = {} total tickers from database",
-                    shareTickers.size(), indicativeTickers.size(), allTickers.size());
+                    "Using shares tickers: {} shares + {} futures + {} indicatives = {} total tickers from database",
+                    shareTickers.size(), futureTickers.size(), indicativeTickers.size(),
+                    allTickers.size());
         } else {
             log.info(
-                    "Using config mode tickers: {} shares + {} indicatives = {} total tickers from database",
-                    shareTickers.size(), indicativeTickers.size(), allTickers.size());
+                    "Using config mode tickers: {} shares + {} futures + {} indicatives = {} total tickers from database",
+                    shareTickers.size(), futureTickers.size(), indicativeTickers.size(),
+                    allTickers.size());
         }
 
         return allTickers;

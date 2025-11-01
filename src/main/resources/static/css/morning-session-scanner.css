@@ -329,6 +329,11 @@ body {
   color: #333;
 }
 
+/* Размер текста статуса утренней сессии */
+#morningStatus {
+  font-size: 1.5rem;
+}
+
 .controls {
   display: flex;
   justify-content: center;
@@ -618,6 +623,36 @@ tr:last-child td:last-child {
   color: #c62828;
 }
 
+/* Бейдж шорта рядом с тикером */
+.badge-short {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  line-height: 1.4;
+  border-radius: 10px;
+  background: linear-gradient(45deg, #ff6b6b, #ffa502);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(255, 107, 107, 0.4);
+  position: relative;
+  top: -1px;
+}
+
+/* Бейдж дивидендного события */
+.badge-div {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  font-size: 10px;
+  line-height: 1.4;
+  border-radius: 10px;
+  background: linear-gradient(45deg, #3f87ff, #00bcd4);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(0, 188, 212, 0.35);
+  position: relative;
+  top: -1px;
+}
+
 @media (max-width: 1200px) {
   .scanner-container {
     grid-template-columns: 1fr;
@@ -733,4 +768,17 @@ tr:last-child td:last-child {
   .sort-group {
     min-width: auto;
   }
+}
+
+/* Анимация подсветки текста при изменении (как в индексах) */
+.price-up {
+  color: #27ae60;
+  font-weight: 600;
+  transition: color 0.3s ease;
+}
+
+.price-down {
+  color: #e74c3c;
+  font-weight: 600;
+  transition: color 0.3s ease;
 }

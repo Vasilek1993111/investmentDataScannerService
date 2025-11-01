@@ -32,6 +32,13 @@ let todayVolumeData = null;
 let updateCount = 0;
 let lastUpdateTime = null;
 let updateTimer = null;
+// Флаги и кэши объемов (как в weekend-сканере)
+let isSessionActive = false;
+let isTestModeGlobal = false;
+let baseVolumeCache = new Map();
+let incrementVolumeCache = new Map();
+let totalVolumeCache = new Map();
+let previousValues = new Map(); // хранение предыдущих значений для подсветки изменений
 
 // Индексы для полоски
 let indices = new Map();
@@ -47,11 +54,11 @@ let losersSortBy = 'changeOS';
 let losersSortOrder = 'desc';
 let losersMaxResults = 15;
 
-// Время утренней сессии (07:00-09:59 МСК)
+// Время утренней сессии (06:50:00–09:59:59 МСК)
 const MORNING_SESSION_START_HOUR = 6;
 const MORNING_SESSION_START_MINUTE = 50;
 const MORNING_SESSION_END_HOUR = 9;
-const MORNING_SESSION_END_MINUTE = 49;
+const MORNING_SESSION_END_MINUTE = 59;
 const MORNING_SESSION_END_SECOND = 59;
 
 function connect() {
@@ -70,6 +77,10 @@ function connect() {
       gainersTableBody.innerHTML = '<tr><td colspan="11" class="no-data">Нет данных</td></tr>';
       losersTableBody.innerHTML = '<tr><td colspan="11" class="no-data">Нет данных</td></tr>';
       quotes.clear();
+      baseVolumeCache.clear();
+      incrementVolumeCache.clear();
+      totalVolumeCache.clear();
+      previousValues.clear();
       gainers = [];
       losers = [];
       updateCount = 0;
@@ -122,6 +133,8 @@ function updateQuote(quoteData) {
   if (!quoteData.closePriceOS && !quoteData.closePrice) {
     loadClosePricesForQuote(quoteData);
   }
+  // Обновляем кэши объемов с учетом активности сессии/теста
+  updateVolumeDataForQuote(quoteData);
   quotes.set(figi, quoteData);
   updateCount++;
   lastUpdateTime = new Date();
@@ -136,8 +149,9 @@ function updateQuote(quoteData) {
 
 function updateTotalVolume() {
   let total = 0;
-  quotes.forEach(quote => {
-    total += quote.totalVolume || 0;
+  quotes.forEach((quote, figi) => {
+    const cached = totalVolumeCache.get(figi);
+    if (cached !== undefined) total += cached; else total += quote.totalVolume || 0;
   });
   totalVolume.textContent = total.toLocaleString();
 }
@@ -416,6 +430,14 @@ function formatPercent(percent) {
   return num.toFixed(2) + '%';
 }
 
+// Форматирование процентов, если значение уже в процентах (например, 1.23 -> 1.23%)
+function formatPercentValue(percentValue) {
+  if (percentValue === null || percentValue === undefined) return '--';
+  const num = Number(percentValue);
+  if (!Number.isFinite(num)) return '--';
+  return num.toFixed(2) + '%';
+}
+
 function formatAvgVolume(avgVolume) {
   if (!avgVolume) return '-';
   const num = parseFloat(avgVolume);
@@ -495,6 +517,42 @@ function formatPriceChangePercent(percent) {
     percentText = percentValue > 0 ? `+${percentValue.toFixed(2)}%` : `${percentValue.toFixed(2)}%`;
   }
   return `<span class="${changeClass}">${percentText}</span>`;
+}
+
+// Подсветка изменения значения: сравнение с предыдущим сохраненным значением (как в индексах)
+function flashValueChange(cell, figi, key, newValue, options) {
+  const onlyUp = options && options.onlyUp === true;
+  if (newValue === null || newValue === undefined || Number.isNaN(newValue)) return;
+  const prevStore = previousValues.get(figi) || {};
+  const prev = prevStore[key];
+  if (typeof prev === 'number' && !Number.isNaN(prev)) {
+    if (newValue > prev) {
+      cell.classList.remove('price-down');
+      cell.classList.add('price-up');
+    } else if (!onlyUp && newValue < prev) {
+      cell.classList.remove('price-up');
+      cell.classList.add('price-down');
+    }
+    setTimeout(() => {
+      cell.classList.remove('price-up', 'price-down');
+    }, 2000);
+  }
+  prevStore[key] = newValue;
+  previousValues.set(figi, prevStore);
+}
+
+// Расчет спреда по лучшему бид/аск (в процентах относительно текущей/средней цены)
+function calculateSpreadPercent(bestBid, bestAsk, currentPrice) {
+  const bid = Number(bestBid);
+  const ask = Number(bestAsk);
+  if (!Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask <= 0) return null;
+  const spreadAbs = ask - bid;
+  let base = Number(currentPrice);
+  if (!(base > 0)) {
+    base = (ask + bid) / 2;
+  }
+  if (!(base > 0)) return null;
+  return (spreadAbs / base) * 100;
 }
 
 // --- Индексы API/загрузка ---
@@ -577,28 +635,173 @@ async function updateSessionStatus() {
   const moscowTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
   const currentHour = moscowTime.getHours();
   const currentMinute = moscowTime.getMinutes();
-  const currentSecond = moscowTime.getSecond();
+  const currentSecond = moscowTime.getSeconds();
 
   let isTestMode = false;
+  let isMorningSessionServer = null;
+
   try {
-    const response = await fetch('/api/morning-scanner/test-mode');
-    if (response.ok) {
-      const data = await response.json();
-      isTestMode = data.testModeEnabled || false;
+    const [testModeResp, sessionResp] = await Promise.all([
+      fetch('/api/scanner/test-mode').catch(() => null),
+      fetch('/api/scanner/is-morning-session').catch(() => null)
+    ]);
+
+    if (testModeResp && testModeResp.ok) {
+      const data = await testModeResp.json();
+      isTestMode = !!data.testModeEnabled;
+    }
+    if (sessionResp && sessionResp.ok) {
+      const data = await sessionResp.json();
+      isMorningSessionServer = !!data.isMorningSession;
     }
   } catch (error) {
-    console.warn('Не удалось получить статус тестового режима:', error);
+    console.warn('Не удалось получить статус окружения/сессии:', error);
   }
 
-  let isSessionActive = false;
-  if (isTestMode) isSessionActive = true;
-  else if (currentHour > MORNING_SESSION_START_HOUR && currentHour < MORNING_SESSION_END_HOUR) isSessionActive = true;
-  else if (currentHour === MORNING_SESSION_START_HOUR && currentMinute >= MORNING_SESSION_START_MINUTE) isSessionActive = true;
-  else if (currentHour === MORNING_SESSION_END_HOUR && (currentMinute < MORNING_SESSION_END_MINUTE || (currentMinute === MORNING_SESSION_END_MINUTE && currentSecond <= MORNING_SESSION_END_SECOND))) isSessionActive = true;
+  // Клиентская проверка времени МСК как фоллбек (только рабочие дни)
+  let isMorningSessionClient = false;
+  const day = moscowTime.getDay();
+  const isWeekday = day >= 1 && day <= 5;
+  if (isWeekday) {
+    if (currentHour > MORNING_SESSION_START_HOUR && currentHour < MORNING_SESSION_END_HOUR) isMorningSessionClient = true;
+    else if (currentHour === MORNING_SESSION_START_HOUR && currentMinute >= MORNING_SESSION_START_MINUTE) isMorningSessionClient = true;
+    else if (currentHour === MORNING_SESSION_END_HOUR && (currentMinute <= MORNING_SESSION_END_MINUTE && currentSecond <= MORNING_SESSION_END_SECOND)) isMorningSessionClient = true;
+  }
+
+  isSessionActive = isTestMode || (isMorningSessionServer !== null ? isMorningSessionServer : isMorningSessionClient);
+  isTestModeGlobal = isTestMode;
 
   if (!isSessionActive && !isTestMode && websocket && websocket.readyState === WebSocket.OPEN) {
     disconnect();
   }
+
+  // Отрисуем статус в карточке
+  const statusEl = document.getElementById('morningStatus');
+  if (statusEl) {
+    if (isTestMode) {
+      statusEl.textContent = 'Тестовый режим';
+      statusEl.style.color = '#1976d2';
+    } else if (isSessionActive) {
+      statusEl.textContent = 'Активен';
+      statusEl.style.color = '#2e7d32';
+    } else {
+      statusEl.textContent = 'Выключен';
+      statusEl.style.color = '#f57c00';
+    }
+  }
+}
+
+// --- Рендер таблиц ---
+function renderInstrumentCell(quote) {
+  const shortBadge = quote && quote.shortEnabled
+    ? '<span class="badge-short" title="Шорт доступен">S</span>'
+    : '';
+  const divBadge = quote && quote.hasDividend
+    ? '<span class="badge-div" title="Дивидендное событие: последний день покупки — на день раньше заявленной даты">D</span>'
+    : '';
+  return `<strong>${quote.ticker || quote.figi}</strong>${shortBadge}${divBadge}`;
+}
+
+function getChangeClass(change) {
+  if (change === null || change === undefined) return '';
+  return change > 0 ? 'positive' : change < 0 ? 'negative' : '';
+}
+
+function formatVolume(volume) {
+  if (volume === null || volume === undefined) return '--';
+  const v = Number(volume);
+  if (!Number.isFinite(v)) return '--';
+  return Math.round(v).toLocaleString();
+}
+
+function updateGainersTable() {
+  const tbody = document.getElementById('gainersTableBody');
+  if (!tbody) return;
+
+  if (!gainers || gainers.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="11" class="no-data">Нет данных</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = '';
+  gainers.forEach(quote => {
+    const priceOS = quote.closePriceOS || quote.closePrice;
+    const changeOSPercent = calculatePriceChangePercent(quote.currentPrice, priceOS);
+    const row = document.createElement('tr');
+    const displayVolume = getDisplayVolume(quote);
+    const histVolume = (typeof getAvgVolumeFromHistory === 'function') ? getAvgVolumeFromHistory(quote.figi) : 0;
+  row.innerHTML = `
+      <td>${renderInstrumentCell(quote)}</td>
+      <td>${formatPrice(quote.currentPrice)}</td>
+      <td>${formatPrice(quote.openPrice)}</td>
+      <td>${formatPrice(priceOS)}</td>
+      <td>${formatPrice(quote.closePriceVS)}</td>
+      <td class="${getChangeClass(changeOSPercent)}">${formatPercent(changeOSPercent)}</td>
+      <td>${formatBidAsk(quote.bestBid, quote.bestBidQuantity)}</td>
+      <td>${formatBidAsk(quote.bestAsk, quote.bestAskQuantity)}</td>
+      <td>${formatVolume(displayVolume)}</td>
+      <td>${formatAvgVolume(histVolume)}</td>
+      <td>${formatPercentValue(calculateSpreadPercent(quote.bestBid, quote.bestAsk, quote.currentPrice))}</td>
+      <td>${formatTime(quote.timestamp)}</td>
+    `;
+    tbody.appendChild(row);
+
+    // Подсветка изменений по ключевым полям (как в индексах)
+    const cells = row.querySelectorAll('td');
+    flashValueChange(cells[1], quote.figi, 'currentPrice', Number(quote.currentPrice)); // Текущая цена
+    flashValueChange(cells[5], quote.figi, 'changeOS', changeOSPercent); // Изменение от ОС %
+    flashValueChange(cells[6], quote.figi, 'bestBid', Number(quote.bestBid)); // BID
+    flashValueChange(cells[7], quote.figi, 'bestAsk', Number(quote.bestAsk)); // ASK
+    const spreadPercent = calculateSpreadPercent(quote.bestBid, quote.bestAsk, quote.currentPrice);
+    if (spreadPercent !== null) {
+      flashValueChange(cells[10], quote.figi, 'spread', spreadPercent); // Спред
+    }
+  });
+}
+
+function updateLosersTable() {
+  const tbody = document.getElementById('losersTableBody');
+  if (!tbody) return;
+
+  if (!losers || losers.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="11" class="no-data">Нет данных</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = '';
+  losers.forEach(quote => {
+    const priceOS = quote.closePriceOS || quote.closePrice;
+    const changeOSPercent = calculatePriceChangePercent(quote.currentPrice, priceOS);
+    const row = document.createElement('tr');
+    const displayVolume = getDisplayVolume(quote);
+    const histVolume = (typeof getAvgVolumeFromHistory === 'function') ? getAvgVolumeFromHistory(quote.figi) : 0;
+  row.innerHTML = `
+      <td>${renderInstrumentCell(quote)}</td>
+      <td>${formatPrice(quote.currentPrice)}</td>
+      <td>${formatPrice(quote.openPrice)}</td>
+      <td>${formatPrice(priceOS)}</td>
+      <td>${formatPrice(quote.closePriceVS)}</td>
+      <td class="${getChangeClass(changeOSPercent)}">${formatPercent(changeOSPercent)}</td>
+      <td>${formatBidAsk(quote.bestBid, quote.bestBidQuantity)}</td>
+      <td>${formatBidAsk(quote.bestAsk, quote.bestAskQuantity)}</td>
+      <td>${formatVolume(displayVolume)}</td>
+      <td>${formatAvgVolume(histVolume)}</td>
+      <td>${formatPercentValue(calculateSpreadPercent(quote.bestBid, quote.bestAsk, quote.currentPrice))}</td>
+      <td>${formatTime(quote.timestamp)}</td>
+    `;
+    tbody.appendChild(row);
+
+    // Подсветка изменений по ключевым полям (как в индексах)
+    const cells = row.querySelectorAll('td');
+    flashValueChange(cells[1], quote.figi, 'currentPrice', Number(quote.currentPrice)); // Текущая цена
+    flashValueChange(cells[5], quote.figi, 'changeOS', changeOSPercent); // Изменение от ОС %
+    flashValueChange(cells[6], quote.figi, 'bestBid', Number(quote.bestBid)); // BID
+    flashValueChange(cells[7], quote.figi, 'bestAsk', Number(quote.bestAsk)); // ASK
+    const spreadPercent = calculateSpreadPercent(quote.bestBid, quote.bestAsk, quote.currentPrice);
+    if (spreadPercent !== null) {
+      flashValueChange(cells[10], quote.figi, 'spread', spreadPercent); // Спред
+    }
+  });
 }
 
 // Исторические объемы
@@ -607,12 +810,12 @@ async function loadHistoryVolumeData() {
     const response = await fetch('/api/price-cache/volumes');
     if (!response.ok) return null;
     const data = await response.json();
-    if (data.avgVolumesPerDay) {
-      data.weekendExchangeAvgVolumesPerDay = data.avgVolumesPerDay.weekendExchangeAvgVolumesPerDay || {};
-    }
-    return data;
+    return {
+      morningVolumes: data.morningVolumes || {},
+      todayVolumes: data.todayVolumes || {}
+    };
   } catch (error) {
-    console.error('Ошибка при загрузке исторических данных:', error);
+    console.error('Ошибка при загрузке данных объемов:', error);
     return null;
   }
 }
@@ -626,25 +829,78 @@ function isWeekend() {
 async function initializeVolumeData() {
   const data = await loadHistoryVolumeData();
   if (data) {
-    historyVolumeData = data;
-    if (isWeekend() && data.todayVolumes) {
-      todayVolumeData = { volumes: data.todayVolumes };
-    }
+    // Исторический объем утренней сессии из materialized view morning_session_volume
+    historyVolumeData = { morningVolumes: data.morningVolumes || {} };
+    // Текущий общий дневной объем из today_volume_view.total_volume
+    todayVolumeData = { volumes: data.todayVolumes || {} };
   }
 }
 
-function getDisplayVolume(figi) {
-  if (isWeekend() && todayVolumeData && todayVolumeData.volumes) {
-    return todayVolumeData.volumes[figi] || 0;
-  }
-  return 0;
+function getDisplayVolume(input) {
+  const figi = typeof input === 'string' ? input : input.figi;
+  if (totalVolumeCache.has(figi)) return totalVolumeCache.get(figi) || 0;
+  const base = ensureBaseVolume(figi, quotes.get(figi) || {});
+  const inc = getIncrementalVolume(figi);
+  const total = base + inc;
+  totalVolumeCache.set(figi, total);
+  return total;
 }
 
 function getAvgVolumeFromHistory(figi) {
-  if (historyVolumeData && historyVolumeData.weekendExchangeAvgVolumesPerDay) {
-    return historyVolumeData.weekendExchangeAvgVolumesPerDay[figi] || 0;
+  if (historyVolumeData && historyVolumeData.morningVolumes) {
+    return historyVolumeData.morningVolumes[figi] || 0;
   }
   return 0;
+}
+
+// Кэширование объемов как в weekend-сканере
+function ensureBaseVolume(figi, quoteData) {
+  if (baseVolumeCache.has(figi)) return baseVolumeCache.get(figi);
+  let base = 0;
+  if (todayVolumeData && todayVolumeData.volumes) {
+    base = todayVolumeData.volumes[figi] || 0;
+  } else if (quoteData && typeof quoteData.totalVolume === 'number' && quoteData.totalVolume > 0) {
+    base = quoteData.totalVolume;
+  }
+  baseVolumeCache.set(figi, base);
+  return base;
+}
+
+function updateIncrementalVolume(figi, quoteData, baseVolume) {
+  if (!isSessionActive && !isTestModeGlobal) {
+    const last = incrementVolumeCache.get(figi) || 0;
+    totalVolumeCache.set(figi, baseVolume + last);
+    return last;
+  }
+  const serverTotal = (quoteData && typeof quoteData.totalVolume === 'number') ? quoteData.totalVolume : null;
+  if (serverTotal !== null && serverTotal >= baseVolume) {
+    const inc = serverTotal - baseVolume;
+    incrementVolumeCache.set(figi, inc);
+    totalVolumeCache.set(figi, serverTotal);
+    return inc;
+  }
+  const lastInc = incrementVolumeCache.get(figi) || 0;
+  const newVol = (quoteData && typeof quoteData.volume === 'number') ? quoteData.volume : 0;
+  if (newVol > 0) {
+    const upd = lastInc + newVol;
+    incrementVolumeCache.set(figi, upd);
+    totalVolumeCache.set(figi, baseVolume + upd);
+    return upd;
+  }
+  incrementVolumeCache.set(figi, lastInc);
+  totalVolumeCache.set(figi, baseVolume + lastInc);
+  return lastInc;
+}
+
+function getIncrementalVolume(figi) { return incrementVolumeCache.get(figi) || 0; }
+
+function updateVolumeDataForQuote(quoteData) {
+  const figi = quoteData.figi;
+  const base = ensureBaseVolume(figi, quoteData);
+  const inc = updateIncrementalVolume(figi, quoteData, base);
+  const total = base + inc;
+  totalVolumeCache.set(figi, total);
+  quoteData.totalVolume = total;
 }
 
 // Модалка управления индексами
