@@ -499,6 +499,25 @@ function sortLosersQuotes(quotes, sortBy, sortOrder) {
                 valueA = 0;
                 valueB = 0;
         }
+        // Специальная обработка для случая "Изменение от ВС %" + "Сначала самые падающие"
+        // Для падающих бумаг (отрицательные значения) при сортировке "desc" нужно сначала показывать самые отрицательные
+        // Используем сравнение по абсолютным значениям для корректной сортировки падающих
+        if (sortBy === 'priceVS' && sortOrder === 'desc') {
+            // Для падающих: сравниваем абсолютные значения, но сохраняем знак
+            // valueA = -15% (более падающий), valueB = -5% (менее падающий)
+            // Math.abs(valueA) = 15, Math.abs(valueB) = 5
+            // Math.abs(valueB) - Math.abs(valueA) = 5 - 15 = -10 (отрицательное) → a перед b → правильно
+            return Math.abs(valueB) - Math.abs(valueA);
+        }
+        // Специальная обработка для случая "Изменение от ВС %" + "Сначала менее падающие"
+        // Для падающих бумаг (отрицательные значения) при сортировке "asc" нужно сначала показывать менее отрицательные
+        if (sortBy === 'priceVS' && sortOrder === 'asc') {
+            // Для падающих: сравниваем абсолютные значения
+            // valueA = -15% (более падающий), valueB = -5% (менее падающий)
+            // Math.abs(valueA) = 15, Math.abs(valueB) = 5
+            // Math.abs(valueA) - Math.abs(valueB) = 15 - 5 = 10 (положительное) → b перед a → правильно
+            return Math.abs(valueA) - Math.abs(valueB);
+        }
         return sortOrder === 'desc' ? valueA - valueB : valueB - valueA;
     });
 }
