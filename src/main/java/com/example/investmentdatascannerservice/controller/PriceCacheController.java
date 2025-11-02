@@ -256,30 +256,98 @@ public class PriceCacheController {
     }
 
     /**
-     * Получение всех цен по FIGI из кэша
+     * Получение всех цен по FIGI или тикеру из кэша
+     * 
+     * Метод автоматически определяет, является ли переданный параметр FIGI или тикером,
+     * и возвращает цены для правильного инструмента
      */
     @GetMapping("/prices/{figi}")
     public ResponseEntity<Map<String, Object>> getPricesByFigi(@PathVariable String figi) {
         try {
+            // Сначала проверяем, есть ли цены для переданного параметра как FIGI
             Map<String, BigDecimal> prices = priceCacheService.getPricesForFigi(figi);
-            Map<String, Object> result = new java.util.HashMap<>();
-            result.put("figi", figi);
+            
+            // Если цены есть, значит это был FIGI
+            if (hasPrices(prices)) {
+                Map<String, Object> result = new java.util.HashMap<>();
+                result.put("figi", figi);
 
-            // Добавляем объект prices с конкретными ценами
+                // Добавляем объект prices с конкретными ценами
+                Map<String, Object> pricesObject = new java.util.HashMap<>();
+                pricesObject.put("openPrice", prices.get("openPrice"));
+                pricesObject.put("closePrice", prices.get("closePrice"));
+                pricesObject.put("eveningSessionPrice", prices.get("eveningSessionPrice"));
+                result.put("prices", pricesObject);
+
+                result.put("dates", Map.of("closePriceDate", priceCacheService.getLastClosePriceDate(),
+                        "eveningSessionPriceDate", priceCacheService.getLastEveningSessionPriceDate(),
+                        "openPriceDate", priceCacheService.getLastOpenPriceDate()));
+                return ResponseEntity.ok(result);
+            }
+            
+            // Если цен нет, возможно переданный параметр - это тикер
+            // Пытаемся найти FIGI по тикеру
+            String actualFigi = instrumentCacheService.getFigiByTicker(figi);
+            
+            if (actualFigi != null && !actualFigi.equals(figi)) {
+                // Нашли FIGI по тикеру, получаем цены
+                prices = priceCacheService.getPricesForFigi(actualFigi);
+                
+                if (hasPrices(prices)) {
+                    log.debug("Found FIGI {} for ticker {}, returning prices", actualFigi, figi);
+                    Map<String, Object> result = new java.util.HashMap<>();
+                    result.put("figi", actualFigi);
+                    result.put("ticker", figi);
+
+                    // Добавляем объект prices с конкретными ценами
+                    Map<String, Object> pricesObject = new java.util.HashMap<>();
+                    pricesObject.put("openPrice", prices.get("openPrice"));
+                    pricesObject.put("closePrice", prices.get("closePrice"));
+                    pricesObject.put("eveningSessionPrice", prices.get("eveningSessionPrice"));
+                    result.put("prices", pricesObject);
+
+                    result.put("dates", Map.of("closePriceDate", priceCacheService.getLastClosePriceDate(),
+                            "eveningSessionPriceDate", priceCacheService.getLastEveningSessionPriceDate(),
+                            "openPriceDate", priceCacheService.getLastOpenPriceDate()));
+                    return ResponseEntity.ok(result);
+                }
+            }
+            
+            // Если цены не найдены, возвращаем пустой результат с исходным параметром
+            log.warn("No prices found for parameter: {} (treated as {}: {})", 
+                    figi, actualFigi != null ? "ticker, mapped to FIGI" : "FIGI", actualFigi);
+            Map<String, Object> result = new java.util.HashMap<>();
+            result.put("figi", actualFigi != null ? actualFigi : figi);
+            if (actualFigi != null) {
+                result.put("ticker", figi);
+            }
+
             Map<String, Object> pricesObject = new java.util.HashMap<>();
-            pricesObject.put("openPrice", prices.get("openPrice"));
-            pricesObject.put("closePrice", prices.get("closePrice"));
-            pricesObject.put("eveningSessionPrice", prices.get("eveningSessionPrice"));
+            pricesObject.put("openPrice", null);
+            pricesObject.put("closePrice", null);
+            pricesObject.put("eveningSessionPrice", null);
             result.put("prices", pricesObject);
 
             result.put("dates", Map.of("closePriceDate", priceCacheService.getLastClosePriceDate(),
                     "eveningSessionPriceDate", priceCacheService.getLastEveningSessionPriceDate(),
                     "openPriceDate", priceCacheService.getLastOpenPriceDate()));
+            
             return ResponseEntity.ok(result);
         } catch (Exception e) {
             log.error("Error getting prices for figi: {}", figi, e);
             return ResponseEntity.internalServerError().build();
         }
+    }
+    
+    /**
+     * Проверить, есть ли цены в результате
+     */
+    private boolean hasPrices(Map<String, BigDecimal> prices) {
+        return prices != null && (
+            (prices.get("openPrice") != null && prices.get("openPrice").compareTo(BigDecimal.ZERO) > 0) ||
+            (prices.get("closePrice") != null && prices.get("closePrice").compareTo(BigDecimal.ZERO) > 0) ||
+            (prices.get("eveningSessionPrice") != null && prices.get("eveningSessionPrice").compareTo(BigDecimal.ZERO) > 0)
+        );
     }
 
 

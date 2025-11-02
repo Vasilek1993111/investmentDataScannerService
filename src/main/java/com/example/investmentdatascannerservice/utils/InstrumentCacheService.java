@@ -219,6 +219,41 @@ public class InstrumentCacheService {
     }
 
     /**
+     * Получить FIGI по тикеру
+     * 
+     * Ищет в кэше, при необходимости загружает данные из базы
+     */
+    public String getFigiByTicker(String ticker) {
+        if (ticker == null || ticker.trim().isEmpty()) {
+            return null;
+        }
+
+        // Ищем в кэше
+        for (Map.Entry<String, String> entry : instrumentTickers.entrySet()) {
+            if (ticker.equals(entry.getValue()) || ticker.equalsIgnoreCase(entry.getValue())) {
+                return entry.getKey();
+            }
+        }
+
+        // Если не найдено, пытаемся загрузить из базы
+        log.debug("FIGI not found in cache for ticker: {}, attempting to load from database",
+                ticker);
+        Map<String, String> tickersToLoad = getInstrumentTickersForScanning();
+        instrumentTickers.putAll(tickersToLoad);
+
+        // Повторяем поиск
+        for (Map.Entry<String, String> entry : instrumentTickers.entrySet()) {
+            if (ticker.equals(entry.getValue()) || ticker.equalsIgnoreCase(entry.getValue())) {
+                log.debug("Found FIGI {} for ticker {}", entry.getKey(), ticker);
+                return entry.getKey();
+            }
+        }
+
+        log.warn("FIGI not found for ticker: {}", ticker);
+        return null;
+    }
+
+    /**
      * Получить средний утренний объем
      */
     public BigDecimal getAvgVolumeMorning(String figi) {
