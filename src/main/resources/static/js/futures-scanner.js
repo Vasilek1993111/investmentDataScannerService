@@ -477,7 +477,8 @@ function connect() {
             nearFarFutures = [];
             updateCount = 0;
 
-            initializeIndicesBar();
+            // Сохраняем данные индексов при подключении, чтобы не обнулять их
+            initializeIndicesBar(true);
 
             // Загружаем данные о фьючерсах
             loadFuturesData();

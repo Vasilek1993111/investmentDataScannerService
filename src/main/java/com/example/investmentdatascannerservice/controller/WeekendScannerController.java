@@ -278,9 +278,10 @@ public class WeekendScannerController {
                 String figi = index.get("figi");
                 String name = index.get("name");
 
-                // Получаем цены закрытия из кэша
+                // Получаем цены из кэша
                 BigDecimal closePriceOS = priceCacheService.getLastClosePrice(figi);
                 BigDecimal closePriceEvening = priceCacheService.getLastEveningSessionPrice(figi);
+                BigDecimal lastPrice = priceCacheService.getLastPrice(figi);
 
                 Map<String, Object> indexPrices = new HashMap<>();
                 indexPrices.put("figi", figi);
@@ -288,6 +289,7 @@ public class WeekendScannerController {
                 indexPrices.put("displayName", index.get("displayName"));
                 indexPrices.put("closePriceOS", closePriceOS);
                 indexPrices.put("closePriceEvening", closePriceEvening);
+                indexPrices.put("lastPrice", lastPrice);
 
                 prices.put(figi, indexPrices);
             }

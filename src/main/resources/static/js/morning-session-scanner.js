@@ -82,7 +82,8 @@ function connect() {
       losers = [];
       updateCount = 0;
 
-      initializeIndicesBar();
+      // Сохраняем данные индексов при подключении, чтобы не обнулять их
+      initializeIndicesBar(true);
 
       updateTimer = setInterval(() => {
         updateRate.textContent = updateCount + '/сек';

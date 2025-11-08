@@ -36,6 +36,7 @@ public class MarketDataProcessor {
     private final NotificationService notificationService;
     private final ExecutorService processingExecutor;
     private final MeterRegistry meterRegistry;
+    private final PriceCacheService priceCacheService;
 
     // Метрики
     private final Counter lastPriceProcessed;
@@ -58,13 +59,14 @@ public class MarketDataProcessor {
             SessionTimeService sessionService, QuoteDataFactory quoteDataFactory,
             NotificationService notificationService,
             @Qualifier("marketDataExecutor") ExecutorService processingExecutor,
-            MeterRegistry meterRegistry) {
+            MeterRegistry meterRegistry, PriceCacheService priceCacheService) {
         this.cacheService = cacheService;
         this.sessionService = sessionService;
         this.quoteDataFactory = quoteDataFactory;
         this.notificationService = notificationService;
         this.processingExecutor = processingExecutor;
         this.meterRegistry = meterRegistry;
+        this.priceCacheService = priceCacheService;
 
         // Инициализация метрик
         this.lastPriceProcessed = Counter.builder("market.data.processed").tag("type", "LastPrice")
@@ -175,6 +177,8 @@ public class MarketDataProcessor {
 
         // Обновляем кэш
         cacheService.setLastPrice(figi, currentPrice);
+        // Обновляем кэш цен для доступа через PriceCacheService
+        priceCacheService.updateLastPrice(figi, currentPrice);
 
         // Если это первая цена за день, сохраняем как цену открытия
         if (cacheService.getOpenPrice(figi) == null) {
@@ -210,6 +214,8 @@ public class MarketDataProcessor {
 
         // Обновляем кэш
         cacheService.setLastPrice(figi, currentPrice);
+        // Обновляем кэш цен для доступа через PriceCacheService
+        priceCacheService.updateLastPrice(figi, currentPrice);
 
         // Накопляем объем только во время сессий выходного дня
         if (sessionService.isWeekendSessionTime()) {

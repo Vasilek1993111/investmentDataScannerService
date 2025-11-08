@@ -91,7 +91,8 @@ function connect() {
             updateCount = 0;
 
             // Инициализируем полоску индексов (функция из indices-bar.js)
-            initializeIndicesBar();
+            // Сохраняем данные индексов при подключении, чтобы не обнулять их
+            initializeIndicesBar(true);
 
             // Таймер скорости обновлений
             updateTimer = setInterval(() => {

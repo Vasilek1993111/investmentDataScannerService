@@ -553,4 +553,20 @@ public class PriceCacheService {
         }
         return result;
     }
+
+    /**
+     * Обновление последней цены сделки в кэше в реальном времени Используется при обработке
+     * LastPrice и Trade событий от T-Invest API
+     * 
+     * @param figi FIGI инструмента
+     * @param price Новая цена
+     */
+    public void updateLastPrice(String figi, BigDecimal price) {
+        if (figi != null && price != null) {
+            lastPricesCache.put(figi, price);
+            // Обновляем дату на сегодня, так как это актуальная цена в реальном времени
+            lastPriceDate = LocalDate.now();
+            log.debug("Updated lastPrice cache for FIGI: {} = {}", figi, price);
+        }
+    }
 }

@@ -3,8 +3,6 @@ package com.example.investmentdatascannerservice.service;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
@@ -18,61 +16,45 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class MorningScannerService {
 
-    // Динамический список индексов для утреннего сканера
-    private final List<IndexConfig> morningIndices = new CopyOnWriteArrayList<>();
+    private final IndexBarManager indexBar = new IndexBarManager();
 
     @PostConstruct
     public void initializeDefaultIndices() {
         log.info("Initializing default indices for morning scanner");
 
-        // Очищаем существующие индексы
-        morningIndices.clear();
-
+        indexBar.clear();
         // Добавляем только IMOEX2 по умолчанию
         addIndex("BBG00KDWPPW3", "IMOEX2", "IMOEX2");
 
-        log.info("Morning scanner initialized with {} default indices", morningIndices.size());
+        log.info("Morning scanner initialized with {} default indices",
+                indexBar.getCurrentIndices().size());
     }
 
     /**
      * Получить текущий список индексов для утреннего сканера
      */
     public List<Map<String, String>> getCurrentIndices() {
-        return morningIndices.stream().map(config -> {
-            Map<String, String> index = new HashMap<>();
-            index.put("figi", config.figi);
-            index.put("name", config.ticker);
-            index.put("displayName", config.displayName);
-            return index;
-        }).collect(Collectors.toList());
+        return indexBar.getCurrentIndices();
     }
 
     /**
      * Добавить новый индекс для утреннего сканера (с FIGI)
      */
     public boolean addIndex(String figi, String name, String displayName) {
-        // Проверяем, не существует ли уже индекс с таким ticker
-        boolean exists = morningIndices.stream().anyMatch(config -> config.ticker.equals(name));
-
-        if (exists) {
+        boolean added = indexBar.addIndex(figi, name, displayName);
+        if (added) {
+            log.info("Morning scanner: Added new index: {} (FIGI: {}, displayName: {})", name, figi,
+                    displayName);
+        } else {
             log.warn("Morning scanner: Index with ticker '{}' already exists", name);
-            return false;
         }
-
-        // Добавляем новый индекс
-        IndexConfig newIndex = new IndexConfig(figi, name, displayName);
-        morningIndices.add(newIndex);
-
-        log.info("Morning scanner: Added new index: {} (FIGI: {}, displayName: {})", name, figi,
-                displayName);
-        return true;
+        return added;
     }
 
     /**
      * Добавить новый индекс для утреннего сканера (без FIGI)
      */
     public boolean addIndex(String name, String displayName) {
-        // Используем name как figi для совместимости
         return addIndex(name, name, displayName);
     }
 
@@ -80,14 +62,12 @@ public class MorningScannerService {
      * Удалить индекс для утреннего сканера
      */
     public boolean removeIndex(String ticker) {
-        boolean removed = morningIndices.removeIf(config -> config.ticker.equals(ticker));
-
+        boolean removed = indexBar.removeIndex(ticker);
         if (removed) {
             log.info("Morning scanner: Removed index: {}", ticker);
         } else {
             log.warn("Morning scanner: Index with ticker '{}' not found", ticker);
         }
-
         return removed;
     }
 
@@ -95,7 +75,7 @@ public class MorningScannerService {
      * Получить FIGI индексов для подписки
      */
     public List<String> getIndexFigis() {
-        return morningIndices.stream().map(config -> config.figi).collect(Collectors.toList());
+        return indexBar.getIndexFigis();
     }
 
     /**
@@ -103,23 +83,10 @@ public class MorningScannerService {
      */
     public Map<String, Object> getStats() {
         Map<String, Object> stats = new HashMap<>();
-        stats.put("totalIndices", morningIndices.size());
+        stats.put("totalIndices", indexBar.getCurrentIndices().size());
         stats.put("indices", getCurrentIndices());
         return stats;
     }
 
-    /**
-     * Класс для конфигурации индекса
-     */
-    public static class IndexConfig {
-        public final String figi;
-        public final String ticker;
-        public final String displayName;
-
-        public IndexConfig(String figi, String ticker, String displayName) {
-            this.figi = figi;
-            this.ticker = ticker;
-            this.displayName = displayName;
-        }
-    }
+    // Класс конфигурации индекса заменен на IndexBarManager.IndexConfig
 }

@@ -4,6 +4,13 @@
 
 `QuoteScannerService` — центральный сервис системы сканирования котировок, который координирует получение, обработку и распространение рыночных данных в реальном времени. Сервис реализует паттерн "Facade" и делегирует специализированную обработку другим сервисам для обеспечения высокой производительности и поддерживаемости.
 
+### Ключевые особенности архитектуры
+
+- **Разделение ответственности** — использование специализированных сервисов (`MarketDataProcessor`, `NotificationService`, `InstrumentCacheService`)
+- **Управление индексами** — делегировано `IndexBarManager` (не является Spring-бином)
+- **Централизованный кэш цен** — использование `PriceCacheService` для всех типов цен
+- **Динамическое управление** — добавление и удаление индексов во время работы
+
 ## Назначение
 
 Сервис выполняет следующие основные функции:
@@ -24,6 +31,8 @@
 - **Не управляет подписками** — делегирует управление `NotificationService`
 - **Не хранит данные** — делегирует хранение `InstrumentCacheService`
 - **Не определяет сессии** — делегирует определение `SessionTimeService`
+- **Не управляет индексами напрямую** — делегирует управление `IndexBarManager`
+- **Не кэширует цены** — использует `PriceCacheService` для получения цен
 
 ### Архитектурная диаграмма
 
@@ -41,6 +50,16 @@
 │  │ MarketData│      │Notification│    │Instrument│         │
 │  │ Processor │      │  Service  │    │  Cache   │         │
 │  └──────────┘      └──────────┘    └──────────┘         │
+│        │                   │                   │            │
+│        └───────────────────┼───────────────────┘            │
+│                            │                                 │
+│        ┌───────────────────┼───────────────────┐            │
+│        │                   │                   │            │
+│        ▼                   ▼                   ▼            │
+│  ┌──────────┐      ┌──────────┐      ┌──────────┐         │
+│  │IndexBar  │      │PriceCache│      │SessionTime│         │
+│  │ Manager  │      │ Service  │      │ Service   │         │
+│  └──────────┘      └──────────┘      └──────────┘         │
 │        │                   │                   │            │
 │        └───────────────────┼───────────────────┘            │
 │                            │                                 │
@@ -70,18 +89,21 @@
 - **`ClosePriceService`** — загрузка цен закрытия основной сессии
 - **`ClosePriceEveningSessionService`** — загрузка цен закрытия вечерней сессии
 - **`ShareService`** — работа с акциями
+- **`PriceCacheService`** — централизованный кэш всех цен (основная сессия, вечерняя сессия, last_price)
 
 ### 2. Внутренние компоненты
 
-#### Динамические индексы
+#### Менеджер индексов (IndexBarManager)
 
 ```java
-private final List<IndexConfig> dynamicIndices = new CopyOnWriteArrayList<>();
+private final IndexBarManager indexBarManager = new IndexBarManager();
 ```
 
-- Хранит список индексов для отслеживания
-- Использует `CopyOnWriteArrayList` для thread-safe операций
+- Универсальный менеджер для управления строкой индексов
+- Использует `CopyOnWriteArrayList` внутри для thread-safe операций
+- Каждый экземпляр `QuoteScannerService` имеет свою копию менеджера (не является Spring-бином)
 - Поддерживает добавление и удаление индексов во время работы
+- Позволяет резолвить FIGI по тикеру через `InstrumentCacheService`
 
 #### Планировщик задач
 
@@ -115,10 +137,9 @@ public void init() {
     // 2. Получение списка инструментов для сканирования
     // 3. Инициализация кэша инструментов
     // 4. Загрузка объемов выходного дня
-    // 5. Загрузка цен закрытия
-    // 6. Загрузка цен вечерней сессии
-    // 7. Инициализация индексов по умолчанию
-    // 8. Запуск периодических задач
+    // 5. Загрузка всех цен из PriceCacheService
+    // 6. Инициализация индексов по умолчанию
+    // 7. Запуск периодических задач
 }
 ```
 
@@ -151,28 +172,25 @@ public void init() {
    - Загружает уже проторгованные объемы из `today_volume_view`
    - Сохраняет объемы для корректного расчета накопленных объемов
 
-5. **Загрузка цен закрытия**
+5. **Загрузка всех цен из PriceCacheService**
    ```java
-   loadClosePrices();
+   loadAllPricesFromCache();
    ```
-   - Загружает цены закрытия за предыдущий торговый день
-   - Использует `ClosePriceService` для получения данных из БД
+   - Загружает все цены (основной сессии, вечерней сессии, last_price) из `PriceCacheService`
+   - Выполняется **ДО** инициализации индексов, так как в строке индексов могут быть разные типы инструментов
+   - `PriceCacheService` уже загружает все цены при инициализации через `@PostConstruct`
+   - Загружает цены закрытия в `InstrumentCacheService` для обратной совместимости
+   - Поддерживает все типы инструментов: акции, фьючерсы, индексы
+   - **Примечание:** Загрузка средних объемов отключена (таблица `shares_aggregated_data` больше не существует)
 
-6. **Загрузка цен вечерней сессии**
-   ```java
-   loadEveningClosePrices();
-   ```
-   - Загружает цены закрытия вечерней сессии за предыдущий торговый день
-   - Использует `ClosePriceEveningSessionService`
-
-7. **Инициализация индексов по умолчанию**
+6. **Инициализация индексов по умолчанию**
    ```java
    initializeDefaultIndices();
    ```
    - Добавляет индексы: IMOEX2, IMOEX, RTSI, XAG, XAU, XPD, XPT
    - Индексы можно добавлять и удалять динамически
 
-8. **Запуск периодических задач**
+7. **Запуск периодических задач**
    ```java
    scheduler.scheduleAtFixedRate(this::cleanupInactiveSubscribers, 30, 30, TimeUnit.SECONDS);
    scheduler.scheduleAtFixedRate(this::startScannerIfSessionTime, 0, 10, TimeUnit.SECONDS);
@@ -349,6 +367,13 @@ public void shutdown() {
 
 ## Управление индексами
 
+### Архитектура управления индексами
+
+Управление индексами делегировано классу `IndexBarManager`, который:
+- Не является Spring-бином (каждый сервис создает свою копию)
+- Использует `CopyOnWriteArrayList` для thread-safe операций
+- Хранит конфигурацию индексов с FIGI, тикером и отображаемым именем
+
 ### Структура индекса
 
 ```java
@@ -359,51 +384,83 @@ public static class IndexConfig {
 }
 ```
 
+Класс `IndexConfig` находится внутри `IndexBarManager`, а не в `QuoteScannerService`.
+
 ### Методы управления
 
 #### Получение текущих индексов
 
 ```java
 public List<Map<String, String>> getCurrentIndices() {
-    return dynamicIndices.stream()
-        .map(config -> {
-            Map<String, String> index = new HashMap<>();
-            index.put("name", config.ticker);
-            index.put("displayName", config.displayName);
-            return index;
-        })
-        .collect(Collectors.toList());
+    return indexBarManager.getCurrentIndices();
 }
 ```
 
+**Формат возвращаемых данных:**
+```json
+[
+  {
+    "figi": "BBG004730N9",
+    "name": "IMOEX",
+    "displayName": "IMOEX"
+  }
+]
+```
+
+**Особенности:**
+- Возвращает полную информацию об индексах (FIGI, тикер, отображаемое имя)
+- Используется для отображения строки индексов в UI
+
 #### Добавление индекса
 
+Метод `addIndex` имеет две перегрузки:
+
+**1. Добавление с указанием FIGI:**
+```java
+public boolean addIndex(String figi, String ticker, String displayName) {
+    boolean added = indexBarManager.addIndex(figi, ticker, displayName);
+    if (added) {
+        notifySubscriptionUpdate();
+    }
+    return added;
+}
+```
+
+**2. Добавление по тикеру (с автоматическим резолвингом FIGI):**
 ```java
 public boolean addIndex(String name, String displayName) {
-    // Проверка на дубликаты
-    // Добавление нового индекса
-    // Уведомление о необходимости обновить подписку
+    boolean added = indexBarManager.addIndex(name, displayName, instrumentCacheService);
+    if (added) {
+        notifySubscriptionUpdate();
+    }
+    return added;
 }
 ```
 
 **Особенности:**
+- Первый метод используется при известном FIGI
+- Второй метод резолвит FIGI по тикеру через `InstrumentCacheService`
+- Если FIGI не найден, используется тикер как FIGI
 - Проверяет, не существует ли уже индекс с таким тикером
-- Использует `name` как FIGI для совместимости
-- Отправляет уведомление о необходимости обновить подписку
+- Отправляет уведомление о необходимости обновить подписку при успешном добавлении
+- Возвращает `true` при успехе, `false` если индекс уже существует
 
 #### Удаление индекса
 
 ```java
 public boolean removeIndex(String ticker) {
-    // Удаление индекса по тикеру
-    // Уведомление о необходимости обновить подписку
+    boolean removed = indexBarManager.removeIndex(ticker);
+    if (removed) {
+        notifySubscriptionUpdate();
+    }
+    return removed;
 }
 ```
 
 **Особенности:**
 - Удаляет индекс по тикеру
-- Отправляет уведомление о необходимости обновить подписку
-- Возвращает `true` при успешном удалении
+- Отправляет уведомление о необходимости обновить подписку при успешном удалении
+- Возвращает `true` при успешном удалении, `false` если индекс не найден
 
 ### Индексы по умолчанию
 
@@ -426,9 +483,9 @@ public boolean removeIndex(String ticker) {
 ```java
 public List<String> getInstrumentsForScanning() {
     List<String> baseInstruments = instrumentCacheService.getInstrumentsForScanning();
-    List<String> dynamicIndicesFigis = dynamicIndices.stream()
-        .map(config -> config.figi)
-        .collect(Collectors.toList());
+    
+    // Получаем FIGI всех динамических индексов из IndexBarManager
+    List<String> dynamicIndicesFigis = indexBarManager.getIndexFigis();
     
     List<String> allInstruments = new ArrayList<>();
     allInstruments.addAll(baseInstruments);
@@ -437,6 +494,11 @@ public List<String> getInstrumentsForScanning() {
     return allInstruments;
 }
 ```
+
+**Особенности:**
+- Базовые инструменты получаются из `InstrumentCacheService`
+- Динамические индексы получаются из `IndexBarManager` через метод `getIndexFigis()`
+- Метод логирует общее количество инструментов (базовых и динамических)
 
 ## Управление сессиями
 
@@ -514,9 +576,14 @@ scheduler.scheduleAtFixedRate(this::startScannerIfSessionTime, 0, 10, TimeUnit.S
 - Возвращает список текущих индексов
 - Формат: `List<Map<String, String>>`
 
+#### `addIndex(String figi, String ticker, String displayName)`
+- Добавляет новый индекс с указанием FIGI
+- Возвращает `true` при успехе, `false` если индекс уже существует
+
 #### `addIndex(String name, String displayName)`
-- Добавляет новый индекс
-- Возвращает `true` при успехе, `false` при ошибке
+- Добавляет новый индекс по тикеру (с автоматическим резолвингом FIGI)
+- Резолвит FIGI через `InstrumentCacheService`
+- Возвращает `true` при успехе, `false` если индекс уже существует
 
 #### `removeIndex(String ticker)`
 - Удаляет индекс по тикеру
@@ -581,6 +648,13 @@ scheduler.scheduleAtFixedRate(this::startScannerIfSessionTime, 0, 10, TimeUnit.S
 
 #### `setInstrumentNames(Map<String, String> names)`
 - Устанавливает имена инструментов для отображения
+
+#### `loadAllPricesFromCache()`
+- Приватный метод, вызываемый при инициализации
+- Загружает все цены из `PriceCacheService` (основная сессия, вечерняя сессия, last_price)
+- Загружает цены закрытия в `InstrumentCacheService` для обратной совместимости
+- Поддерживает все типы инструментов: акции, фьючерсы, индексы
+- Выполняется до инициализации индексов
 
 ## Конфигурация
 
@@ -765,9 +839,17 @@ public class ScannerController {
     
     @PostMapping("/indices/add")
     public ResponseEntity<String> addIndex(
+            @RequestParam(required = false) String figi,
             @RequestParam String name,
             @RequestParam String displayName) {
-        boolean added = quoteScannerService.addIndex(name, displayName);
+        boolean added;
+        if (figi != null) {
+            // Используем перегрузку с FIGI
+            added = quoteScannerService.addIndex(figi, name, displayName);
+        } else {
+            // Используем перегрузку с автоматическим резолвингом FIGI
+            added = quoteScannerService.addIndex(name, displayName);
+        }
         return added 
             ? ResponseEntity.ok("Index added")
             : ResponseEntity.badRequest().body("Index already exists");
@@ -819,6 +901,14 @@ public class QuoteWebSocketController {
 2. Обновить метод `getStats()`
 3. Интегрировать с `MeterRegistry`
 
+### Управление индексами
+
+Для работы с индексами используется `IndexBarManager`:
+- Добавление индексов через `addIndex()` (с FIGI или по тикеру)
+- Удаление индексов через `removeIndex()`
+- Получение списка через `getCurrentIndices()`
+- Автоматическое включение в список инструментов для сканирования
+
 ## Заключение
 
 `QuoteScannerService` — центральный компонент системы сканирования котировок, который обеспечивает:
@@ -829,4 +919,5 @@ public class QuoteWebSocketController {
 - **Надежность** — через обработку ошибок и graceful degradation
 
 Сервис следует принципам SOLID и обеспечивает чистую архитектуру приложения.
+
 

@@ -57,7 +57,8 @@ public class FuturesScannerController {
      * Добавить новый индекс для сканера фьючерсов
      */
     @PostMapping("/indices/add")
-    public ResponseEntity<Map<String, Object>> addFuturesScannerIndex(@RequestBody Map<String, String> request) {
+    public ResponseEntity<Map<String, Object>> addFuturesScannerIndex(
+            @RequestBody Map<String, String> request) {
         Map<String, Object> response = new HashMap<>();
 
         try {
@@ -102,7 +103,8 @@ public class FuturesScannerController {
      * Удалить индекс для сканера фьючерсов
      */
     @DeleteMapping("/indices/remove")
-    public ResponseEntity<Map<String, Object>> removeFuturesScannerIndex(@RequestBody Map<String, String> request) {
+    public ResponseEntity<Map<String, Object>> removeFuturesScannerIndex(
+            @RequestBody Map<String, String> request) {
         Map<String, Object> response = new HashMap<>();
 
         try {
@@ -151,9 +153,10 @@ public class FuturesScannerController {
                 String figi = index.get("figi");
                 String name = index.get("name");
 
-                // Получаем цены закрытия из кэша
+                // Получаем цены из кэша
                 BigDecimal closePriceOS = priceCacheService.getLastClosePrice(figi);
                 BigDecimal closePriceEvening = priceCacheService.getLastEveningSessionPrice(figi);
+                BigDecimal lastPrice = priceCacheService.getLastPrice(figi);
 
                 Map<String, Object> indexPrices = new HashMap<>();
                 indexPrices.put("figi", figi);
@@ -161,6 +164,7 @@ public class FuturesScannerController {
                 indexPrices.put("displayName", index.get("displayName"));
                 indexPrices.put("closePriceOS", closePriceOS);
                 indexPrices.put("closePriceEvening", closePriceEvening);
+                indexPrices.put("lastPrice", lastPrice);
 
                 prices.put(figi, indexPrices);
             }
@@ -187,7 +191,8 @@ public class FuturesScannerController {
         try {
             boolean isActive = quoteScannerService.isScannerActive();
             response.put("isActive", isActive);
-            response.put("message", isActive ? "Сканер фьючерсов активен" : "Сканер фьючерсов неактивен");
+            response.put("message",
+                    isActive ? "Сканер фьючерсов активен" : "Сканер фьючерсов неактивен");
         } catch (Exception e) {
             log.error("Error checking futures scanner status", e);
             response.put("isActive", false);
