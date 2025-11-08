@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
+import com.example.investmentdatascannerservice.utils.InstrumentCacheService;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 
@@ -18,8 +19,14 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class WeekendScannerService {
 
+    private final InstrumentCacheService instrumentCacheService;
+
     // Динамический список индексов для сканера выходного дня
     private final List<IndexConfig> weekendIndices = new CopyOnWriteArrayList<>();
+
+    public WeekendScannerService(InstrumentCacheService instrumentCacheService) {
+        this.instrumentCacheService = instrumentCacheService;
+    }
 
     @PostConstruct
     public void initializeDefaultIndices() {
@@ -28,9 +35,11 @@ public class WeekendScannerService {
         // Очищаем существующие индексы
         weekendIndices.clear();
 
-        // Добавляем только IMOEX2 по умолчанию
-        addIndex("BBG00KDWPPW3", "IMOEX2", "IMOEX2");
-
+        // Добавляем индексы по умолчанию (только по тикеру)
+        addIndex("IMOEX2", "IMOEX2");
+        addIndex("IMOEX", "IMOEX");
+        addIndex("BTC", "BTC");
+        addIndex("ETH", "ETH");
         log.info("Weekend scanner initialized with {} default indices", weekendIndices.size());
     }
 
@@ -48,9 +57,9 @@ public class WeekendScannerService {
     }
 
     /**
-     * Добавить новый индекс для сканера выходного дня (с FIGI)
+     * Добавить новый индекс для сканера выходного дня (по тикеру)
      */
-    public boolean addIndex(String figi, String name, String displayName) {
+    public boolean addIndex(String name, String displayName) {
         // Проверяем, не существует ли уже индекс с таким ticker
         boolean exists = weekendIndices.stream().anyMatch(config -> config.ticker.equals(name));
 
@@ -59,21 +68,21 @@ public class WeekendScannerService {
             return false;
         }
 
-        // Добавляем новый индекс
+        // Получаем реальный FIGI по тикеру из кэша инструментов
+        String figi = instrumentCacheService.getFigiByTicker(name);
+        if (figi == null) {
+            log.warn("Weekend scanner: FIGI not found for ticker '{}', using ticker as FIGI", name);
+            figi = name; // Fallback: используем тикер как FIGI
+        } else {
+            log.debug("Weekend scanner: Found FIGI {} for ticker {}", figi, name);
+        }
+
         IndexConfig newIndex = new IndexConfig(figi, name, displayName);
         weekendIndices.add(newIndex);
 
         log.info("Weekend scanner: Added new index: {} (FIGI: {}, displayName: {})", name, figi,
                 displayName);
         return true;
-    }
-
-    /**
-     * Добавить новый индекс для сканера выходного дня (без FIGI)
-     */
-    public boolean addIndex(String name, String displayName) {
-        // Используем name как figi для совместимости
-        return addIndex(name, name, displayName);
     }
 
     /**

@@ -63,6 +63,7 @@ public class MarketDataStreamingService {
     private final QuoteScannerConfig config;
     private final InstrumentCacheService instrumentCacheService;
     private final SessionTimeService sessionTimeService;
+    private final WeekendScannerService weekendScannerService;
 
     // Планировщик для переподключений
     private final ScheduledExecutorService reconnectScheduler =
@@ -79,12 +80,14 @@ public class MarketDataStreamingService {
     public MarketDataStreamingService(
             MarketDataStreamServiceGrpc.MarketDataStreamServiceStub streamStub,
             QuoteScannerService quoteScannerService, QuoteScannerConfig config,
-            InstrumentCacheService instrumentCacheService, SessionTimeService sessionTimeService) {
+            InstrumentCacheService instrumentCacheService, SessionTimeService sessionTimeService,
+            WeekendScannerService weekendScannerService) {
         this.streamStub = streamStub;
         this.quoteScannerService = quoteScannerService;
         this.config = config;
         this.instrumentCacheService = instrumentCacheService;
         this.sessionTimeService = sessionTimeService;
+        this.weekendScannerService = weekendScannerService;
     }
 
     /**
@@ -193,12 +196,27 @@ public class MarketDataStreamingService {
     /**
      * Получение списка FIGI только индикативов
      * 
-     * @return список FIGI индикативов
+     * @return список FIGI индикативов (включая индексы из WeekendScannerService)
      */
     private List<String> getIndicatives() {
         List<String> indicativeFigis =
                 instrumentCacheService.getIndicativeService().getAllIndicativeFigis();
-        log.info("Loaded {} indicatives for subscription", indicativeFigis.size());
+
+        // Добавляем индексы из WeekendScannerService
+        List<String> weekendIndices = weekendScannerService.getIndexFigis();
+        if (!weekendIndices.isEmpty()) {
+            log.info("Adding {} weekend scanner indices to indicatives subscription",
+                    weekendIndices.size());
+            // Объединяем списки, избегая дубликатов
+            for (String figi : weekendIndices) {
+                if (!indicativeFigis.contains(figi)) {
+                    indicativeFigis.add(figi);
+                }
+            }
+        }
+
+        log.info("Loaded {} indicatives for subscription (including {} weekend scanner indices)",
+                indicativeFigis.size(), weekendIndices.size());
         return indicativeFigis;
     }
 
