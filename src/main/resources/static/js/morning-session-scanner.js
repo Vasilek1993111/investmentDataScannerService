@@ -134,6 +134,15 @@ function updateQuote(quoteData) {
   const existingQuote = quotes.get(figi);
   if (existingQuote && existingQuote.closePriceVS) {
     quoteData.closePriceVS = existingQuote.closePriceVS;
+    // Пересчитываем изменение от ВС % на основе текущей цены и сохраненной цены ВС
+    if (quoteData.closePriceVS && quoteData.currentPrice) {
+      quoteData.closePriceVSChangePercent = calculatePriceChangePercent(quoteData.currentPrice, quoteData.closePriceVS);
+    }
+  } else if (quoteData.closePriceVS && quoteData.currentPrice) {
+    // Если цена ВС пришла с сервера, но изменение от ВС % не пришло или равно 0, пересчитываем
+    if (!quoteData.closePriceVSChangePercent || quoteData.closePriceVSChangePercent === 0) {
+      quoteData.closePriceVSChangePercent = calculatePriceChangePercent(quoteData.currentPrice, quoteData.closePriceVS);
+    }
   }
 
   if (!quoteData.closePriceOS && !quoteData.closePrice) {
@@ -602,14 +611,22 @@ function updateGainersTable() {
   if (!tbody) return;
 
   if (!gainers || gainers.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="11" class="no-data">Нет данных</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="13" class="no-data">Нет данных</td></tr>';
     return;
   }
 
   tbody.innerHTML = '';
   gainers.forEach(quote => {
     const priceOS = quote.closePriceOS || quote.closePrice;
-    const changeOSPercent = calculatePriceChangePercent(quote.currentPrice, priceOS);
+    const changeOSPercent = quote.closePriceChangePercent !== undefined && quote.closePriceChangePercent !== null
+      ? quote.closePriceChangePercent
+      : calculatePriceChangePercent(quote.currentPrice, priceOS);
+    // Всегда пересчитываем изменение от ВС %, так как текущая цена может обновляться
+    const changeVSPercent = quote.closePriceVS && quote.currentPrice
+      ? calculatePriceChangePercent(quote.currentPrice, quote.closePriceVS)
+      : (quote.closePriceVSChangePercent !== undefined && quote.closePriceVSChangePercent !== null
+        ? quote.closePriceVSChangePercent
+        : null);
     const row = document.createElement('tr');
     const displayVolume = getDisplayVolume(quote);
     const histVolume = (typeof getAvgVolumeFromHistory === 'function') ? getAvgVolumeFromHistory(quote.figi) : 0;
@@ -618,8 +635,9 @@ function updateGainersTable() {
       <td>${formatPrice(quote.currentPrice)}</td>
       <td>${formatPrice(quote.openPrice)}</td>
       <td>${formatPrice(priceOS)}</td>
-      <td>${formatPrice(quote.closePriceVS)}</td>
       <td class="${getChangeClass(changeOSPercent)}">${formatPercent(changeOSPercent)}</td>
+      <td>${formatPrice(quote.closePriceVS)}</td>
+      <td class="${getChangeClass(changeVSPercent)}">${formatPercent(changeVSPercent)}</td>
       <td>${formatBidAsk(quote.bestBid, quote.bestBidQuantity)}</td>
       <td>${formatBidAsk(quote.bestAsk, quote.bestAskQuantity)}</td>
       <td>${formatVolume(displayVolume)}</td>
@@ -632,12 +650,13 @@ function updateGainersTable() {
     // Подсветка изменений по ключевым полям (как в индексах)
     const cells = row.querySelectorAll('td');
     flashValueChange(cells[1], quote.figi, 'currentPrice', Number(quote.currentPrice)); // Текущая цена
-    flashValueChange(cells[5], quote.figi, 'changeOS', changeOSPercent); // Изменение от ОС %
-    flashValueChange(cells[6], quote.figi, 'bestBid', Number(quote.bestBid)); // BID
-    flashValueChange(cells[7], quote.figi, 'bestAsk', Number(quote.bestAsk)); // ASK
+    flashValueChange(cells[4], quote.figi, 'changeOS', changeOSPercent); // Изменение от ОС %
+    flashValueChange(cells[6], quote.figi, 'changeVS', changeVSPercent); // Изменение от ВС %
+    flashValueChange(cells[7], quote.figi, 'bestBid', Number(quote.bestBid)); // BID
+    flashValueChange(cells[8], quote.figi, 'bestAsk', Number(quote.bestAsk)); // ASK
     const spreadPercent = calculateSpreadPercent(quote.bestBid, quote.bestAsk, quote.currentPrice);
     if (spreadPercent !== null) {
-      flashValueChange(cells[10], quote.figi, 'spread', spreadPercent); // Спред
+      flashValueChange(cells[11], quote.figi, 'spread', spreadPercent); // Спред
     }
   });
 }
@@ -647,14 +666,22 @@ function updateLosersTable() {
   if (!tbody) return;
 
   if (!losers || losers.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="11" class="no-data">Нет данных</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="13" class="no-data">Нет данных</td></tr>';
     return;
   }
 
   tbody.innerHTML = '';
   losers.forEach(quote => {
     const priceOS = quote.closePriceOS || quote.closePrice;
-    const changeOSPercent = calculatePriceChangePercent(quote.currentPrice, priceOS);
+    const changeOSPercent = quote.closePriceChangePercent !== undefined && quote.closePriceChangePercent !== null
+      ? quote.closePriceChangePercent
+      : calculatePriceChangePercent(quote.currentPrice, priceOS);
+    // Всегда пересчитываем изменение от ВС %, так как текущая цена может обновляться
+    const changeVSPercent = quote.closePriceVS && quote.currentPrice
+      ? calculatePriceChangePercent(quote.currentPrice, quote.closePriceVS)
+      : (quote.closePriceVSChangePercent !== undefined && quote.closePriceVSChangePercent !== null
+        ? quote.closePriceVSChangePercent
+        : null);
     const row = document.createElement('tr');
     const displayVolume = getDisplayVolume(quote);
     const histVolume = (typeof getAvgVolumeFromHistory === 'function') ? getAvgVolumeFromHistory(quote.figi) : 0;
@@ -663,8 +690,9 @@ function updateLosersTable() {
       <td>${formatPrice(quote.currentPrice)}</td>
       <td>${formatPrice(quote.openPrice)}</td>
       <td>${formatPrice(priceOS)}</td>
-      <td>${formatPrice(quote.closePriceVS)}</td>
       <td class="${getChangeClass(changeOSPercent)}">${formatPercent(changeOSPercent)}</td>
+      <td>${formatPrice(quote.closePriceVS)}</td>
+      <td class="${getChangeClass(changeVSPercent)}">${formatPercent(changeVSPercent)}</td>
       <td>${formatBidAsk(quote.bestBid, quote.bestBidQuantity)}</td>
       <td>${formatBidAsk(quote.bestAsk, quote.bestAskQuantity)}</td>
       <td>${formatVolume(displayVolume)}</td>
@@ -677,12 +705,13 @@ function updateLosersTable() {
     // Подсветка изменений по ключевым полям (как в индексах)
     const cells = row.querySelectorAll('td');
     flashValueChange(cells[1], quote.figi, 'currentPrice', Number(quote.currentPrice)); // Текущая цена
-    flashValueChange(cells[5], quote.figi, 'changeOS', changeOSPercent); // Изменение от ОС %
-    flashValueChange(cells[6], quote.figi, 'bestBid', Number(quote.bestBid)); // BID
-    flashValueChange(cells[7], quote.figi, 'bestAsk', Number(quote.bestAsk)); // ASK
+    flashValueChange(cells[4], quote.figi, 'changeOS', changeOSPercent); // Изменение от ОС %
+    flashValueChange(cells[6], quote.figi, 'changeVS', changeVSPercent); // Изменение от ВС %
+    flashValueChange(cells[7], quote.figi, 'bestBid', Number(quote.bestBid)); // BID
+    flashValueChange(cells[8], quote.figi, 'bestAsk', Number(quote.bestAsk)); // ASK
     const spreadPercent = calculateSpreadPercent(quote.bestBid, quote.bestAsk, quote.currentPrice);
     if (spreadPercent !== null) {
-      flashValueChange(cells[10], quote.figi, 'spread', spreadPercent); // Спред
+      flashValueChange(cells[11], quote.figi, 'spread', spreadPercent); // Спред
     }
   });
 }
