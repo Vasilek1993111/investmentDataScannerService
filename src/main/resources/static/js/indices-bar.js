@@ -150,7 +150,8 @@ function updateIndicesBar(quoteData) {
         const change = quoteData.currentPrice - priceOS;
         const changePercent = (change / priceOS) * 100;
         const changeClass = changePercent > 0 ? 'positive' : changePercent < 0 ? 'negative' : 'neutral';
-        const changeText = changePercent >= 0 ? `+${formatPercent(changePercent)}` : formatPercent(changePercent);
+        const formattedPercent = formatPercent(changePercent);
+        const changeText = changePercent >= 0 ? `+${formattedPercent}%` : `${formattedPercent}%`;
         if (changeOsElement) {
             changeOsElement.textContent = changeText;
             changeOsElement.className = `index-change-os ${changeClass}`;
@@ -184,7 +185,8 @@ function updateIndicesBar(quoteData) {
         const change = quoteData.currentPrice - priceVS;
         const changePercent = (change / priceVS) * 100;
         const changeClass = changePercent > 0 ? 'positive' : changePercent < 0 ? 'negative' : 'neutral';
-        const changeText = changePercent >= 0 ? `+${formatPercent(changePercent)}` : formatPercent(changePercent);
+        const formattedPercent = formatPercent(changePercent);
+        const changeText = changePercent >= 0 ? `+${formattedPercent}%` : `${formattedPercent}%`;
         if (changeVsElement) {
             changeVsElement.textContent = changeText;
             changeVsElement.className = `index-change-vs ${changeClass}`;

@@ -106,8 +106,6 @@ public class PriceCacheService {
         return lastEveningSessionPricesCache.get(figi);
     }
 
-
-
     /**
      * Очистка кэша
      */

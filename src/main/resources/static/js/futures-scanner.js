@@ -536,6 +536,11 @@ function updateQuote(quoteData) {
         loadClosePricesForQuote(quoteData);
     }
 
+    // Загружаем цену закрытия вечерней сессии из кэша, если она еще не загружена
+    if (!quoteData.closePriceVS) {
+        loadEveningSessionPriceForQuote(quoteData);
+    }
+
     updateVolumeDataForQuote(quoteData);
     quotes.set(figi, quoteData);
 
@@ -545,6 +550,15 @@ function updateQuote(quoteData) {
     activeInstruments.textContent = quotes.size;
     updateTotalVolume();
     lastUpdate.textContent = lastUpdateTime.toLocaleTimeString();
+
+    // Проверяем, является ли этот инструмент индексом из строки индексов
+    const indexInfo = window.indices.get(figi) || (quoteData.ticker ? window.indices.get(quoteData.ticker) : null);
+    if (indexInfo) {
+        // Если это индекс и у него еще нет цен закрытия, загружаем их
+        if (!indexInfo.closePriceOS || !indexInfo.closePriceEvening) {
+            loadIndexPricesForSingleIndex(indexInfo, figi);
+        }
+    }
 
     updateIndicesBar(quoteData);
     updateFuturesComparisons();
@@ -1069,11 +1083,14 @@ function updateTotalVolume() {
 function loadClosePricesForQuote(quoteData) {
     fetch(`/api/price-cache/last-close-price?figi=${quoteData.figi}`)
         .then(response => response.ok ? response.json() : null)
-        .then(price => {
+        .then(data => {
+            const price = data && (data.closePrice !== undefined ? data.closePrice : data);
             if (price && price > 0) {
                 quoteData.closePriceOS = price;
                 quoteData.closePrice = price;
                 quotes.set(quoteData.figi, quoteData);
+                // Обновляем индекс, если это инструмент из строки индексов
+                updateIndicesBar(quoteData);
                 updateFuturesComparisons();
             }
         })
@@ -1082,10 +1099,38 @@ function loadClosePricesForQuote(quoteData) {
         });
 }
 
+function loadEveningSessionPriceForQuote(quoteData) {
+    fetch(`/api/price-cache/prices/${quoteData.figi}`)
+        .then(response => {
+            if (!response.ok) {
+                return null;
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data && data.prices && data.prices.eveningSessionPrice) {
+                const eveningPrice = data.prices.eveningSessionPrice;
+                if (eveningPrice && eveningPrice > 0) {
+                    quoteData.closePriceVS = eveningPrice;
+                    quotes.set(quoteData.figi, quoteData);
+                    // Обновляем индекс, если это инструмент из строки индексов
+                    updateIndicesBar(quoteData);
+                    updateFuturesComparisons();
+                }
+            }
+        })
+        .catch(error => {
+            // Тихо игнорируем ошибки, так как не все инструменты могут иметь цену вечерней сессии
+        });
+}
+
 function loadClosePricesForAllQuotes() {
     quotes.forEach((quoteData, figi) => {
         if (!quoteData.closePriceOS && !quoteData.closePrice) {
             loadClosePricesForQuote(quoteData);
+        }
+        if (!quoteData.closePriceVS) {
+            loadEveningSessionPriceForQuote(quoteData);
         }
     });
 }
@@ -1164,11 +1209,18 @@ document.getElementById('nearFarMaxResults').addEventListener('change', updateSo
 setInterval(updateScannerStatus, 60000);
 updateScannerStatus();
 // Инициализация модуля индексов
+// Используем общий endpoint для индексов (общий для всех сканеров)
 initIndicesBar({
-    apiEndpoint: '/api/scanner/futures-scanner',
+    apiEndpoint: '/api/scanner',
     quotesMap: quotes,
     formatPrice: formatPrice,
-    formatPercent: (percent) => formatPercent(percent).replace('%', ''),
+    formatPercent: (percent) => {
+        if (percent === null || percent === undefined) return '0.00';
+        const num = Number(percent);
+        if (!Number.isFinite(num)) return '0.00';
+        if (Math.abs(num) < 0.01 && num !== 0) return num.toFixed(4);
+        return num.toFixed(2);
+    },
     lastUpdateTime: lastUpdateTime,
     onIndexUpdate: (indexInfo, quoteData) => {
         // Callback при обновлении индекса (если нужен)

@@ -6,28 +6,51 @@
 
 Система кэширования цен обеспечивает:
 
-- Автоматическую загрузку **только последних цен** при запуске приложения
-- In-memory кэширование для быстрого доступа
-- Spring Cache интеграцию
-- REST API для управления кэшем
-- Веб-интерфейс для тестирования
+- Автоматическую загрузку **только последних цен** при запуске приложения (`@PostConstruct`)
+- In-memory кэширование для быстрого доступа (ConcurrentHashMap)
+- REST API для управления кэшем и получения данных
+- Автоматическое обновление по расписанию (каждый день в 6:00 MSK)
+- Унифицированную логику обработки выходных дней
+- Поддержку цен закрытия, открытия и вечерней сессии
+- Поддержку объемов торгов (исторических и текущих)
 - Оптимизированное потребление памяти (только последние цены)
 
 ## Компоненты
 
 ### 1. PriceCacheService
 
-Основной сервис для работы с кэшем цен.
+Основной сервис для работы с кэшем цен. Автоматически инициализируется при запуске приложения через `@PostConstruct`.
 
 **Основные методы:**
 
-- `getClosePrice(String figi, LocalDate date)` - получение цены закрытия (только для последней даты)
-- `getEveningSessionPrice(String figi, LocalDate date)` - получение цены вечерней сессии (только для последней даты)
+**Получение цен:**
 - `getLastClosePrice(String figi)` - получение последней цены закрытия
 - `getLastEveningSessionPrice(String figi)` - получение последней цены вечерней сессии
-- `getClosePricesForDate(List<String> figis, LocalDate date)` - получение цен для списка инструментов (только для последней даты)
+- `getLastOpenPrice(String figi)` - получение последней цены открытия
+- `getPricesForFigi(String figi)` - получение всех цен для инструмента (закрытие, открытие, вечерняя сессия)
+- `getAllClosePrices()` - получение всех цен закрытия из кэша
+- `getAllEveningSessionPrices()` - получение всех цен вечерней сессии из кэша
+- `getAllOpenPrices()` - получение всех цен открытия из кэша
+
+**Управление кэшем:**
+- `loadAllClosePrices()` - загрузка последних цен закрытия
+- `loadAllEveningSessionPrices()` - загрузка последних цен вечерней сессии
+- `loadAllOpenPrices()` - загрузка последних цен открытия
 - `reloadCache()` - перезагрузка кэша
 - `clearCache()` - очистка кэша
+- `forceReloadAllPricesCache()` - принудительная перезагрузка всех типов цен
+- `forceReloadClosePricesCache()` - принудительная перезагрузка только цен закрытия
+
+**Метаданные:**
+- `getLastClosePriceDate()` - получение последней даты цен закрытия
+- `getLastEveningSessionPriceDate()` - получение последней даты цен вечерней сессии
+- `getLastOpenPriceDate()` - получение последней даты цен открытия
+- `getCacheStats()` - получение статистики кэша
+
+**Особенности:**
+- Унифицированная логика определения последней торговой даты с учетом выходных дней
+- В выходные дни (суббота/воскресенье) используются цены за последнюю пятницу
+- В рабочие дни используются цены за сегодня, если данные доступны, иначе за последний рабочий день с данными
 
 ### 2. StartupPriceLoader
 
@@ -35,61 +58,114 @@
 
 **Функции:**
 
-- Автоматическая загрузка при `ApplicationReadyEvent`
-- Асинхронная загрузка цен
-- Принудительная перезагрузка
-- Обновление из API
+- Асинхронная загрузка цен при старте (`@Async`)
+- Параллельная загрузка всех типов цен (закрытие, открытие, вечерняя сессия)
+- Принудительная перезагрузка через `reloadAllPrices()`
 
-### 3. PriceCacheController
+**Методы:**
+- `loadPricesOnStartup()` - загрузка цен при запуске (вызывается автоматически)
+- `reloadAllPrices()` - асинхронная перезагрузка всех цен
 
-REST API контроллер для управления кэшем.
+### 3. ScheduledPriceUpdateService
 
-**Endpoints:**
+Сервис для автоматического обновления кэша цен по расписанию.
 
-- `GET /api/price-cache/stats` - статистика кэша
-- `GET /api/price-cache/close-price?figi={figi}&date={date}` - цена закрытия
-- `GET /api/price-cache/evening-session-price?figi={figi}&date={date}` - цена вечерней сессии
+**Функции:**
+
+- Автоматическое обновление всех типов цен каждый день в 6:00 MSK
+- Проверка здоровья кэша каждый час
+- Унифицированная логика обработки выходных дней
+
+**Расписание:**
+- Обновление цен: `0 0 6 * * ?` (каждый день в 6:00:00 по московскому времени)
+- Проверка здоровья: `0 0 * * * ?` (каждый час в 0 минут)
+
+### 4. PriceCacheController
+
+REST API контроллер для управления кэшем и получения данных.
+
+**Endpoints для цен:**
+
+**Статистика и информация:**
+- `GET /api/price-cache/stats` - статистика кэша (количество цен, даты)
+- `GET /api/price-cache/scheduler-info` - информация о планировщике обновлений
+
+**Получение всех цен:**
+- `GET /api/price-cache/close-price` - все цены закрытия из кэша
+- `GET /api/price-cache/open-price` - все цены открытия из кэша
+- `GET /api/price-cache/evening-session-price` - все цены вечерней сессии из кэша
+
+**Получение цены для конкретного инструмента:**
 - `GET /api/price-cache/last-close-price?figi={figi}` - последняя цена закрытия
-- `GET /api/price-cache/last-evening-session-price?figi={figi}` - последняя цена вечерней сессии
-- `GET /api/price-cache/close-prices?figis={figis}&date={date}` - цены закрытия для списка
-- `GET /api/price-cache/evening-session-prices?figis={figis}&date={date}` - цены вечерней сессии для списка
-- `GET /api/price-cache/last-close-prices?figis={figis}` - последние цены закрытия для списка
-- `GET /api/price-cache/last-evening-session-prices?figis={figis}` - последние цены вечерней сессии для списка
-- `POST /api/price-cache/reload` - перезагрузка кэша
+- `GET /api/price-cache/prices/{figi}` - все цены для инструмента (FIGI или тикер)
+  - Поддерживает поиск по FIGI или тикеру
+  - Возвращает цены закрытия, открытия и вечерней сессии
+
+**Управление кэшем:**
 - `POST /api/price-cache/clear` - очистка кэша
-- `POST /api/price-cache/reload-all` - перезагрузка всех цен
-- `POST /api/price-cache/refresh-from-api` - обновление из API
+- `POST /api/price-cache/reload` - асинхронная перезагрузка всех цен
+- `POST /api/price-cache/force-reload-all` - принудительная перезагрузка всех типов цен
+- `POST /api/price-cache/reload-close-prices` - перезагрузка только цен закрытия
+- `POST /api/price-cache/reload-instruments` - перезагрузка инструментов (без цен)
 
-### 4. CacheConfig
+**Endpoints для объемов:**
 
-Конфигурация Spring Cache.
+- `GET /api/price-cache/volumes` - все данные объемов (исторические и текущие)
+- `GET /api/price-cache/volumes/{figi}` - данные объемов для конкретного инструмента
+- `POST /api/price-cache/load-weekend-volumes` - загрузка объемов выходного дня
+- `POST /api/price-cache/reload-volumes` - перезагрузка данных объемов
+
+### 5. CacheConfig
+
+Конфигурация Spring Cache для приложения (хотя `PriceCacheService` использует собственные ConcurrentHashMap, Spring Cache доступен для других компонентов).
 
 **Настройки:**
+- `ConcurrentMapCacheManager` для in-memory кэша
+- Названия кэшей: `closePrices`, `eveningSessionPrices`, `lastClosePrices`, `lastEveningSessionPrices`
+- Включено асинхронное выполнение (`@EnableAsync`)
 
-- ConcurrentMapCacheManager для in-memory кэша
-- Названия кэшей: closePrices, eveningSessionPrices, lastClosePrices, lastEveningSessionPrices
+**Примечание:** `PriceCacheService` использует собственные `ConcurrentHashMap` для кэширования, а не Spring Cache аннотации, что обеспечивает более прямой контроль над данными.
+
+### 6. Логика определения последней торговой даты
+
+Система использует унифицированную логику определения последней торговой даты:
+
+**Выходные дни (суббота/воскресенье):**
+- Используются цены за последнюю пятницу
+
+**Рабочие дни:**
+- Если есть данные за сегодня → используются цены за сегодня
+- Если данных за сегодня нет → используются цены за последний рабочий день с данными из базы
+
+**Преимущества:**
+- Автоматическая обработка выходных дней
+- Использование актуальных данных в рабочие дни
+- Отказоустойчивость при отсутствии данных за текущий день
 
 ## Конфигурация
 
-### application.properties
+### Автоматическая инициализация
 
-```properties
-# Cache Configuration
-spring.cache.type=simple
-spring.cache.cache-names=closePrices,eveningSessionPrices,lastClosePrices,lastEveningSessionPrices
+Кэш автоматически инициализируется при запуске приложения через `@PostConstruct` в `PriceCacheService`:
+- Загружаются последние цены закрытия
+- Загружаются последние цены вечерней сессии
+- Загружаются последние цены открытия
 
-# Startup Price Loading Configuration
-startup.price-loader.enabled=true
-startup.price-loader.async-loading=true
-startup.price-loader.load-close-prices=true
-startup.price-loader.load-evening-session-prices=true
-```
+### Автоматическое обновление
+
+`ScheduledPriceUpdateService` автоматически обновляет кэш:
+- Каждый день в 6:00 MSK - обновление всех типов цен
+- Каждый час - проверка здоровья кэша
+
+### Timezone
+
+Все операции выполняются в часовом поясе `Europe/Moscow` (MSK).
 
 ## Использование
 
 ### 1. Автоматическая загрузка при запуске
 
-При запуске приложения автоматически загружаются все цены из базы данных в кэш.
+При запуске приложения автоматически загружаются последние цены из базы данных в кэш через `@PostConstruct`.
 
 ### 2. Программное использование
 
@@ -97,65 +173,179 @@ startup.price-loader.load-evening-session-prices=true
 @Autowired
 private PriceCacheService priceCacheService;
 
-// Получение цены закрытия
-BigDecimal closePrice = priceCacheService.getClosePrice("BBG004730N88", LocalDate.now());
-
 // Получение последней цены закрытия
-BigDecimal lastClosePrice = priceCacheService.getLastClosePrice("BBG004730N88");
+BigDecimal closePrice = priceCacheService.getLastClosePrice("BBG004730N88");
 
-// Получение цен для списка инструментов
-List<String> figis = Arrays.asList("BBG004730N88", "BBG0047315Y7");
-Map<String, BigDecimal> prices = priceCacheService.getLastClosePrices(figis);
+// Получение последней цены вечерней сессии
+BigDecimal eveningPrice = priceCacheService.getLastEveningSessionPrice("BBG004730N88");
+
+// Получение последней цены открытия
+BigDecimal openPrice = priceCacheService.getLastOpenPrice("BBG004730N88");
+
+// Получение всех цен для инструмента
+Map<String, BigDecimal> prices = priceCacheService.getPricesForFigi("BBG004730N88");
+// Результат: {closePrice=250.50, eveningSessionPrice=250.45, openPrice=249.80}
+
+// Получение всех цен закрытия
+Map<String, BigDecimal> allClosePrices = priceCacheService.getAllClosePrices();
+
+// Получение статистики
+Map<String, Object> stats = priceCacheService.getCacheStats();
 ```
 
 ### 3. REST API
 
+**Статистика:**
 ```bash
 # Получение статистики кэша
 curl http://localhost:8085/api/price-cache/stats
 
-# Получение цены закрытия
-curl "http://localhost:8085/api/price-cache/close-price?figi=BBG004730N88&date=2024-01-15"
-
-# Получение последней цены закрытия
-curl "http://localhost:8085/api/price-cache/last-close-price?figi=BBG004730N88"
-
-# Перезагрузка кэша
-curl -X POST http://localhost:8085/api/price-cache/reload
+# Получение информации о планировщике
+curl http://localhost:8085/api/price-cache/scheduler-info
 ```
 
-### 4. Веб-интерфейс
+**Получение цен:**
+```bash
+# Все цены закрытия
+curl http://localhost:8085/api/price-cache/close-price
 
-Откройте `http://localhost:8085/price-cache.html` для тестирования функциональности кэша.
+# Все цены открытия
+curl http://localhost:8085/api/price-cache/open-price
+
+# Все цены вечерней сессии
+curl http://localhost:8085/api/price-cache/evening-session-price
+
+# Последняя цена закрытия для инструмента
+curl "http://localhost:8085/api/price-cache/last-close-price?figi=BBG004730N88"
+
+# Все цены для инструмента (по FIGI или тикеру)
+curl http://localhost:8085/api/price-cache/prices/BBG004730N88
+curl http://localhost:8085/api/price-cache/prices/SBER
+```
+
+**Управление кэшем:**
+```bash
+# Очистка кэша
+curl -X POST http://localhost:8085/api/price-cache/clear
+
+# Асинхронная перезагрузка всех цен
+curl -X POST http://localhost:8085/api/price-cache/reload
+
+# Принудительная перезагрузка всех цен
+curl -X POST http://localhost:8085/api/price-cache/force-reload-all
+
+# Перезагрузка только цен закрытия
+curl -X POST http://localhost:8085/api/price-cache/reload-close-prices
+
+# Перезагрузка инструментов
+curl -X POST http://localhost:8085/api/price-cache/reload-instruments
+```
+
+**Работа с объемами:**
+```bash
+# Все данные объемов
+curl http://localhost:8085/api/price-cache/volumes
+
+# Данные объемов для инструмента
+curl http://localhost:8085/api/price-cache/volumes/BBG004730N88
+
+# Загрузка объемов выходного дня
+curl -X POST http://localhost:8085/api/price-cache/load-weekend-volumes
+
+# Перезагрузка данных объемов
+curl -X POST http://localhost:8085/api/price-cache/reload-volumes
+```
 
 ## Производительность
 
-- In-memory кэш обеспечивает быстрый доступ к данным
-- ConcurrentHashMap для thread-safe операций
-- Spring Cache для дополнительной оптимизации
-- Асинхронная загрузка при запуске не блокирует приложение
-- **Оптимизированное потребление памяти** - загружаются только последние цены
+- **In-memory кэш** - обеспечивает быстрый доступ к данным (O(1) для поиска)
+- **ConcurrentHashMap** - thread-safe операции без блокировок
+- **Автоматическая инициализация** - кэш загружается при старте приложения через `@PostConstruct`
+- **Асинхронная загрузка** - через `StartupPriceLoader` не блокирует запуск приложения
+- **Оптимизированное потребление памяти** - загружаются только последние цены (не вся история)
 - **Быстрая загрузка** - значительно меньше данных для обработки
+- **Автоматическое обновление** - кэш обновляется по расписанию без вмешательства
+- **Унифицированная логика** - автоматическая обработка выходных дней
 
 ## Мониторинг
 
-- Статистика кэша через REST API
-- Логирование операций загрузки и обновления
-- Метрики через Spring Actuator
+**REST API:**
+- `GET /api/price-cache/stats` - статистика кэша (количество цен, даты)
+- `GET /api/price-cache/scheduler-info` - информация о планировщике обновлений
+
+**Логирование:**
+- Все операции загрузки и обновления логируются
+- Проверка здоровья кэша каждый час
+- Предупреждения при пустом кэше или старых данных
+
+**Статистика включает:**
+- Количество цен закрытия в кэше
+- Количество цен вечерней сессии в кэше
+- Количество цен открытия в кэше
+- Последние даты для каждого типа цен
 
 ## Ограничения
 
-- Кэш хранится в памяти, при перезапуске приложения требуется повторная загрузка
-- Размер кэша ограничен доступной памятью
-- Данные не синхронизируются между экземплярами приложения
-- **Доступны только последние цены** - исторические данные не кэшируются
-- Запросы к историческим датам (кроме последней) возвращают null
+- **In-memory кэш** - данные хранятся в памяти, при перезапуске приложения требуется повторная загрузка
+- **Размер кэша** - ограничен доступной памятью сервера
+- **Распределенность** - данные не синхронизируются между экземплярами приложения (для распределенного кэша нужен Redis)
+- **Только последние цены** - исторические данные не кэшируются, доступны только последние цены
+- **Зависимость от БД** - кэш зависит от данных в базе данных
+- **Время обновления** - автоматическое обновление происходит в 6:00 MSK, между обновлениями данные могут быть устаревшими
+
+## Структура данных
+
+### Кэш цен
+
+**Типы цен:**
+- `lastClosePricesCache` - цены закрытия (Map<FIGI, BigDecimal>)
+- `lastEveningSessionPricesCache` - цены вечерней сессии (Map<FIGI, BigDecimal>)
+- `lastOpenPricesCache` - цены открытия (Map<FIGI, BigDecimal>)
+
+**Метаданные:**
+- `lastClosePriceDate` - последняя дата цен закрытия
+- `lastEveningSessionDate` - последняя дата цен вечерней сессии
+- `lastOpenPriceDate` - последняя дата цен открытия
+
+### Формат ответов API
+
+**Статистика кэша:**
+```json
+{
+  "closePricesCount": 150,
+  "eveningSessionPricesCount": 145,
+  "openPricesCount": 148,
+  "lastClosePriceDate": "2024-01-15",
+  "lastEveningSessionDate": "2024-01-15",
+  "lastOpenPriceDate": "2024-01-15"
+}
+```
+
+**Цены для инструмента:**
+```json
+{
+  "figi": "BBG004730N88",
+  "ticker": "SBER",
+  "prices": {
+    "openPrice": 249.80,
+    "closePrice": 250.50,
+    "eveningSessionPrice": 250.45
+  },
+  "dates": {
+    "closePriceDate": "2024-01-15",
+    "eveningSessionPriceDate": "2024-01-15",
+    "openPriceDate": "2024-01-15"
+  }
+}
+```
 
 ## Развитие
 
 Возможные улучшения:
 
-- Интеграция с Redis для распределенного кэша
-- TTL для автоматического обновления данных
-- Метрики производительности
-- Автоматическое обновление из API по расписанию
+- **Redis интеграция** - для распределенного кэша между экземплярами приложения
+- **TTL (Time To Live)** - автоматическое истечение срока действия данных
+- **Метрики производительности** - через Spring Actuator или Prometheus
+- **Кэширование исторических данных** - с ограничением по времени (например, последние 30 дней)
+- **WebSocket уведомления** - о обновлении кэша в реальном времени
+- **Кэширование объемов** - оптимизация работы с объемами торгов
