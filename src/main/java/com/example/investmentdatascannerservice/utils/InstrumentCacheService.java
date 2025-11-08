@@ -27,7 +27,6 @@ public class InstrumentCacheService {
     private final ShareService shareService;
     private final FutureService futureService;
     private final IndicativeService indicativeService;
-    private final SharesAggregatedDataService sharesAggregatedDataService;
     private final TodayVolumeService todayVolumeService;
     private final DividendRepository dividendRepository;
 
@@ -39,12 +38,6 @@ public class InstrumentCacheService {
 
     // Кэш тикеров инструментов (FIGI -> Тикер)
     private final Map<String, String> instrumentTickers = new ConcurrentHashMap<>();
-
-    // Кэш средних утренних объемов
-    private final Map<String, BigDecimal> avgVolumeMorningMap = new ConcurrentHashMap<>();
-
-    // Кэш средних объемов выходного дня
-    private final Map<String, BigDecimal> avgVolumeWeekendMap = new ConcurrentHashMap<>();
 
     // Кэш цен закрытия основной сессии
     private final Map<String, BigDecimal> closePrices = new ConcurrentHashMap<>();
@@ -253,33 +246,6 @@ public class InstrumentCacheService {
         return null;
     }
 
-    /**
-     * Получить средний утренний объем
-     */
-    public BigDecimal getAvgVolumeMorning(String figi) {
-        return avgVolumeMorningMap.get(figi);
-    }
-
-    /**
-     * Получить средний утренний объем с значением по умолчанию
-     */
-    public BigDecimal getAvgVolumeMorning(String figi, BigDecimal defaultValue) {
-        return avgVolumeMorningMap.getOrDefault(figi, defaultValue);
-    }
-
-    /**
-     * Получить средний объем выходного дня
-     */
-    public BigDecimal getAvgVolumeWeekend(String figi) {
-        return avgVolumeWeekendMap.get(figi);
-    }
-
-    /**
-     * Получить средний объем выходного дня с значением по умолчанию
-     */
-    public BigDecimal getAvgVolumeWeekend(String figi, BigDecimal defaultValue) {
-        return avgVolumeWeekendMap.getOrDefault(figi, defaultValue);
-    }
 
     /**
      * Получить цену закрытия основной сессии
@@ -462,10 +428,9 @@ public class InstrumentCacheService {
     public Map<String, Object> getCacheStats() {
         return Map.of("trackedInstruments", lastPrices.size(), "instrumentNames",
                 instrumentNames.size(), "instrumentTickers", instrumentTickers.size(),
-                "avgVolumeMorning", avgVolumeMorningMap.size(), "avgVolumeWeekend",
-                avgVolumeWeekendMap.size(), "closePrices", closePrices.size(), "openPrices",
-                openPrices.size(), "accumulatedVolumes", accumulatedVolumes.size(), "bestBids",
-                bestBids.size(), "bestAsks", bestAsks.size());
+                "closePrices", closePrices.size(), "openPrices", openPrices.size(),
+                "accumulatedVolumes", accumulatedVolumes.size(), "bestBids", bestBids.size(),
+                "bestAsks", bestAsks.size());
     }
 
     /**
@@ -475,8 +440,6 @@ public class InstrumentCacheService {
         lastPrices.clear();
         instrumentNames.clear();
         instrumentTickers.clear();
-        avgVolumeMorningMap.clear();
-        avgVolumeWeekendMap.clear();
         closePrices.clear();
         openPrices.clear();
         // НЕ очищаем accumulatedVolumes - они содержат уже проторгованные объемы
@@ -498,26 +461,6 @@ public class InstrumentCacheService {
     }
 
 
-
-    /**
-     * Загрузить средние утренние объемы
-     */
-    public void loadAvgVolumeMorning(List<String> figis) {
-        Map<String, BigDecimal> loadedAvgVolumes =
-                sharesAggregatedDataService.getAvgVolumeMorningMap(figis);
-        avgVolumeMorningMap.putAll(loadedAvgVolumes);
-        log.info("Loaded {} average morning volumes into cache", loadedAvgVolumes.size());
-    }
-
-    /**
-     * Загрузить средние объемы выходного дня
-     */
-    public void loadAvgVolumeWeekend(List<String> figis) {
-        Map<String, BigDecimal> loadedAvgVolumes =
-                sharesAggregatedDataService.getAvgVolumeWeekendMap(figis);
-        avgVolumeWeekendMap.putAll(loadedAvgVolumes);
-        log.info("Loaded {} average weekend volumes into cache", loadedAvgVolumes.size());
-    }
 
     /**
      * Загрузить цены закрытия основной сессии

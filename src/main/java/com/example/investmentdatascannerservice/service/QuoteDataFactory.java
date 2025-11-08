@@ -49,9 +49,9 @@ public class QuoteDataFactory {
         long bestBidQuantity = cacheService.getBestBidQuantity(figi);
         long bestAskQuantity = cacheService.getBestAskQuantity(figi);
 
-        // Получаем агрегированные данные
-        BigDecimal avgVolumeMorning = cacheService.getAvgVolumeMorning(figi);
-        BigDecimal avgVolumeWeekend = cacheService.getAvgVolumeWeekend(figi);
+        // Агрегированные данные больше не доступны (таблица shares_aggregated_data удалена)
+        BigDecimal avgVolumeMorning = null;
+        BigDecimal avgVolumeWeekend = null;
 
         // Получаем накопленный объем
         long accumulatedVolume = cacheService.getAccumulatedVolume(figi);
@@ -89,9 +89,9 @@ public class QuoteDataFactory {
         long bestBidQuantity = cacheService.getBestBidQuantity(figi);
         long bestAskQuantity = cacheService.getBestAskQuantity(figi);
 
-        // Получаем агрегированные данные
-        BigDecimal avgVolumeMorning = cacheService.getAvgVolumeMorning(figi);
-        BigDecimal avgVolumeWeekend = cacheService.getAvgVolumeWeekend(figi);
+        // Агрегированные данные больше не доступны (таблица shares_aggregated_data удалена)
+        BigDecimal avgVolumeMorning = null;
+        BigDecimal avgVolumeWeekend = null;
 
         // Получаем накопленный объем
         long accumulatedVolume = cacheService.getAccumulatedVolume(figi);
@@ -136,9 +136,9 @@ public class QuoteDataFactory {
             previousPrice = currentPrice;
         }
 
-        // Получаем агрегированные данные
-        BigDecimal avgVolumeMorning = cacheService.getAvgVolumeMorning(figi);
-        BigDecimal avgVolumeWeekend = cacheService.getAvgVolumeWeekend(figi);
+        // Агрегированные данные больше не доступны (таблица shares_aggregated_data удалена)
+        BigDecimal avgVolumeMorning = null;
+        BigDecimal avgVolumeWeekend = null;
 
         // Получаем накопленный объем
         long accumulatedVolume = cacheService.getAccumulatedVolume(figi);

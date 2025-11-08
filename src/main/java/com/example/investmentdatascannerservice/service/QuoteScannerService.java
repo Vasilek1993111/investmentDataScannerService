@@ -23,7 +23,6 @@ import com.example.investmentdatascannerservice.utils.ClosePriceService;
 import com.example.investmentdatascannerservice.utils.InstrumentCacheService;
 import com.example.investmentdatascannerservice.utils.SessionTimeService;
 import com.example.investmentdatascannerservice.utils.ShareService;
-import com.example.investmentdatascannerservice.utils.SharesAggregatedDataService;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -54,7 +53,6 @@ public class QuoteScannerService {
     // Вспомогательные сервисы для инициализации
     private final ClosePriceService closePriceService;
     private final ClosePriceEveningSessionService closePriceEveningSessionService;
-    private final SharesAggregatedDataService sharesAggregatedDataService;
     private final ShareService shareService;
 
     // Динамический список индексов для полоски
@@ -72,7 +70,7 @@ public class QuoteScannerService {
             SessionTimeService sessionTimeService, InstrumentPairService instrumentPairService,
             MeterRegistry meterRegistry, ClosePriceService closePriceService,
             ClosePriceEveningSessionService closePriceEveningSessionService,
-            SharesAggregatedDataService sharesAggregatedDataService, ShareService shareService) {
+            ShareService shareService) {
         this.config = config;
         this.marketDataProcessor = marketDataProcessor;
         this.notificationService = notificationService;
@@ -82,7 +80,6 @@ public class QuoteScannerService {
         this.meterRegistry = meterRegistry;
         this.closePriceService = closePriceService;
         this.closePriceEveningSessionService = closePriceEveningSessionService;
-        this.sharesAggregatedDataService = sharesAggregatedDataService;
         this.shareService = shareService;
     }
 
@@ -115,11 +112,7 @@ public class QuoteScannerService {
         // Загружаем цены закрытия вечерней сессии за предыдущий торговый день
         loadEveningClosePrices();
 
-        // Загружаем средние утренние объемы
-        loadAvgVolumeMorning();
-
-        // Загружаем средние объемы выходного дня
-        loadAvgVolumeWeekend();
+        // Загрузка средних объемов отключена: таблица shares_aggregated_data больше не существует
 
         // Инициализируем список индексов по умолчанию
         initializeDefaultIndices();
@@ -159,55 +152,6 @@ public class QuoteScannerService {
         }
     }
 
-    /**
-     * Загружает средние утренние объемы для всех акций из базы данных
-     */
-    private void loadAvgVolumeMorning() {
-        try {
-            log.info("Loading average morning volumes...");
-            // Получаем все FIGI акций из базы данных
-            List<String> allShareFigis = shareService.getAllShareFigis();
-            Map<String, BigDecimal> loadedAvgVolumes =
-                    sharesAggregatedDataService.getAvgVolumeMorningMap(allShareFigis);
-            instrumentCacheService.loadAvgVolumeMorning(allShareFigis);
-            log.info("Loaded {} average morning volumes from {} shares", loadedAvgVolumes.size(),
-                    allShareFigis.size());
-
-            if (!loadedAvgVolumes.isEmpty()) {
-                log.info("First 5 average morning volumes: {}",
-                        loadedAvgVolumes.entrySet().stream().limit(5)
-                                .map(entry -> entry.getKey() + "=" + entry.getValue())
-                                .collect(Collectors.toList()));
-            }
-        } catch (Exception e) {
-            log.error("Error loading average morning volumes", e);
-        }
-    }
-
-    /**
-     * Загружает средние объемы выходного дня для всех акций из базы данных
-     */
-    private void loadAvgVolumeWeekend() {
-        try {
-            log.info("Loading average weekend volumes...");
-            // Получаем все FIGI акций из базы данных
-            List<String> allShareFigis = shareService.getAllShareFigis();
-            Map<String, BigDecimal> loadedAvgVolumes =
-                    sharesAggregatedDataService.getAvgVolumeWeekendMap(allShareFigis);
-            instrumentCacheService.loadAvgVolumeWeekend(allShareFigis);
-            log.info("Loaded {} average weekend volumes from {} shares", loadedAvgVolumes.size(),
-                    allShareFigis.size());
-
-            if (!loadedAvgVolumes.isEmpty()) {
-                log.info("First 5 average weekend volumes: {}",
-                        loadedAvgVolumes.entrySet().stream().limit(5)
-                                .map(entry -> entry.getKey() + "=" + entry.getValue())
-                                .collect(Collectors.toList()));
-            }
-        } catch (Exception e) {
-            log.error("Error loading average weekend volumes", e);
-        }
-    }
 
     /**
      * Инициализирует список индексов по умолчанию
