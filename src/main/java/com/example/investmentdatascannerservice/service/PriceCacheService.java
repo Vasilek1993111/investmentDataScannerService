@@ -3,6 +3,7 @@ package com.example.investmentdatascannerservice.service;
 import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -14,6 +15,7 @@ import com.example.investmentdatascannerservice.entity.ClosePriceEveningSessionE
 import com.example.investmentdatascannerservice.entity.OpenPriceEntity;
 import com.example.investmentdatascannerservice.repository.ClosePriceEveningSessionRepository;
 import com.example.investmentdatascannerservice.repository.ClosePriceRepository;
+import com.example.investmentdatascannerservice.repository.LastPriceRepository;
 import com.example.investmentdatascannerservice.repository.OpenPriceRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -33,16 +35,19 @@ public class PriceCacheService {
     private final ClosePriceRepository closePriceRepository;
     private final ClosePriceEveningSessionRepository closePriceEveningSessionRepository;
     private final OpenPriceRepository openPriceRepository;
+    private final LastPriceRepository lastPriceRepository;
 
     // In-memory кэш для быстрого доступа - только последние цены
     private final Map<String, BigDecimal> lastClosePricesCache = new ConcurrentHashMap<>();
     private final Map<String, BigDecimal> lastEveningSessionPricesCache = new ConcurrentHashMap<>();
     private final Map<String, BigDecimal> lastOpenPricesCache = new ConcurrentHashMap<>();
+    private final Map<String, BigDecimal> lastPricesCache = new ConcurrentHashMap<>();
 
     // Кэш для последних доступных дат
     private LocalDate lastClosePriceDate;
     private LocalDate lastEveningSessionDate;
     private LocalDate lastOpenPriceDate;
+    private LocalDate lastPriceDate;
 
     @PostConstruct
     public void initializeCache() {
@@ -50,6 +55,7 @@ public class PriceCacheService {
         loadAllClosePrices();
         loadAllEveningSessionPrices();
         loadAllOpenPrices();
+        loadAllLastPrices();
         log.info("Price cache initialized successfully");
     }
 
@@ -113,9 +119,11 @@ public class PriceCacheService {
         lastClosePricesCache.clear();
         lastEveningSessionPricesCache.clear();
         lastOpenPricesCache.clear();
+        lastPricesCache.clear();
         lastClosePriceDate = null;
         lastEveningSessionDate = null;
         lastOpenPriceDate = null;
+        lastPriceDate = null;
         log.info("Price cache cleared");
     }
 
@@ -128,6 +136,7 @@ public class PriceCacheService {
         loadAllClosePrices();
         loadAllEveningSessionPrices();
         loadAllOpenPrices();
+        loadAllLastPrices();
         log.info("Price cache reloaded successfully with unified weekend logic");
     }
 
@@ -187,6 +196,7 @@ public class PriceCacheService {
         prices.put("closePrice", getLastClosePrice(figi));
         prices.put("eveningSessionPrice", getLastEveningSessionPrice(figi));
         prices.put("openPrice", getLastOpenPrice(figi));
+        prices.put("lastPrice", getLastPrice(figi));
         return prices;
     }
 
@@ -219,16 +229,23 @@ public class PriceCacheService {
      * Получение статистики кэша
      */
     public Map<String, Object> getCacheStats() {
-        return Map.of("closePricesCount", lastClosePricesCache.size(), "eveningSessionPricesCount",
-                lastEveningSessionPricesCache.size(), "openPricesCount", lastOpenPricesCache.size(),
-                "instrumentsWithClosePrices", lastClosePricesCache.size(),
-                "instrumentsWithEveningSessionPrices", lastEveningSessionPricesCache.size(),
-                "instrumentsWithOpenPrices", lastOpenPricesCache.size(), "lastClosePriceDate",
-                lastClosePriceDate != null ? lastClosePriceDate.toString() : "N/A",
-                "lastEveningSessionDate",
-                lastEveningSessionDate != null ? lastEveningSessionDate.toString() : "N/A",
-                "lastOpenPriceDate",
+        Map<String, Object> stats = new java.util.HashMap<>();
+        stats.put("closePricesCount", lastClosePricesCache.size());
+        stats.put("eveningSessionPricesCount", lastEveningSessionPricesCache.size());
+        stats.put("openPricesCount", lastOpenPricesCache.size());
+        stats.put("lastPricesCount", lastPricesCache.size());
+        stats.put("instrumentsWithClosePrices", lastClosePricesCache.size());
+        stats.put("instrumentsWithEveningSessionPrices", lastEveningSessionPricesCache.size());
+        stats.put("instrumentsWithOpenPrices", lastOpenPricesCache.size());
+        stats.put("instrumentsWithLastPrices", lastPricesCache.size());
+        stats.put("lastClosePriceDate",
+                lastClosePriceDate != null ? lastClosePriceDate.toString() : "N/A");
+        stats.put("lastEveningSessionDate",
+                lastEveningSessionDate != null ? lastEveningSessionDate.toString() : "N/A");
+        stats.put("lastOpenPriceDate",
                 lastOpenPriceDate != null ? lastOpenPriceDate.toString() : "N/A");
+        stats.put("lastPriceDate", lastPriceDate != null ? lastPriceDate.toString() : "N/A");
+        return stats;
     }
 
     /**
@@ -326,9 +343,11 @@ public class PriceCacheService {
         lastClosePricesCache.clear();
         lastEveningSessionPricesCache.clear();
         lastOpenPricesCache.clear();
+        lastPricesCache.clear();
         lastClosePriceDate = null;
         lastEveningSessionDate = null;
         lastOpenPriceDate = null;
+        lastPriceDate = null;
 
         // Загружаем цены закрытия
         loadClosePricesForDate(targetDate);
@@ -339,10 +358,13 @@ public class PriceCacheService {
         // Загружаем цены открытия
         loadOpenPricesForDate(targetDate);
 
+        // Загружаем последние цены
+        loadAllLastPrices();
+
         log.info(
-                "All prices cache force reload completed. Close prices: {}, Evening session: {}, Open prices: {}",
+                "All prices cache force reload completed. Close prices: {}, Evening session: {}, Open prices: {}, Last prices: {}",
                 lastClosePricesCache.size(), lastEveningSessionPricesCache.size(),
-                lastOpenPricesCache.size());
+                lastOpenPricesCache.size(), lastPricesCache.size());
     }
 
     /**
@@ -409,5 +431,86 @@ public class PriceCacheService {
         } catch (Exception e) {
             log.error("Error loading open prices for date: {}", targetDate, e);
         }
+    }
+
+    /**
+     * Загрузка последних цен сделок (last_price) в кэш Загружает самую последнюю котировку по
+     * каждому figi. Если котировки нет в текущем дне, смотрит в прошлые дни.
+     */
+    @Transactional(readOnly = true)
+    public void loadAllLastPrices() {
+        try {
+            log.info("Loading last prices (latest quotes) for all instruments...");
+
+            // Получаем последние цены для всех инструментов используя DISTINCT ON
+            List<Object[]> results = lastPriceRepository.findLatestPricesForAllFigis();
+
+            int loadedCount = 0;
+            LocalDate latestDate = null;
+
+            for (Object[] row : results) {
+                try {
+                    String figi = (String) row[0];
+                    LocalDateTime time = (LocalDateTime) row[1];
+                    BigDecimal price = (BigDecimal) row[2];
+
+                    if (figi != null && price != null) {
+                        lastPricesCache.put(figi, price);
+                        loadedCount++;
+
+                        // Обновляем последнюю дату
+                        if (time != null) {
+                            LocalDate priceDate = time.toLocalDate();
+                            if (latestDate == null || priceDate.isAfter(latestDate)) {
+                                latestDate = priceDate;
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("Error processing last price row: {}", java.util.Arrays.toString(row),
+                            e);
+                }
+            }
+
+            lastPriceDate = latestDate;
+            log.info("Loaded {} last prices. Latest date: {}", loadedCount,
+                    latestDate != null ? latestDate.toString() : "N/A");
+
+        } catch (Exception e) {
+            log.error("Error loading last prices into cache", e);
+        }
+    }
+
+    /**
+     * Получение последней цены сделки для инструмента
+     */
+    public BigDecimal getLastPrice(String figi) {
+        return lastPricesCache.get(figi);
+    }
+
+    /**
+     * Получение всех последних цен сделок из кэша
+     */
+    public Map<String, BigDecimal> getAllLastPrices() {
+        return Map.copyOf(lastPricesCache);
+    }
+
+    /**
+     * Получение последней даты последних цен
+     */
+    public String getLastPriceDate() {
+        return lastPriceDate != null ? lastPriceDate.toString() : "N/A";
+    }
+
+    /**
+     * Принудительная перезагрузка кэша последних цен
+     */
+    public void forceReloadLastPricesCache() {
+        log.info("Force reloading last prices cache...");
+        lastPricesCache.clear();
+        lastPriceDate = null;
+        loadAllLastPrices();
+        log.info("Last prices cache force reload completed. Cache size: {}, Last date: {}",
+                lastPricesCache.size(), lastPriceDate);
     }
 }

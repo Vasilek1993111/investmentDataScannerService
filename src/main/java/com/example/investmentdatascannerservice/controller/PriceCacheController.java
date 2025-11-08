@@ -66,9 +66,11 @@ public class PriceCacheController {
             info.put("lastClosePriceDate", priceCacheService.getLastClosePriceDate());
             info.put("lastEveningSessionDate", priceCacheService.getLastEveningSessionDate());
             info.put("lastOpenPriceDate", priceCacheService.getLastOpenPriceDate());
+            info.put("lastPriceDate", priceCacheService.getLastPriceDate());
             info.put("closePricesCount", priceCacheService.getAllClosePrices().size());
             info.put("eveningSessionCount", priceCacheService.getAllEveningSessionPrices().size());
             info.put("openPricesCount", priceCacheService.getAllOpenPrices().size());
+            info.put("lastPricesCount", priceCacheService.getAllLastPrices().size());
 
             return ResponseEntity.ok(info);
         } catch (Exception e) {
@@ -133,6 +135,24 @@ public class PriceCacheController {
         }
     }
 
+    /**
+     * Получение всех последних цен сделок (last_price) из кэша
+     */
+    @GetMapping("/last-price")
+    public ResponseEntity<Map<String, Object>> getLastPrice() {
+        try {
+            Map<String, BigDecimal> allLastPrices = priceCacheService.getAllLastPrices();
+            Map<String, Object> result = new java.util.HashMap<>();
+            result.put("prices", allLastPrices);
+            result.put("date", priceCacheService.getLastPriceDate());
+            result.put("count", allLastPrices.size());
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("Error getting all last prices from cache", e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
 
 
     /**
@@ -183,10 +203,12 @@ public class PriceCacheController {
             result.put("closePricesDate", priceCacheService.getLastClosePriceDate());
             result.put("eveningSessionDate", priceCacheService.getLastEveningSessionDate());
             result.put("openPricesDate", priceCacheService.getLastOpenPriceDate());
+            result.put("lastPriceDate", priceCacheService.getLastPriceDate());
             result.put("closePricesCount", priceCacheService.getAllClosePrices().size());
             result.put("eveningSessionCount",
                     priceCacheService.getAllEveningSessionPrices().size());
             result.put("openPricesCount", priceCacheService.getAllOpenPrices().size());
+            result.put("lastPricesCount", priceCacheService.getAllLastPrices().size());
 
             return ResponseEntity.ok(result);
         } catch (Exception e) {
@@ -216,6 +238,29 @@ public class PriceCacheController {
             log.error("Error reloading close prices", e);
             return ResponseEntity.internalServerError().body(Map.of("success", false, "message",
                     "Error reloading close prices: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Ручное обновление только последних цен сделок (last_price)
+     */
+    @PostMapping("/reload-last-prices")
+    public ResponseEntity<Map<String, Object>> reloadLastPrices() {
+        try {
+            log.info("Manual reload last prices requested");
+            priceCacheService.forceReloadLastPricesCache();
+
+            Map<String, Object> result = new java.util.HashMap<>();
+            result.put("success", true);
+            result.put("message", "Last prices cache reloaded successfully");
+            result.put("lastUpdateDate", priceCacheService.getLastPriceDate());
+            result.put("pricesCount", priceCacheService.getAllLastPrices().size());
+
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("Error reloading last prices", e);
+            return ResponseEntity.internalServerError().body(Map.of("success", false, "message",
+                    "Error reloading last prices: " + e.getMessage()));
         }
     }
 
@@ -258,15 +303,15 @@ public class PriceCacheController {
     /**
      * Получение всех цен по FIGI или тикеру из кэша
      * 
-     * Метод автоматически определяет, является ли переданный параметр FIGI или тикером,
-     * и возвращает цены для правильного инструмента
+     * Метод автоматически определяет, является ли переданный параметр FIGI или тикером, и
+     * возвращает цены для правильного инструмента
      */
     @GetMapping("/prices/{figi}")
     public ResponseEntity<Map<String, Object>> getPricesByFigi(@PathVariable String figi) {
         try {
             // Сначала проверяем, есть ли цены для переданного параметра как FIGI
             Map<String, BigDecimal> prices = priceCacheService.getPricesForFigi(figi);
-            
+
             // Если цены есть, значит это был FIGI
             if (hasPrices(prices)) {
                 Map<String, Object> result = new java.util.HashMap<>();
@@ -277,22 +322,26 @@ public class PriceCacheController {
                 pricesObject.put("openPrice", prices.get("openPrice"));
                 pricesObject.put("closePrice", prices.get("closePrice"));
                 pricesObject.put("eveningSessionPrice", prices.get("eveningSessionPrice"));
+                pricesObject.put("lastPrice", prices.get("lastPrice"));
                 result.put("prices", pricesObject);
 
-                result.put("dates", Map.of("closePriceDate", priceCacheService.getLastClosePriceDate(),
-                        "eveningSessionPriceDate", priceCacheService.getLastEveningSessionPriceDate(),
-                        "openPriceDate", priceCacheService.getLastOpenPriceDate()));
+                result.put("dates",
+                        Map.of("closePriceDate", priceCacheService.getLastClosePriceDate(),
+                                "eveningSessionPriceDate",
+                                priceCacheService.getLastEveningSessionPriceDate(), "openPriceDate",
+                                priceCacheService.getLastOpenPriceDate(), "lastPriceDate",
+                                priceCacheService.getLastPriceDate()));
                 return ResponseEntity.ok(result);
             }
-            
+
             // Если цен нет, возможно переданный параметр - это тикер
             // Пытаемся найти FIGI по тикеру
             String actualFigi = instrumentCacheService.getFigiByTicker(figi);
-            
+
             if (actualFigi != null && !actualFigi.equals(figi)) {
                 // Нашли FIGI по тикеру, получаем цены
                 prices = priceCacheService.getPricesForFigi(actualFigi);
-                
+
                 if (hasPrices(prices)) {
                     log.debug("Found FIGI {} for ticker {}, returning prices", actualFigi, figi);
                     Map<String, Object> result = new java.util.HashMap<>();
@@ -304,18 +353,22 @@ public class PriceCacheController {
                     pricesObject.put("openPrice", prices.get("openPrice"));
                     pricesObject.put("closePrice", prices.get("closePrice"));
                     pricesObject.put("eveningSessionPrice", prices.get("eveningSessionPrice"));
+                    pricesObject.put("lastPrice", prices.get("lastPrice"));
                     result.put("prices", pricesObject);
 
-                    result.put("dates", Map.of("closePriceDate", priceCacheService.getLastClosePriceDate(),
-                            "eveningSessionPriceDate", priceCacheService.getLastEveningSessionPriceDate(),
-                            "openPriceDate", priceCacheService.getLastOpenPriceDate()));
+                    result.put("dates",
+                            Map.of("closePriceDate", priceCacheService.getLastClosePriceDate(),
+                                    "eveningSessionPriceDate",
+                                    priceCacheService.getLastEveningSessionPriceDate(),
+                                    "openPriceDate", priceCacheService.getLastOpenPriceDate(),
+                                    "lastPriceDate", priceCacheService.getLastPriceDate()));
                     return ResponseEntity.ok(result);
                 }
             }
-            
+
             // Если цены не найдены, возвращаем пустой результат с исходным параметром
-            log.warn("No prices found for parameter: {} (treated as {}: {})", 
-                    figi, actualFigi != null ? "ticker, mapped to FIGI" : "FIGI", actualFigi);
+            log.warn("No prices found for parameter: {} (treated as {}: {})", figi,
+                    actualFigi != null ? "ticker, mapped to FIGI" : "FIGI", actualFigi);
             Map<String, Object> result = new java.util.HashMap<>();
             result.put("figi", actualFigi != null ? actualFigi : figi);
             if (actualFigi != null) {
@@ -326,28 +379,33 @@ public class PriceCacheController {
             pricesObject.put("openPrice", null);
             pricesObject.put("closePrice", null);
             pricesObject.put("eveningSessionPrice", null);
+            pricesObject.put("lastPrice", null);
             result.put("prices", pricesObject);
 
             result.put("dates", Map.of("closePriceDate", priceCacheService.getLastClosePriceDate(),
                     "eveningSessionPriceDate", priceCacheService.getLastEveningSessionPriceDate(),
-                    "openPriceDate", priceCacheService.getLastOpenPriceDate()));
-            
+                    "openPriceDate", priceCacheService.getLastOpenPriceDate(), "lastPriceDate",
+                    priceCacheService.getLastPriceDate()));
+
             return ResponseEntity.ok(result);
         } catch (Exception e) {
             log.error("Error getting prices for figi: {}", figi, e);
             return ResponseEntity.internalServerError().build();
         }
     }
-    
+
     /**
      * Проверить, есть ли цены в результате
      */
     private boolean hasPrices(Map<String, BigDecimal> prices) {
-        return prices != null && (
-            (prices.get("openPrice") != null && prices.get("openPrice").compareTo(BigDecimal.ZERO) > 0) ||
-            (prices.get("closePrice") != null && prices.get("closePrice").compareTo(BigDecimal.ZERO) > 0) ||
-            (prices.get("eveningSessionPrice") != null && prices.get("eveningSessionPrice").compareTo(BigDecimal.ZERO) > 0)
-        );
+        return prices != null && ((prices.get("openPrice") != null
+                && prices.get("openPrice").compareTo(BigDecimal.ZERO) > 0)
+                || (prices.get("closePrice") != null
+                        && prices.get("closePrice").compareTo(BigDecimal.ZERO) > 0)
+                || (prices.get("eveningSessionPrice") != null
+                        && prices.get("eveningSessionPrice").compareTo(BigDecimal.ZERO) > 0)
+                || (prices.get("lastPrice") != null
+                        && prices.get("lastPrice").compareTo(BigDecimal.ZERO) > 0));
     }
 
 

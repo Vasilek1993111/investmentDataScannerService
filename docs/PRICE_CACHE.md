@@ -1,6 +1,6 @@
 # Price Cache System
 
-Система кэширования цен закрытия, открытия и вечерней сессии для быстрого доступа к историческим данным.
+Система кэширования цен закрытия, открытия, вечерней сессии и последних цен сделок (last_price) для быстрого доступа к историческим данным.
 
 ## Обзор
 
@@ -11,7 +11,7 @@
 - REST API для управления кэшем и получения данных
 - Автоматическое обновление по расписанию (каждый день в 6:00 MSK)
 - Унифицированную логику обработки выходных дней
-- Поддержку цен закрытия, открытия и вечерней сессии
+- Поддержку цен закрытия, открытия, вечерней сессии и последних цен сделок (last_price)
 - Поддержку объемов торгов (исторических и текущих)
 - Оптимизированное потребление памяти (только последние цены)
 
@@ -27,24 +27,29 @@
 - `getLastClosePrice(String figi)` - получение последней цены закрытия
 - `getLastEveningSessionPrice(String figi)` - получение последней цены вечерней сессии
 - `getLastOpenPrice(String figi)` - получение последней цены открытия
-- `getPricesForFigi(String figi)` - получение всех цен для инструмента (закрытие, открытие, вечерняя сессия)
+- `getLastPrice(String figi)` - получение последней цены сделки (last_price)
+- `getPricesForFigi(String figi)` - получение всех цен для инструмента (закрытие, открытие, вечерняя сессия, last_price)
 - `getAllClosePrices()` - получение всех цен закрытия из кэша
 - `getAllEveningSessionPrices()` - получение всех цен вечерней сессии из кэша
 - `getAllOpenPrices()` - получение всех цен открытия из кэша
+- `getAllLastPrices()` - получение всех последних цен сделок (last_price) из кэша
 
 **Управление кэшем:**
 - `loadAllClosePrices()` - загрузка последних цен закрытия
 - `loadAllEveningSessionPrices()` - загрузка последних цен вечерней сессии
 - `loadAllOpenPrices()` - загрузка последних цен открытия
-- `reloadCache()` - перезагрузка кэша
-- `clearCache()` - очистка кэша
-- `forceReloadAllPricesCache()` - принудительная перезагрузка всех типов цен
+- `loadAllLastPrices()` - загрузка последних цен сделок (last_price)
+- `reloadCache()` - перезагрузка кэша (включая last_price)
+- `clearCache()` - очистка кэша (включая last_price)
+- `forceReloadAllPricesCache()` - принудительная перезагрузка всех типов цен (включая last_price)
 - `forceReloadClosePricesCache()` - принудительная перезагрузка только цен закрытия
+- `forceReloadLastPricesCache()` - принудительная перезагрузка только последних цен сделок (last_price)
 
 **Метаданные:**
 - `getLastClosePriceDate()` - получение последней даты цен закрытия
 - `getLastEveningSessionPriceDate()` - получение последней даты цен вечерней сессии
 - `getLastOpenPriceDate()` - получение последней даты цен открытия
+- `getLastPriceDate()` - получение последней даты последних цен сделок (last_price)
 - `getCacheStats()` - получение статистики кэша
 
 **Особенности:**
@@ -59,8 +64,8 @@
 **Функции:**
 
 - Асинхронная загрузка цен при старте (`@Async`)
-- Параллельная загрузка всех типов цен (закрытие, открытие, вечерняя сессия)
-- Принудительная перезагрузка через `reloadAllPrices()`
+- Параллельная загрузка всех типов цен (закрытие, открытие, вечерняя сессия, last_price)
+- Принудительная перезагрузка через `reloadAllPrices()` (включая last_price)
 
 **Методы:**
 - `loadPricesOnStartup()` - загрузка цен при запуске (вызывается автоматически)
@@ -94,18 +99,20 @@ REST API контроллер для управления кэшем и полу
 - `GET /api/price-cache/close-price` - все цены закрытия из кэша
 - `GET /api/price-cache/open-price` - все цены открытия из кэша
 - `GET /api/price-cache/evening-session-price` - все цены вечерней сессии из кэша
+- `GET /api/price-cache/last-price` - все последние цены сделок (last_price) из кэша
 
 **Получение цены для конкретного инструмента:**
 - `GET /api/price-cache/last-close-price?figi={figi}` - последняя цена закрытия
 - `GET /api/price-cache/prices/{figi}` - все цены для инструмента (FIGI или тикер)
   - Поддерживает поиск по FIGI или тикеру
-  - Возвращает цены закрытия, открытия и вечерней сессии
+  - Возвращает цены закрытия, открытия, вечерней сессии и последнюю цену сделки (last_price)
 
 **Управление кэшем:**
-- `POST /api/price-cache/clear` - очистка кэша
-- `POST /api/price-cache/reload` - асинхронная перезагрузка всех цен
-- `POST /api/price-cache/force-reload-all` - принудительная перезагрузка всех типов цен
+- `POST /api/price-cache/clear` - очистка кэша (включая last_price)
+- `POST /api/price-cache/reload` - асинхронная перезагрузка всех цен (включая last_price)
+- `POST /api/price-cache/force-reload-all` - принудительная перезагрузка всех типов цен (включая last_price)
 - `POST /api/price-cache/reload-close-prices` - перезагрузка только цен закрытия
+- `POST /api/price-cache/reload-last-prices` - перезагрузка только последних цен сделок (last_price)
 - `POST /api/price-cache/reload-instruments` - перезагрузка инструментов (без цен)
 
 **Endpoints для объемов:**
@@ -150,6 +157,7 @@ REST API контроллер для управления кэшем и полу
 - Загружаются последние цены закрытия
 - Загружаются последние цены вечерней сессии
 - Загружаются последние цены открытия
+- Загружаются последние цены сделок (last_price)
 
 ### Автоматическое обновление
 
@@ -182,9 +190,12 @@ BigDecimal eveningPrice = priceCacheService.getLastEveningSessionPrice("BBG00473
 // Получение последней цены открытия
 BigDecimal openPrice = priceCacheService.getLastOpenPrice("BBG004730N88");
 
+// Получение последней цены сделки (last_price)
+BigDecimal lastPrice = priceCacheService.getLastPrice("BBG004730N88");
+
 // Получение всех цен для инструмента
 Map<String, BigDecimal> prices = priceCacheService.getPricesForFigi("BBG004730N88");
-// Результат: {closePrice=250.50, eveningSessionPrice=250.45, openPrice=249.80}
+// Результат: {closePrice=250.50, eveningSessionPrice=250.45, openPrice=249.80, lastPrice=250.55}
 
 // Получение всех цен закрытия
 Map<String, BigDecimal> allClosePrices = priceCacheService.getAllClosePrices();
@@ -215,6 +226,9 @@ curl http://localhost:8085/api/price-cache/open-price
 # Все цены вечерней сессии
 curl http://localhost:8085/api/price-cache/evening-session-price
 
+# Все последние цены сделок (last_price)
+curl http://localhost:8085/api/price-cache/last-price
+
 # Последняя цена закрытия для инструмента
 curl "http://localhost:8085/api/price-cache/last-close-price?figi=BBG004730N88"
 
@@ -236,6 +250,9 @@ curl -X POST http://localhost:8085/api/price-cache/force-reload-all
 
 # Перезагрузка только цен закрытия
 curl -X POST http://localhost:8085/api/price-cache/reload-close-prices
+
+# Перезагрузка только последних цен сделок (last_price)
+curl -X POST http://localhost:8085/api/price-cache/reload-last-prices
 
 # Перезагрузка инструментов
 curl -X POST http://localhost:8085/api/price-cache/reload-instruments
@@ -282,6 +299,7 @@ curl -X POST http://localhost:8085/api/price-cache/reload-volumes
 - Количество цен закрытия в кэше
 - Количество цен вечерней сессии в кэше
 - Количество цен открытия в кэше
+- Количество последних цен сделок (last_price) в кэше
 - Последние даты для каждого типа цен
 
 ## Ограничения
@@ -301,11 +319,13 @@ curl -X POST http://localhost:8085/api/price-cache/reload-volumes
 - `lastClosePricesCache` - цены закрытия (Map<FIGI, BigDecimal>)
 - `lastEveningSessionPricesCache` - цены вечерней сессии (Map<FIGI, BigDecimal>)
 - `lastOpenPricesCache` - цены открытия (Map<FIGI, BigDecimal>)
+- `lastPricesCache` - последние цены сделок (last_price) (Map<FIGI, BigDecimal>)
 
 **Метаданные:**
 - `lastClosePriceDate` - последняя дата цен закрытия
 - `lastEveningSessionDate` - последняя дата цен вечерней сессии
 - `lastOpenPriceDate` - последняя дата цен открытия
+- `lastPriceDate` - последняя дата последних цен сделок (last_price)
 
 ### Формат ответов API
 
@@ -315,9 +335,11 @@ curl -X POST http://localhost:8085/api/price-cache/reload-volumes
   "closePricesCount": 150,
   "eveningSessionPricesCount": 145,
   "openPricesCount": 148,
+  "lastPricesCount": 150,
   "lastClosePriceDate": "2024-01-15",
   "lastEveningSessionDate": "2024-01-15",
-  "lastOpenPriceDate": "2024-01-15"
+  "lastOpenPriceDate": "2024-01-15",
+  "lastPriceDate": "2024-01-15"
 }
 ```
 
@@ -329,12 +351,14 @@ curl -X POST http://localhost:8085/api/price-cache/reload-volumes
   "prices": {
     "openPrice": 249.80,
     "closePrice": 250.50,
-    "eveningSessionPrice": 250.45
+    "eveningSessionPrice": 250.45,
+    "lastPrice": 250.55
   },
   "dates": {
     "closePriceDate": "2024-01-15",
     "eveningSessionPriceDate": "2024-01-15",
-    "openPriceDate": "2024-01-15"
+    "openPriceDate": "2024-01-15",
+    "lastPriceDate": "2024-01-15"
   }
 }
 ```
