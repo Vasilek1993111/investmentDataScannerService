@@ -1,0 +1,37 @@
+<!-- Полоска с индексами -->
+<div class="indices-bar">
+    <div class="indices-container" id="indicesContainer">
+        <!-- Индексы будут добавлены динамически -->
+    </div>
+</div>
+
+<!-- Модальное окно для управления индексами -->
+<div id="indexManagementModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Управление индексами</h2>
+            <span class="close" onclick="toggleIndexManagement()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div class="add-index-section">
+                <h3>Добавить новый индекс</h3>
+                <div class="form-group">
+                    <label for="newIndexTicker">Ticker:</label>
+                    <input type="text" id="newIndexTicker" placeholder="XAG">
+                </div>
+                <div class="form-group">
+                    <label for="newIndexDisplayName">Display Name:</label>
+                    <input type="text" id="newIndexDisplayName" placeholder="XAG">
+                </div>
+                <button onclick="addIndex()" class="btn btn-primary">Добавить</button>
+            </div>
+
+            <div class="current-indices-section">
+                <h3>Текущие индексы</h3>
+                <div id="currentIndicesList" class="indices-list">
+                    <!-- Список индексов будет загружен динамически -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

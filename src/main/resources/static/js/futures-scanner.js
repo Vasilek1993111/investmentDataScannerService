@@ -36,11 +36,8 @@ let incrementVolumeCache = new Map();
 let totalVolumeCache = new Map();
 let previousValues = new Map();
 
-// Индексы для полоски
-let indices = new Map();
-let INDICES_CONFIG = [
-    { figi: 'BBG00KDWPPW3', name: 'IMOEX2', displayName: 'IMOEX2' }
-];
+// Индексы для полоски (используются из indices-bar.js)
+// Переменные indices и INDICES_CONFIG объявлены в indices-bar.js
 
 // Настройки сортировки
 let stockNearSortBy = 'spreadPercent';
@@ -76,26 +73,88 @@ async function loadFuturesData() {
         const data = await response.json();
 
         if (data && data.futures && Array.isArray(data.futures)) {
+            let loadedWithBasicAssetSize = 0;
+            let loadedWithDefault = 0;
+
             data.futures.forEach(future => {
+                // Получаем basicAssetSize, пробуя все возможные варианты названия поля
+                // Spring Boot Jackson может сериализовать в camelCase (basicAssetSize) или snake_case (basic_asset_size)
+                let assetSize = future.basicAssetSize !== undefined ? future.basicAssetSize :
+                    (future.basic_asset_size !== undefined ? future.basic_asset_size :
+                        (future['basicAssetSize'] !== undefined ? future['basicAssetSize'] :
+                            future['basic_asset_size']));
+
+                // Проверяем, может быть значение есть, но равно 0, null или undefined
+                let basicAssetSizeValue = 100; // значение по умолчанию
+
+                // Проверяем, есть ли значение (включая проверку на 0, так как 0 - невалидное значение для лотности)
+                if (assetSize !== null && assetSize !== undefined && assetSize !== '' && assetSize !== 0) {
+                    const numValue = Number(assetSize);
+                    if (Number.isFinite(numValue) && numValue > 0) {
+                        basicAssetSizeValue = numValue;
+                        loadedWithBasicAssetSize++;
+                    } else {
+                        // Логируем случаи, когда значение есть, но невалидно
+                        console.warn(`Invalid basicAssetSize for ${future.ticker} (${future.figi}): ${assetSize} (type: ${typeof assetSize}), using default 100`);
+                        loadedWithDefault++;
+                    }
+                } else {
+                    // Если basicAssetSize отсутствует, пробуем использовать поле 'lot' как резервный вариант
+                    // (хотя обычно lot - это размер лота, а не лотность базового актива)
+                    const lotValue = future.lot !== undefined ? future.lot : future['lot'];
+                    if (lotValue !== null && lotValue !== undefined && lotValue !== '' && lotValue !== 0) {
+                        const numLot = Number(lotValue);
+                        if (Number.isFinite(numLot) && numLot > 0) {
+                            basicAssetSizeValue = numLot;
+                            loadedWithBasicAssetSize++;
+                            console.warn(`Using 'lot' field as fallback for basicAssetSize for ${future.ticker} (${future.figi}): ${numLot}`);
+                        } else {
+                            loadedWithDefault++;
+                        }
+                    } else {
+                        loadedWithDefault++;
+                    }
+
+                    // Логируем случаи, когда значение отсутствует, особенно для интересующих нас инструментов
+                    if (future.ticker && (future.ticker.includes('RNFT') || future.ticker.includes('SBER') ||
+                        future.ticker.includes('SRZ') || future.ticker.includes('RUZ') ||
+                        future.ticker.includes('Z5') || future.ticker.includes('H6'))) {
+                        console.warn(`Missing basicAssetSize and lot for ${future.ticker} (${future.figi}), available fields:`, Object.keys(future));
+                        // Выводим все числовые поля, которые могут быть лотностью
+                        Object.keys(future).forEach(key => {
+                            if (typeof future[key] === 'number' || (typeof future[key] === 'string' && !isNaN(future[key]))) {
+                                console.log(`  ${key} = ${future[key]}`);
+                            }
+                        });
+                    }
+                }
+
                 futuresDataCache.set(future.figi, {
                     figi: future.figi,
                     ticker: future.ticker,
                     expirationDate: future.expirationDate,
                     basicAsset: future.basicAsset,
-                    assetType: future.assetType
+                    assetType: future.assetType,
+                    basicAssetSize: basicAssetSizeValue
                 });
             });
+
             console.log(`Loaded ${data.futures.length} futures with expiration data`);
             console.log(`Futures cache size: ${futuresDataCache.size}`);
+            console.log(`Futures with basicAssetSize: ${loadedWithBasicAssetSize}, using default (100): ${loadedWithDefault}`);
 
-            // Выводим примеры для отладки
+            // Выводим примеры для отладки - показываем несколько фьючерсов с разными ticker
             if (data.futures.length > 0) {
-                const sample = data.futures[0];
-                console.log('Sample future data:', {
-                    figi: sample.figi,
-                    ticker: sample.ticker,
-                    basicAsset: sample.basicAsset,
-                    expirationDate: sample.expirationDate
+                const samples = data.futures.slice(0, Math.min(5, data.futures.length));
+                samples.forEach(sample => {
+                    console.log(`Future data for ${sample.ticker} (${sample.figi}):`, {
+                        figi: sample.figi,
+                        ticker: sample.ticker,
+                        basicAsset: sample.basicAsset,
+                        expirationDate: sample.expirationDate,
+                        basicAssetSize_raw: sample.basicAssetSize || sample.basic_asset_size || 'NOT FOUND',
+                        allFields: Object.keys(sample)
+                    });
                 });
             }
         } else {
@@ -341,10 +400,47 @@ function isFarFutures(figi) {
 }
 
 /**
- * Получить лотность фьючерса
+ * Получить лотность фьючерса (basic_asset_size)
  */
-function getFuturesLotSize(ticker) {
-    // По умолчанию 100
+function getFuturesLotSize(figi) {
+    if (!figi) {
+        console.warn('getFuturesLotSize called without figi');
+        return 100;
+    }
+
+    if (futuresDataCache.has(figi)) {
+        const futuresData = futuresDataCache.get(figi);
+        if (futuresData && futuresData.basicAssetSize) {
+            const lotSize = Number(futuresData.basicAssetSize);
+            // Если значение валидно и больше 0, возвращаем его
+            if (Number.isFinite(lotSize) && lotSize > 0) {
+                return lotSize;
+            } else {
+                // Логируем только для проблемных инструментов
+                if (futuresData.ticker && (futuresData.ticker.includes('RNFT') || futuresData.ticker.includes('RUZ') ||
+                    futuresData.ticker.includes('SRZ') || futuresData.ticker.includes('SBER'))) {
+                    console.warn(`Invalid lotSize for ${futuresData.ticker} (${figi}): ${futuresData.basicAssetSize}, using default 100`);
+                }
+            }
+        } else {
+            const ticker = futuresData ? futuresData.ticker : 'UNKNOWN';
+            // Логируем только для проблемных инструментов
+            if (ticker && (ticker.includes('RNFT') || ticker.includes('RUZ') || ticker.includes('SRZ') || ticker.includes('SBER'))) {
+                console.warn(`No basicAssetSize in cache for ${ticker} (${figi}), using default 100`);
+            }
+        }
+    } else {
+        // Логируем только при первом обращении к несуществующему FIGI
+        if (!getFuturesLotSize._warnedFigis) {
+            getFuturesLotSize._warnedFigis = new Set();
+        }
+        if (!getFuturesLotSize._warnedFigis.has(figi)) {
+            getFuturesLotSize._warnedFigis.add(figi);
+            console.warn(`FIGI ${figi} not found in futuresDataCache, using default lot size 100`);
+        }
+    }
+
+    // По умолчанию 100, если данные не найдены или значение невалидно
     return 100;
 }
 
@@ -458,6 +554,14 @@ function updateFuturesComparisons() {
     const quotesArray = Array.from(quotes.values());
     console.log(`updateFuturesComparisons: processing ${quotesArray.length} quotes, futures cache size: ${futuresDataCache.size}`);
 
+    // Если кэш фьючерсов пуст, пытаемся загрузить данные
+    if (futuresDataCache.size === 0) {
+        console.warn('Futures cache is empty, loading futures data...');
+        loadFuturesData();
+        // Возвращаемся, так как данные загрузятся асинхронно
+        return;
+    }
+
     // Собираем все уникальные базовые тикеры
     const baseTickers = new Set();
     quotesArray.forEach(quote => {
@@ -552,9 +656,15 @@ function updateFuturesComparisons() {
 }
 
 function createComparison(baseTicker, stock, futures) {
-    const lotSize = getFuturesLotSize(futures.ticker);
+    const lotSize = getFuturesLotSize(futures.figi);
     const stockPrice = stock.currentPrice || 0;
     const futuresPrice = futures.currentPrice || 0;
+
+    // Логируем для отладки проблемных инструментов
+    if (stock.ticker && (stock.ticker.includes('RNFT') || stock.ticker.includes('SBER')) &&
+        futures.ticker && (futures.ticker.includes('RUZ') || futures.ticker.includes('SRZ'))) {
+        console.log(`createComparison for ${baseTicker}: stock=${stock.ticker} (${stockPrice}), futures=${futures.ticker} (${futuresPrice}), lotSize=${lotSize}`);
+    }
 
     // Спред % = ((фьючерс / (акция * лотность)) - 1) * 100
     const spreadPercent = stockPrice > 0 && lotSize > 0 ?
@@ -588,7 +698,7 @@ function createFuturesComparison(baseTicker, nearFutures, farFutures) {
         baseTicker,
         nearFutures,
         farFutures,
-        lotSize: getFuturesLotSize(nearFutures.ticker),
+        lotSize: getFuturesLotSize(nearFutures.figi),
         nearPrice,
         farPrice,
         spreadPercent,
@@ -953,133 +1063,8 @@ function updateTotalVolume() {
 }
 
 // --- Индексы ---
-function initializeIndicesBar() {
-    indicesContainer.innerHTML = '';
-    INDICES_CONFIG.forEach(config => {
-        const indexElement = createIndexElement(config);
-        indicesContainer.appendChild(indexElement);
-        indices.set(config.figi, { ...config, element: indexElement, data: null });
-    });
-}
-
-function createIndexElement(config) {
-    const div = document.createElement('div');
-    div.className = 'index-item';
-    div.id = `index-${config.figi}`;
-    div.innerHTML = `
-        <div class="index-name">${config.displayName}</div>
-        <div class="index-prices">
-            <div class="index-os-price">ОС: --</div>
-            <div class="index-evening-price">ВС: --</div>
-        </div>
-        <div class="index-current">--</div>
-        <div class="index-change neutral">--</div>
-        <div class="index-time">--:--</div>
-    `;
-    return div;
-}
-
-function updateIndicesBar(quoteData) {
-    const figi = quoteData.figi;
-    const indexInfo = indices.get(figi);
-    if (!indexInfo) return;
-
-    const element = indexInfo.element;
-    const currentElement = element.querySelector('.index-current');
-    const changeElement = element.querySelector('.index-change');
-    const timeElement = element.querySelector('.index-time');
-
-    if (!quoteData.currentPrice) {
-        currentElement.textContent = '--';
-        changeElement.textContent = '--';
-        changeElement.className = 'index-change neutral';
-        timeElement.textContent = '--:--';
-        return;
-    }
-
-    const previousPrice = indexInfo.data ? indexInfo.data.currentPrice : null;
-    const currentPrice = quoteData.currentPrice;
-    currentElement.textContent = formatPrice(quoteData.currentPrice);
-
-    const priceOS = quoteData.closePriceOS || quoteData.closePrice;
-    if (priceOS && priceOS > 0) {
-        const change = quoteData.currentPrice - priceOS;
-        const changePercent = (change / priceOS) * 100;
-        const changeClass = changePercent > 0 ? 'positive' : changePercent < 0 ? 'negative' : 'neutral';
-        const changeText = changePercent >= 0 ? `+${formatPercent(changePercent)}` : formatPercent(changePercent);
-        changeElement.textContent = `(${changeText})`;
-        changeElement.className = `index-change ${changeClass}`;
-    } else {
-        changeElement.textContent = '--';
-        changeElement.className = 'index-change neutral';
-    }
-
-    if (previousPrice && previousPrice !== currentPrice) {
-        currentElement.classList.remove('price-up', 'price-down');
-        if (currentPrice > previousPrice) currentElement.classList.add('price-up');
-        else if (currentPrice < previousPrice) currentElement.classList.add('price-down');
-        setTimeout(() => currentElement.classList.remove('price-up', 'price-down'), 2000);
-    }
-
-    if (quoteData.timestamp) {
-        const date = new Date(quoteData.timestamp);
-        timeElement.textContent = date.toLocaleTimeString().slice(0, 5);
-    } else {
-        timeElement.textContent = lastUpdateTime ? lastUpdateTime.toLocaleTimeString().slice(0, 5) : '--:--';
-    }
-
-    indexInfo.data = quoteData;
-}
-
-// --- API индексов ---
-function updateIndicesFromServer() {
-    fetch('/api/scanner/futures-scanner/indices')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                INDICES_CONFIG = data.indices.map(index => ({
-                    figi: index.figi || index.name,
-                    name: index.name,
-                    displayName: index.displayName
-                }));
-                const indicesContainer = document.getElementById('indicesContainer');
-                indicesContainer.innerHTML = '';
-                indices.clear();
-                INDICES_CONFIG.forEach(config => {
-                    const indexElement = createIndexElement(config);
-                    indicesContainer.appendChild(indexElement);
-                    indices.set(config.figi, { ...config, element: indexElement, data: null });
-                });
-                loadIndexPrices();
-            }
-        })
-        .catch(error => {
-            console.error('Ошибка при обновлении индексов:', error);
-        });
-}
-
-function loadIndexPrices() {
-    fetch('/api/scanner/futures-scanner/indices/prices')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                Object.values(data.prices).forEach(priceData => {
-                    const figi = priceData.figi;
-                    const indexInfo = indices.get(figi);
-                    if (indexInfo) {
-                        const element = indexInfo.element;
-                        const osPriceElement = element.querySelector('.index-os-price');
-                        const eveningPriceElement = element.querySelector('.index-evening-price');
-                        if (osPriceElement) osPriceElement.textContent = `ОС: ${priceData.closePriceOS ? formatPrice(priceData.closePriceOS) : '--'}`;
-                        if (eveningPriceElement) eveningPriceElement.textContent = `ВС: ${priceData.closePriceEvening ? formatPrice(priceData.closePriceEvening) : '--'}`;
-                    }
-                });
-            }
-        })
-        .catch(error => {
-            console.error('Ошибка при загрузке цен закрытия:', error);
-        });
-}
+// Функции для работы с индексами вынесены в indices-bar.js
+// initializeIndicesBar, createIndexElement, updateIndicesBar, updateIndicesFromServer, loadIndexPrices вынесены в indices-bar.js
 
 function loadClosePricesForQuote(quoteData) {
     fetch(`/api/price-cache/last-close-price?figi=${quoteData.figi}`)
@@ -1161,99 +1146,7 @@ async function initializeVolumeData() {
 }
 
 // Модалка управления индексами
-function toggleIndexManagement() {
-    const modal = document.getElementById('indexManagementModal');
-    if (modal.style.display === 'none') {
-        modal.style.display = 'flex';
-        loadCurrentIndices();
-    } else {
-        modal.style.display = 'none';
-    }
-}
-
-function loadCurrentIndices() {
-    fetch('/api/scanner/futures-scanner/indices')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                displayCurrentIndices(data.indices);
-            }
-        })
-        .catch(error => {
-            console.error('Ошибка при загрузке индексов:', error);
-        });
-}
-
-function displayCurrentIndices(indicesList) {
-    const container = document.getElementById('currentIndicesList');
-    container.innerHTML = '';
-    indicesList.forEach(index => {
-        const indexItem = document.createElement('div');
-        indexItem.className = 'index-item-manage';
-        indexItem.innerHTML = `
-            <div class="index-info">
-                <div class="index-name">${index.displayName}</div>
-                <div class="index-figi">${index.name}</div>
-            </div>
-            <button class="btn-remove" onclick="removeIndex('${index.name}')">Удалить</button>
-        `;
-        container.appendChild(indexItem);
-    });
-}
-
-function addIndex() {
-    const name = document.getElementById('newIndexTicker').value.trim();
-    const displayName = document.getElementById('newIndexDisplayName').value.trim() || name;
-    if (!name) {
-        alert('Пожалуйста, заполните Ticker');
-        return;
-    }
-    fetch('/api/scanner/futures-scanner/indices/add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, displayName })
-    })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                document.getElementById('newIndexTicker').value = '';
-                document.getElementById('newIndexDisplayName').value = '';
-                loadCurrentIndices();
-                updateIndicesFromServer();
-                setTimeout(() => { loadIndexPrices(); }, 500);
-                alert('Индекс успешно добавлен!');
-            } else {
-                alert('Ошибка: ' + data.message);
-            }
-        })
-        .catch(error => {
-            console.error('Ошибка при добавлении индекса:', error);
-            alert('Ошибка при добавлении индекса');
-        });
-}
-
-function removeIndex(name) {
-    if (!confirm(`Вы уверены, что хотите удалить индекс "${name}"?`)) return;
-    fetch('/api/scanner/futures-scanner/indices/remove', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
-    })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                loadCurrentIndices();
-                updateIndicesFromServer();
-                alert('Индекс успешно удален!');
-            } else {
-                alert('Ошибка: ' + data.message);
-            }
-        })
-        .catch(error => {
-            console.error('Ошибка при удалении индекса:', error);
-            alert('Ошибка при удалении индекса');
-        });
-}
+// toggleIndexManagement, loadCurrentIndices, displayCurrentIndices, addIndex, removeIndex вынесены в indices-bar.js
 
 // Обработчики
 connectBtn.addEventListener('click', connect);
@@ -1270,6 +1163,18 @@ document.getElementById('nearFarMaxResults').addEventListener('change', updateSo
 
 setInterval(updateScannerStatus, 60000);
 updateScannerStatus();
+// Инициализация модуля индексов
+initIndicesBar({
+    apiEndpoint: '/api/scanner/futures-scanner',
+    quotesMap: quotes,
+    formatPrice: formatPrice,
+    formatPercent: (percent) => formatPercent(percent).replace('%', ''),
+    lastUpdateTime: lastUpdateTime,
+    onIndexUpdate: (indexInfo, quoteData) => {
+        // Callback при обновлении индекса (если нужен)
+    }
+});
+
 initializeIndicesBar();
 initializeVolumeData();
 updateIndicesFromServer();

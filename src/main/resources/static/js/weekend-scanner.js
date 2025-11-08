@@ -40,11 +40,8 @@ let incrementVolumeCache = new Map();
 let totalVolumeCache = new Map();
 let previousValues = new Map(); // хранение предыдущих значений для подсветки изменений
 
-// Индексы для полоски (динамический список)
-let indices = new Map();
-let INDICES_CONFIG = [
-    { name: 'IMOEX2', displayName: 'IMOEX2' }
-];
+// Индексы для полоски (используются из indices-bar.js)
+// Переменные indices и INDICES_CONFIG объявлены в indices-bar.js
 
 // Настройки сортировки
 let gainersSortBy = 'changeOS';
@@ -93,7 +90,7 @@ function connect() {
             losers = [];
             updateCount = 0;
 
-            // Инициализируем полоску индексов
+            // Инициализируем полоску индексов (функция из indices-bar.js)
             initializeIndicesBar();
 
             // Таймер скорости обновлений
@@ -168,7 +165,7 @@ function updateQuote(quoteData) {
     lastUpdate.textContent = lastUpdateTime.toLocaleTimeString();
 
     // Проверяем, является ли этот инструмент индексом из строки индексов
-    const indexInfo = indices.get(figi) || (quoteData.ticker ? indices.get(quoteData.ticker) : null);
+    const indexInfo = window.indices.get(figi) || (quoteData.ticker ? window.indices.get(quoteData.ticker) : null);
     if (indexInfo) {
         // Если это индекс и у него еще нет цен закрытия, загружаем их
         if (!indexInfo.closePriceOS || !indexInfo.closePriceEvening) {
@@ -180,60 +177,7 @@ function updateQuote(quoteData) {
     updateTopLists();
 }
 
-/**
- * Загрузить цены закрытия для одного индекса
- */
-function loadIndexPricesForSingleIndex(indexInfo, figi) {
-    if (!figi) {
-        // Пытаемся найти FIGI по тикеру
-        figi = findFigiByTicker(indexInfo.name);
-        if (!figi) return;
-    }
-
-    // Загружаем цены из кэша
-    fetch(`/api/price-cache/prices/${figi}`)
-        .then(response => {
-            if (!response.ok) {
-                return null;
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data && data.prices) {
-                const element = indexInfo.element;
-                const osPriceElement = element.querySelector('.index-os-price');
-                const eveningPriceElement = element.querySelector('.index-evening-price');
-
-                const closePrice = data.prices.closePrice;
-                const eveningSessionPrice = data.prices.eveningSessionPrice;
-
-                // Обновляем цены в DOM
-                if (closePrice && closePrice > 0 && (!indexInfo.closePriceOS || indexInfo.closePriceOS !== closePrice)) {
-                    if (osPriceElement) osPriceElement.textContent = `ОС: ${formatPrice(closePrice)}`;
-                    indexInfo.closePriceOS = closePrice;
-                    // Обновляем котировку, если она есть
-                    if (indexInfo.data) {
-                        indexInfo.data.closePriceOS = closePrice;
-                        indexInfo.data.closePrice = closePrice;
-                        updateIndicesBar(indexInfo.data);
-                    }
-                }
-
-                if (eveningSessionPrice && eveningSessionPrice > 0 && (!indexInfo.closePriceEvening || indexInfo.closePriceEvening !== eveningSessionPrice)) {
-                    if (eveningPriceElement) eveningPriceElement.textContent = `ВС: ${formatPrice(eveningSessionPrice)}`;
-                    indexInfo.closePriceEvening = eveningSessionPrice;
-                    // Обновляем котировку, если она есть
-                    if (indexInfo.data) {
-                        indexInfo.data.closePriceVS = eveningSessionPrice;
-                        updateIndicesBar(indexInfo.data);
-                    }
-                }
-            }
-        })
-        .catch(error => {
-            // Тихо игнорируем ошибки
-        });
-}
+// loadIndexPricesForSingleIndex вынесена в indices-bar.js
 
 // --- Объемы ---
 function ensureBaseVolume(figi, quoteData) {
@@ -331,185 +275,7 @@ function updateTotalVolume() {
 }
 
 // --- Индексы ---
-function initializeIndicesBar() {
-    indicesContainer.innerHTML = '';
-    indices.clear();
-    INDICES_CONFIG.forEach(config => {
-        const indexElement = createIndexElement(config);
-        indicesContainer.appendChild(indexElement);
-        // Сохраняем по FIGI и по name/ticker для обратной совместимости
-        const indexInfo = { ...config, element: indexElement, data: null, closePriceOS: null, closePriceEvening: null };
-        if (config.figi) {
-            indices.set(config.figi, indexInfo);
-        }
-        if (config.name) {
-            indices.set(config.name, indexInfo);
-        }
-    });
-}
-
-function createIndexElement(config) {
-    const div = document.createElement('div');
-    div.className = 'index-item';
-    div.id = `index-${config.name}`;
-    div.innerHTML = `
-        <div class="index-name">${config.displayName}</div>
-        <div class="index-prices">
-            <div class="index-os-price">ОС: --</div>
-            <div class="index-evening-price">ВС: --</div>
-        </div>
-        <div class="index-current">--</div>
-        <div class="index-change-os neutral">--</div>
-        <div class="index-change-vs neutral">--</div>
-        <div class="index-time">--:--</div>
-    `;
-    return div;
-}
-
-function updateIndicesBar(quoteData) {
-    const figi = quoteData.figi;
-    const ticker = quoteData.ticker;
-
-    // Ищем индекс по FIGI или по тикеру (для обратной совместимости)
-    let indexInfo = indices.get(figi);
-    if (!indexInfo && ticker) {
-        indexInfo = indices.get(ticker);
-        // Если нашли по тикеру, но нет FIGI в конфиге, сохраняем FIGI
-        if (indexInfo && !indexInfo.figi) {
-            indexInfo.figi = figi;
-            indices.set(figi, indexInfo);
-        }
-    }
-    if (!indexInfo) return;
-
-    const element = indexInfo.element;
-    const currentElement = element.querySelector('.index-current');
-    const changeOsElement = element.querySelector('.index-change-os');
-    const changeVsElement = element.querySelector('.index-change-vs');
-    const timeElement = element.querySelector('.index-time');
-    const osPriceElement = element.querySelector('.index-os-price');
-    const eveningPriceElement = element.querySelector('.index-evening-price');
-
-    if (!quoteData.currentPrice) {
-        currentElement.textContent = '--';
-        if (changeOsElement) {
-            changeOsElement.textContent = '--';
-            changeOsElement.className = 'index-change-os neutral';
-        }
-        if (changeVsElement) {
-            changeVsElement.textContent = '--';
-            changeVsElement.className = 'index-change-vs neutral';
-        }
-        timeElement.textContent = '--:--';
-        return;
-    }
-
-    const previousPrice = indexInfo.data ? indexInfo.data.currentPrice : null;
-    const currentPrice = quoteData.currentPrice;
-
-    currentElement.textContent = formatPrice(quoteData.currentPrice);
-
-    // Изменение от ОС (сверху)
-    const priceOS = quoteData.closePriceOS || indexInfo.closePriceOS || quoteData.closePrice;
-    if (priceOS && priceOS > 0) {
-        // Обновляем отображение цены ОС, если она изменилась
-        if (quoteData.closePriceOS) {
-            const newPriceOS = Number(quoteData.closePriceOS);
-            const oldPriceOS = Number(indexInfo.closePriceOS) || 0;
-            if (newPriceOS > 0 && Math.abs(newPriceOS - oldPriceOS) > 0.0001) {
-                indexInfo.closePriceOS = newPriceOS;
-                if (osPriceElement) osPriceElement.textContent = `ОС: ${formatPrice(newPriceOS)}`;
-            }
-        } else if (!indexInfo.closePriceOS) {
-            const priceOSNum = Number(priceOS);
-            if (priceOSNum > 0) {
-                indexInfo.closePriceOS = priceOSNum;
-                if (osPriceElement) osPriceElement.textContent = `ОС: ${formatPrice(priceOSNum)}`;
-            }
-        }
-
-        const change = quoteData.currentPrice - priceOS;
-        const changePercent = (change / priceOS) * 100;
-        const changeClass = changePercent > 0 ? 'positive' : changePercent < 0 ? 'negative' : 'neutral';
-        const changeText = changePercent >= 0 ? `+${formatPercent(changePercent)}` : formatPercent(changePercent);
-        if (changeOsElement) {
-            changeOsElement.textContent = changeText;
-            changeOsElement.className = `index-change-os ${changeClass}`;
-        }
-    } else {
-        if (changeOsElement) {
-            changeOsElement.textContent = '--';
-            changeOsElement.className = 'index-change-os neutral';
-        }
-    }
-
-    // Изменение от ВС (снизу)
-    const priceVS = quoteData.closePriceVS || indexInfo.closePriceEvening;
-    if (priceVS && priceVS > 0) {
-        // Обновляем отображение цены ВС, если она изменилась
-        if (quoteData.closePriceVS) {
-            const newPriceVS = Number(quoteData.closePriceVS);
-            const oldPriceVS = Number(indexInfo.closePriceEvening) || 0;
-            if (newPriceVS > 0 && Math.abs(newPriceVS - oldPriceVS) > 0.0001) {
-                indexInfo.closePriceEvening = newPriceVS;
-                if (eveningPriceElement) eveningPriceElement.textContent = `ВС: ${formatPrice(newPriceVS)}`;
-            }
-        } else if (!indexInfo.closePriceEvening) {
-            const priceVSNum = Number(priceVS);
-            if (priceVSNum > 0) {
-                indexInfo.closePriceEvening = priceVSNum;
-                if (eveningPriceElement) eveningPriceElement.textContent = `ВС: ${formatPrice(priceVSNum)}`;
-            }
-        }
-
-        const change = quoteData.currentPrice - priceVS;
-        const changePercent = (change / priceVS) * 100;
-        const changeClass = changePercent > 0 ? 'positive' : changePercent < 0 ? 'negative' : 'neutral';
-        const changeText = changePercent >= 0 ? `+${formatPercent(changePercent)}` : formatPercent(changePercent);
-        if (changeVsElement) {
-            changeVsElement.textContent = changeText;
-            changeVsElement.className = `index-change-vs ${changeClass}`;
-        }
-    } else {
-        if (changeVsElement) {
-            changeVsElement.textContent = '--';
-            changeVsElement.className = 'index-change-vs neutral';
-        }
-    }
-
-    if (previousPrice && previousPrice !== currentPrice) {
-        currentElement.classList.remove('price-up', 'price-down');
-        if (currentPrice > previousPrice) currentElement.classList.add('price-up');
-        else if (currentPrice < previousPrice) currentElement.classList.add('price-down');
-        setTimeout(() => currentElement.classList.remove('price-up', 'price-down'), 2000);
-    }
-
-    if (quoteData.timestamp) {
-        const date = new Date(quoteData.timestamp);
-        timeElement.textContent = date.toLocaleTimeString().slice(0, 5);
-    } else {
-        timeElement.textContent = lastUpdateTime ? lastUpdateTime.toLocaleTimeString().slice(0, 5) : '--:--';
-    }
-
-    // Сохраняем котировку с учетом уже существующих цен закрытия
-    // Используем более свежее значение: если в котировке есть значение, используем его, иначе используем сохраненное
-    if (!quoteData.closePriceOS && indexInfo.closePriceOS) {
-        quoteData.closePriceOS = indexInfo.closePriceOS;
-        quoteData.closePrice = indexInfo.closePriceOS;
-    }
-    if (!quoteData.closePriceVS && indexInfo.closePriceEvening) {
-        quoteData.closePriceVS = indexInfo.closePriceEvening;
-    }
-    // Также обновляем котировку свежими значениями из indexInfo, если они были обновлены выше
-    if (indexInfo.closePriceOS && !quoteData.closePriceOS) {
-        quoteData.closePriceOS = indexInfo.closePriceOS;
-        quoteData.closePrice = indexInfo.closePriceOS;
-    }
-    if (indexInfo.closePriceEvening && !quoteData.closePriceVS) {
-        quoteData.closePriceVS = indexInfo.closePriceEvening;
-    }
-    indexInfo.data = quoteData;
-}
+// Функции для работы с индексами вынесены в indices-bar.js
 
 function updateTopLists() {
     const quotesArray = Array.from(quotes.values());
@@ -866,221 +632,7 @@ function formatPriceChangePercent(percent) {
 }
 
 // --- API индексов ---
-function updateIndicesFromServer() {
-    fetch('/api/scanner/weekend-scanner/indices')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                INDICES_CONFIG = data.indices;
-                const indicesContainer = document.getElementById('indicesContainer');
-
-                // Сохраняем старые данные индексов перед очисткой
-                const oldIndicesData = new Map();
-                indices.forEach((value, key) => {
-                    oldIndicesData.set(key, {
-                        closePriceOS: value.closePriceOS,
-                        closePriceEvening: value.closePriceEvening,
-                        data: value.data
-                    });
-                });
-
-                indicesContainer.innerHTML = '';
-                indices.clear();
-                INDICES_CONFIG.forEach(config => {
-                    const indexElement = createIndexElement(config);
-                    indicesContainer.appendChild(indexElement);
-                    // Сохраняем по FIGI и по name/ticker для обратной совместимости
-                    const indexInfo = { ...config, element: indexElement, data: null, closePriceOS: null, closePriceEvening: null };
-
-                    // Восстанавливаем старые данные, если они были
-                    const oldData = oldIndicesData.get(config.figi) || oldIndicesData.get(config.name);
-                    if (oldData) {
-                        indexInfo.closePriceOS = oldData.closePriceOS;
-                        indexInfo.closePriceEvening = oldData.closePriceEvening;
-                        indexInfo.data = oldData.data;
-
-                        // Восстанавливаем отображение цен в DOM
-                        const osPriceElement = indexElement.querySelector('.index-os-price');
-                        const eveningPriceElement = indexElement.querySelector('.index-evening-price');
-                        if (oldData.closePriceOS && osPriceElement) {
-                            osPriceElement.textContent = `ОС: ${formatPrice(oldData.closePriceOS)}`;
-                        }
-                        if (oldData.closePriceEvening && eveningPriceElement) {
-                            eveningPriceElement.textContent = `ВС: ${formatPrice(oldData.closePriceEvening)}`;
-                        }
-                    }
-
-                    if (config.figi) {
-                        indices.set(config.figi, indexInfo);
-                    }
-                    if (config.name) {
-                        indices.set(config.name, indexInfo);
-                    }
-
-                    // Если есть котировка с текущей ценой, обновляем отображение после добавления в indices
-                    if (oldData && oldData.data && oldData.data.currentPrice) {
-                        // Используем setTimeout чтобы индекс точно был добавлен в Map
-                        setTimeout(() => {
-                            // Убеждаемся, что котировка содержит все необходимые данные
-                            const quoteData = oldData.data;
-                            if (!quoteData.closePriceOS && oldData.closePriceOS) {
-                                quoteData.closePriceOS = oldData.closePriceOS;
-                                quoteData.closePrice = oldData.closePriceOS;
-                            }
-                            if (!quoteData.closePriceVS && oldData.closePriceEvening) {
-                                quoteData.closePriceVS = oldData.closePriceEvening;
-                            }
-                            updateIndicesBar(quoteData);
-                        }, 0);
-                    }
-                });
-
-                // Загружаем цены только для тех индексов, у которых их еще нет
-                loadIndexPrices();
-            }
-        })
-        .catch(error => {
-            console.error('Ошибка при обновлении индексов:', error);
-        });
-}
-
-/**
- * Найти FIGI по тикеру из приходящих котировок
- */
-function findFigiByTicker(ticker) {
-    if (!ticker) return null;
-
-    // Ищем в текущих котировках
-    for (const [figi, quote] of quotes.entries()) {
-        if (quote.ticker === ticker || quote.ticker === ticker.toUpperCase()) {
-            return figi;
-        }
-    }
-
-    return null;
-}
-
-function loadIndexPrices() {
-    // Сначала пытаемся загрузить через API сканера (для обратной совместимости)
-    fetch('/api/scanner/weekend-scanner/indices/prices')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                Object.values(data.prices).forEach(priceData => {
-                    const indexInfo = indices.get(priceData.name) || indices.get(priceData.figi);
-                    if (indexInfo) {
-                        // Обновляем только если цен еще нет
-                        if (!indexInfo.closePriceOS && priceData.closePriceOS) {
-                            const element = indexInfo.element;
-                            const osPriceElement = element.querySelector('.index-os-price');
-                            if (osPriceElement) osPriceElement.textContent = `ОС: ${formatPrice(priceData.closePriceOS)}`;
-                            indexInfo.closePriceOS = priceData.closePriceOS;
-                        }
-                        if (!indexInfo.closePriceEvening && priceData.closePriceEvening) {
-                            const element = indexInfo.element;
-                            const eveningPriceElement = element.querySelector('.index-evening-price');
-                            if (eveningPriceElement) eveningPriceElement.textContent = `ВС: ${formatPrice(priceData.closePriceEvening)}`;
-                            indexInfo.closePriceEvening = priceData.closePriceEvening;
-                        }
-                    }
-                });
-            }
-        })
-        .catch(error => {
-            console.error('Ошибка при загрузке цен закрытия через API сканера:', error);
-        });
-
-    // Затем загружаем цены из кэша для всех индексов по FIGI
-    INDICES_CONFIG.forEach(config => {
-        // Определяем FIGI: сначала из конфига, потом пытаемся найти по тикеру
-        let figi = config.figi;
-        if (!figi) {
-            // Если FIGI нет, пытаемся найти по тикеру из приходящих котировок
-            figi = findFigiByTicker(config.name);
-            if (figi) {
-                // Обновляем конфиг, чтобы сохранить найденный FIGI
-                config.figi = figi;
-                // Также обновляем в индексах
-                const indexInfo = indices.get(config.name);
-                if (indexInfo) {
-                    indexInfo.figi = figi;
-                    indices.set(figi, indexInfo);
-                }
-            }
-        }
-
-        // Если FIGI все еще нет, используем name как fallback
-        if (!figi) {
-            figi = config.name;
-        }
-
-        if (!figi) return;
-
-        const indexInfo = indices.get(figi) || indices.get(config.name);
-        if (!indexInfo) return;
-
-        // Если цены уже загружены, пропускаем
-        if (indexInfo.closePriceOS && indexInfo.closePriceEvening) {
-            return;
-        }
-
-        // Загружаем цены из кэша
-        fetch(`/api/price-cache/prices/${figi}`)
-            .then(response => {
-                if (!response.ok) {
-                    // Если не удалось загрузить по FIGI, пытаемся найти FIGI по тикеру из котировок
-                    if (response.status === 404 && !config.figi) {
-                        const foundFigi = findFigiByTicker(config.name);
-                        if (foundFigi && foundFigi !== figi) {
-                            // Повторяем запрос с найденным FIGI
-                            return fetch(`/api/price-cache/prices/${foundFigi}`).catch(() => null);
-                        }
-                    }
-                    console.warn(`Failed to load prices for ${figi} (ticker: ${config.name}): ${response.status}`);
-                    return null;
-                }
-                return response.json();
-            })
-            .then(data => {
-                if (data && data.prices) {
-                    const element = indexInfo.element;
-                    const osPriceElement = element.querySelector('.index-os-price');
-                    const eveningPriceElement = element.querySelector('.index-evening-price');
-
-                    const closePrice = data.prices.closePrice;
-                    const eveningSessionPrice = data.prices.eveningSessionPrice;
-
-                    // Обновляем цены в DOM только если их еще нет
-                    if (closePrice && closePrice > 0 && !indexInfo.closePriceOS) {
-                        if (osPriceElement) osPriceElement.textContent = `ОС: ${formatPrice(closePrice)}`;
-                        indexInfo.closePriceOS = closePrice;
-                        // Обновляем котировку, если она есть
-                        if (indexInfo.data) {
-                            indexInfo.data.closePriceOS = closePrice;
-                            indexInfo.data.closePrice = closePrice;
-                        }
-                    }
-
-                    if (eveningSessionPrice && eveningSessionPrice > 0 && !indexInfo.closePriceEvening) {
-                        if (eveningPriceElement) eveningPriceElement.textContent = `ВС: ${formatPrice(eveningSessionPrice)}`;
-                        indexInfo.closePriceEvening = eveningSessionPrice;
-                        // Обновляем котировку, если она есть
-                        if (indexInfo.data) {
-                            indexInfo.data.closePriceVS = eveningSessionPrice;
-                        }
-                    }
-
-                    // Обновляем отображение изменения, если есть текущая цена
-                    if (indexInfo.data && indexInfo.data.currentPrice && closePrice) {
-                        updateIndicesBar(indexInfo.data);
-                    }
-                }
-            })
-            .catch(error => {
-                console.error(`Ошибка при загрузке цен из кэша для ${figi} (ticker: ${config.name}):`, error);
-            });
-    });
-}
+// updateIndicesFromServer, findFigiByTicker, loadIndexPrices вынесены в indices-bar.js
 
 function loadClosePricesForQuote(quoteData) {
     fetch(`/api/price-cache/last-close-price?figi=${quoteData.figi}`)
@@ -1201,106 +753,7 @@ function updateAllQuotesWithVolumeData() {
 }
 
 // Модалка управления индексами
-function toggleIndexManagement() {
-    const modal = document.getElementById('indexManagementModal');
-    if (modal.style.display === 'none') {
-        modal.style.display = 'flex';
-        loadCurrentIndices();
-    } else {
-        modal.style.display = 'none';
-    }
-}
-
-function loadCurrentIndices() {
-    fetch('/api/scanner/weekend-scanner/indices')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                displayCurrentIndices(data.indices);
-            }
-        })
-        .catch(error => {
-            console.error('Ошибка при загрузке индексов:', error);
-        });
-}
-
-function displayCurrentIndices(indicesList) {
-    const container = document.getElementById('currentIndicesList');
-    container.innerHTML = '';
-    indicesList.forEach(index => {
-        const indexItem = document.createElement('div');
-        indexItem.className = 'index-item-manage';
-        indexItem.innerHTML = `
-            <div class="index-info">
-                <div class="index-name">${index.displayName}</div>
-                <div class="index-figi">${index.name}</div>
-            </div>
-            <button class="btn-remove" onclick="removeIndex('${index.name}')">Удалить</button>
-        `;
-        container.appendChild(indexItem);
-    });
-}
-
-function addIndex() {
-    const name = document.getElementById('newIndexTicker').value.trim();
-    const displayName = document.getElementById('newIndexDisplayName').value.trim() || name;
-    if (!name) {
-        alert('Пожалуйста, заполните Ticker');
-        return;
-    }
-    fetch('/api/scanner/weekend-scanner/indices/add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, displayName })
-    })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                document.getElementById('newIndexTicker').value = '';
-                document.getElementById('newIndexDisplayName').value = '';
-                loadCurrentIndices();
-                updateIndicesFromServer();
-                // Даем время для обновления индексов, затем загружаем цены несколько раз с задержками
-                setTimeout(() => {
-                    loadIndexPrices();
-                    // Повторная загрузка через 1 секунду для новых индексов
-                    setTimeout(() => { loadIndexPrices(); }, 1000);
-                    // Еще одна попытка через 3 секунды, если котировки уже приходят
-                    setTimeout(() => { loadIndexPrices(); }, 3000);
-                }, 500);
-                alert('Индекс успешно добавлен! Цены будут загружены автоматически.');
-            } else {
-                alert('Ошибка: ' + data.message);
-            }
-        })
-        .catch(error => {
-            console.error('Ошибка при добавлении индекса:', error);
-            alert('Ошибка при добавлении индекса');
-        });
-}
-
-function removeIndex(name) {
-    if (!confirm(`Вы уверены, что хотите удалить индекс "${name}"?`)) return;
-    fetch('/api/scanner/weekend-scanner/indices/remove', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
-    })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                loadCurrentIndices();
-                updateIndicesFromServer();
-                alert('Индекс успешно удален!');
-            } else {
-                alert('Ошибка: ' + data.message);
-            }
-        })
-        .catch(error => {
-            console.error('Ошибка при удалении индекса:', error);
-            alert('Ошибка при удалении индекса');
-        });
-}
+// toggleIndexManagement, loadCurrentIndices, displayCurrentIndices, addIndex, removeIndex вынесены в indices-bar.js
 
 async function updateWeekendStatus() {
     const weekendStatusElement = document.getElementById('weekendStatus');
@@ -1349,6 +802,18 @@ async function updateWeekendStatus() {
         weekendStatusElement.style.color = '#f57c00';
     }
 }
+
+// Инициализация модуля индексов
+initIndicesBar({
+    apiEndpoint: '/api/scanner/weekend-scanner',
+    quotesMap: quotes,
+    formatPrice: formatPrice,
+    formatPercent: (percent) => formatPercent(percent).replace('%', ''),
+    lastUpdateTime: lastUpdateTime,
+    onIndexUpdate: (indexInfo, quoteData) => {
+        // Callback при обновлении индекса (если нужен)
+    }
+});
 
 // Инициализация
 connectBtn.addEventListener('click', connect);

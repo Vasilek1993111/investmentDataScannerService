@@ -40,11 +40,8 @@ let incrementVolumeCache = new Map();
 let totalVolumeCache = new Map();
 let previousValues = new Map(); // хранение предыдущих значений для подсветки изменений
 
-// Индексы для полоски
-let indices = new Map();
-let INDICES_CONFIG = [
-  { figi: 'BBG00KDWPPW3', name: 'IMOEX2', displayName: 'IMOEX2' }
-];
+// Индексы для полоски (используются из indices-bar.js)
+// Переменные indices и INDICES_CONFIG объявлены в indices-bar.js
 
 // Настройки сортировки
 let gainersSortBy = 'changeOS';
@@ -157,83 +154,7 @@ function updateTotalVolume() {
 }
 
 // --- Индексы ---
-function initializeIndicesBar() {
-  indicesContainer.innerHTML = '';
-  INDICES_CONFIG.forEach(config => {
-    const indexElement = createIndexElement(config);
-    indicesContainer.appendChild(indexElement);
-    indices.set(config.figi, { ...config, element: indexElement, data: null });
-  });
-}
-
-function createIndexElement(config) {
-  const div = document.createElement('div');
-  div.className = 'index-item';
-  div.id = `index-${config.figi}`;
-  div.innerHTML = `
-    <div class="index-name">${config.displayName}</div>
-    <div class="index-prices">
-      <div class="index-os-price">ОС: --</div>
-      <div class="index-evening-price">ВС: --</div>
-    </div>
-    <div class="index-current">--</div>
-    <div class="index-change neutral">--</div>
-    <div class="index-time">--:--</div>
-  `;
-  return div;
-}
-
-function updateIndicesBar(quoteData) {
-  const figi = quoteData.figi;
-  const indexInfo = indices.get(figi);
-  if (!indexInfo) return;
-
-  const element = indexInfo.element;
-  const currentElement = element.querySelector('.index-current');
-  const changeElement = element.querySelector('.index-change');
-  const timeElement = element.querySelector('.index-time');
-
-  if (!quoteData.currentPrice) {
-    currentElement.textContent = '--';
-    changeElement.textContent = '--';
-    changeElement.className = 'index-change neutral';
-    timeElement.textContent = '--:--';
-    return;
-  }
-
-  const previousPrice = indexInfo.data ? indexInfo.data.currentPrice : null;
-  const currentPrice = quoteData.currentPrice;
-  currentElement.textContent = formatPrice(quoteData.currentPrice);
-
-  const priceOS = quoteData.closePriceOS || quoteData.closePrice;
-  if (priceOS && priceOS > 0) {
-    const change = quoteData.currentPrice - priceOS;
-    const changePercent = (change / priceOS) * 100;
-    const changeClass = changePercent > 0 ? 'positive' : changePercent < 0 ? 'negative' : 'neutral';
-    const changeText = changePercent >= 0 ? `+${formatPercent(changePercent)}` : formatPercent(changePercent);
-    changeElement.textContent = `(${changeText})`;
-    changeElement.className = `index-change ${changeClass}`;
-  } else {
-    changeElement.textContent = '--';
-    changeElement.className = 'index-change neutral';
-  }
-
-  if (previousPrice && previousPrice !== currentPrice) {
-    currentElement.classList.remove('price-up', 'price-down');
-    if (currentPrice > previousPrice) currentElement.classList.add('price-up');
-    else if (currentPrice < previousPrice) currentElement.classList.add('price-down');
-    setTimeout(() => currentElement.classList.remove('price-up', 'price-down'), 2000);
-  }
-
-  if (quoteData.timestamp) {
-    const date = new Date(quoteData.timestamp);
-    timeElement.textContent = date.toLocaleTimeString().slice(0, 5);
-  } else {
-    timeElement.textContent = lastUpdateTime ? lastUpdateTime.toLocaleTimeString().slice(0, 5) : '--:--';
-  }
-
-  indexInfo.data = quoteData;
-}
+// Функции для работы с индексами вынесены в indices-bar.js
 
 function updateTopLists() {
   const quotesArray = Array.from(quotes.values());
@@ -556,54 +477,7 @@ function calculateSpreadPercent(bestBid, bestAsk, currentPrice) {
 }
 
 // --- Индексы API/загрузка ---
-function updateIndicesFromServer() {
-  fetch('/api/scanner/morning-scanner/indices')
-    .then(response => response.json())
-    .then(data => {
-      if (data.success) {
-        INDICES_CONFIG = data.indices.map(index => ({
-          figi: index.figi || index.name,
-          name: index.name,
-          displayName: index.displayName
-        }));
-        const indicesContainer = document.getElementById('indicesContainer');
-        indicesContainer.innerHTML = '';
-        indices.clear();
-        INDICES_CONFIG.forEach(config => {
-          const indexElement = createIndexElement(config);
-          indicesContainer.appendChild(indexElement);
-          indices.set(config.figi, { ...config, element: indexElement, data: null });
-        });
-        loadIndexPrices();
-      }
-    })
-    .catch(error => {
-      console.error('Ошибка при обновлении индексов:', error);
-    });
-}
-
-function loadIndexPrices() {
-  fetch('/api/scanner/morning-scanner/indices/prices')
-    .then(response => response.json())
-    .then(data => {
-      if (data.success) {
-        Object.values(data.prices).forEach(priceData => {
-          const figi = priceData.figi;
-          const indexInfo = indices.get(figi);
-          if (indexInfo) {
-            const element = indexInfo.element;
-            const osPriceElement = element.querySelector('.index-os-price');
-            const eveningPriceElement = element.querySelector('.index-evening-price');
-            if (osPriceElement) osPriceElement.textContent = `ОС: ${priceData.closePriceOS ? formatPrice(priceData.closePriceOS) : '--'}`;
-            if (eveningPriceElement) eveningPriceElement.textContent = `ВС: ${priceData.closePriceEvening ? formatPrice(priceData.closePriceEvening) : '--'}`;
-          }
-        });
-      }
-    })
-    .catch(error => {
-      console.error('Ошибка при загрузке цен закрытия:', error);
-    });
-}
+// updateIndicesFromServer, loadIndexPrices вынесены в indices-bar.js
 
 function loadClosePricesForQuote(quoteData) {
   fetch(`/api/price-cache/last-close-price?figi=${quoteData.figi}`)
@@ -730,7 +604,7 @@ function updateGainersTable() {
     const row = document.createElement('tr');
     const displayVolume = getDisplayVolume(quote);
     const histVolume = (typeof getAvgVolumeFromHistory === 'function') ? getAvgVolumeFromHistory(quote.figi) : 0;
-  row.innerHTML = `
+    row.innerHTML = `
       <td>${renderInstrumentCell(quote)}</td>
       <td>${formatPrice(quote.currentPrice)}</td>
       <td>${formatPrice(quote.openPrice)}</td>
@@ -775,7 +649,7 @@ function updateLosersTable() {
     const row = document.createElement('tr');
     const displayVolume = getDisplayVolume(quote);
     const histVolume = (typeof getAvgVolumeFromHistory === 'function') ? getAvgVolumeFromHistory(quote.figi) : 0;
-  row.innerHTML = `
+    row.innerHTML = `
       <td>${renderInstrumentCell(quote)}</td>
       <td>${formatPrice(quote.currentPrice)}</td>
       <td>${formatPrice(quote.openPrice)}</td>
@@ -904,99 +778,7 @@ function updateVolumeDataForQuote(quoteData) {
 }
 
 // Модалка управления индексами
-function toggleIndexManagement() {
-  const modal = document.getElementById('indexManagementModal');
-  if (modal.style.display === 'none') {
-    modal.style.display = 'flex';
-    loadCurrentIndices();
-  } else {
-    modal.style.display = 'none';
-  }
-}
-
-function loadCurrentIndices() {
-  fetch('/api/scanner/morning-scanner/indices')
-    .then(response => response.json())
-    .then(data => {
-      if (data.success) {
-        displayCurrentIndices(data.indices);
-      }
-    })
-    .catch(error => {
-      console.error('Ошибка при загрузке индексов:', error);
-    });
-}
-
-function displayCurrentIndices(indicesList) {
-  const container = document.getElementById('currentIndicesList');
-  container.innerHTML = '';
-  indicesList.forEach(index => {
-    const indexItem = document.createElement('div');
-    indexItem.className = 'index-item-manage';
-    indexItem.innerHTML = `
-      <div class="index-info">
-        <div class="index-name">${index.displayName}</div>
-        <div class="index-figi">${index.name}</div>
-      </div>
-      <button class="btn-remove" onclick="removeIndex('${index.name}')">Удалить</button>
-    `;
-    container.appendChild(indexItem);
-  });
-}
-
-function addIndex() {
-  const name = document.getElementById('newIndexTicker').value.trim();
-  const displayName = document.getElementById('newIndexDisplayName').value.trim() || name;
-  if (!name) {
-    alert('Пожалуйста, заполните Ticker');
-    return;
-  }
-  fetch('/api/scanner/morning-scanner/indices/add', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, displayName })
-  })
-    .then(response => response.json())
-    .then(data => {
-      if (data.success) {
-        document.getElementById('newIndexTicker').value = '';
-        document.getElementById('newIndexDisplayName').value = '';
-        loadCurrentIndices();
-        updateIndicesFromServer();
-        setTimeout(() => { loadIndexPrices(); }, 500);
-        alert('Индекс успешно добавлен!');
-      } else {
-        alert('Ошибка: ' + data.message);
-      }
-    })
-    .catch(error => {
-      console.error('Ошибка при добавлении индекса:', error);
-      alert('Ошибка при добавлении индекса');
-    });
-}
-
-function removeIndex(name) {
-  if (!confirm(`Вы уверены, что хотите удалить индекс "${name}"?`)) return;
-  fetch('/api/scanner/morning-scanner/indices/remove', {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name })
-  })
-    .then(response => response.json())
-    .then(data => {
-      if (data.success) {
-        loadCurrentIndices();
-        updateIndicesFromServer();
-        alert('Индекс успешно удален!');
-      } else {
-        alert('Ошибка: ' + data.message);
-      }
-    })
-    .catch(error => {
-      console.error('Ошибка при удалении индекса:', error);
-      alert('Ошибка при удалении индекса');
-    });
-}
+// toggleIndexManagement, loadCurrentIndices, displayCurrentIndices, addIndex, removeIndex вынесены в indices-bar.js
 
 // Обработчики
 connectBtn.addEventListener('click', connect);
@@ -1007,6 +789,18 @@ document.getElementById('gainersMaxResults').addEventListener('change', updateSo
 document.getElementById('losersSortBy').addEventListener('change', updateSortingSettings);
 document.getElementById('losersSortOrder').addEventListener('change', updateSortingSettings);
 document.getElementById('losersMaxResults').addEventListener('change', updateSortingSettings);
+
+// Инициализация модуля индексов
+initIndicesBar({
+  apiEndpoint: '/api/scanner/morning-scanner',
+  quotesMap: quotes,
+  formatPrice: formatPrice,
+  formatPercent: (percent) => formatPercent(percent).replace('%', ''),
+  lastUpdateTime: lastUpdateTime,
+  onIndexUpdate: (indexInfo, quoteData) => {
+    // Callback при обновлении индекса (если нужен)
+  }
+});
 
 setInterval(updateSessionStatus, 60000);
 updateSessionStatus();

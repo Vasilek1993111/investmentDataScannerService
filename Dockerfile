@@ -1,23 +1,25 @@
 ############################################
-# Stage 1: Build (with Maven Wrapper)
+# Stage 1: Build (with Maven)
 ############################################
 FROM eclipse-temurin:21-jdk-jammy AS builder
 
+# Устанавливаем Maven
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    maven \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /build
 
-# Копируем Maven wrapper и pom.xml для кэширования зависимостей
-COPY mvnw ./
-COPY mvnw.cmd ./
-COPY .mvn .mvn
+# Копируем pom.xml для кэширования зависимостей
 COPY pom.xml ./
 
-# Даем права на выполнение Maven wrapper и прогреваем зависимости
-RUN chmod +x mvnw \
-    && ./mvnw -B -ntp dependency:go-offline
+# Прогреваем зависимости
+RUN mvn -B -ntp dependency:go-offline
 
 # Копируем исходный код и собираем
 COPY src ./src
-RUN ./mvnw -B -ntp clean package -DskipTests
+RUN mvn -B -ntp clean package -DskipTests
 
 ############################################
 # Stage 2: Runtime (JRE only, tuned for low latency)
