@@ -4,18 +4,18 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import com.example.investmentdatascannerservice.config.QuoteScannerConfig;
+import com.example.investmentdatascannerservice.utils.InstrumentCacheService;
+import com.example.investmentdatascannerservice.utils.SessionTimeService;
 import io.grpc.stub.StreamObserver;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -33,6 +33,7 @@ import ru.tinkoff.piapi.contract.v1.SubscribeOrderBookResponse;
 import ru.tinkoff.piapi.contract.v1.SubscribeTradesRequest;
 import ru.tinkoff.piapi.contract.v1.SubscribeTradesResponse;
 import ru.tinkoff.piapi.contract.v1.SubscriptionAction;
+import ru.tinkoff.piapi.contract.v1.SubscriptionStatus;
 import ru.tinkoff.piapi.contract.v1.Trade;
 import ru.tinkoff.piapi.contract.v1.TradeDirection;
 
@@ -50,9 +51,18 @@ public class MarketDataStreamingService {
     // Конфигурация производительности
     private static final int RECONNECT_DELAY_MS = 1000;
 
+    // Лимит T-Invest API на количество инструментов в одной подписке
+    // Размер батча для подписки (акции, фьючерсы, индикативы отдельно)
+    private static final int SUBSCRIPTION_BATCH_SIZE = 200;
+
+    // Задержка между отправкой батчей подписки (мс)
+    private static final int BATCH_DELAY_MS = 100;
+
     private final MarketDataStreamServiceGrpc.MarketDataStreamServiceStub streamStub;
     private final QuoteScannerService quoteScannerService;
     private final QuoteScannerConfig config;
+    private final InstrumentCacheService instrumentCacheService;
+    private final SessionTimeService sessionTimeService;
 
     // Планировщик для переподключений
     private final ScheduledExecutorService reconnectScheduler =
@@ -68,10 +78,13 @@ public class MarketDataStreamingService {
 
     public MarketDataStreamingService(
             MarketDataStreamServiceGrpc.MarketDataStreamServiceStub streamStub,
-            QuoteScannerService quoteScannerService, QuoteScannerConfig config) {
+            QuoteScannerService quoteScannerService, QuoteScannerConfig config,
+            InstrumentCacheService instrumentCacheService, SessionTimeService sessionTimeService) {
         this.streamStub = streamStub;
         this.quoteScannerService = quoteScannerService;
         this.config = config;
+        this.instrumentCacheService = instrumentCacheService;
+        this.sessionTimeService = sessionTimeService;
     }
 
     /**
@@ -145,9 +158,48 @@ public class MarketDataStreamingService {
                     instruments.subList(0, Math.min(5, instruments.size())));
         }
         log.info("Shares mode enabled: {}", config.isEnableSharesMode());
+
+        // Проверяем наличие индикативов в подписке
+        long indicativeCount = instruments.stream()
+                .filter(figi -> instrumentCacheService.isIndicative(figi)).count();
+        log.info("Indicatives in subscription: {}", indicativeCount);
         log.info("=========================================");
 
         return instruments;
+    }
+
+    /**
+     * Получение списка FIGI только акций
+     * 
+     * @return список FIGI акций
+     */
+    private List<String> getShares() {
+        List<String> shareFigis = quoteScannerService.getShareService().getAllShareFigis();
+        log.info("Loaded {} shares for subscription", shareFigis.size());
+        return shareFigis;
+    }
+
+    /**
+     * Получение списка FIGI только фьючерсов
+     * 
+     * @return список FIGI фьючерсов
+     */
+    private List<String> getFutures() {
+        List<String> futureFigis = instrumentCacheService.getFutureService().getAllFutureFigis();
+        log.info("Loaded {} futures for subscription", futureFigis.size());
+        return futureFigis;
+    }
+
+    /**
+     * Получение списка FIGI только индикативов
+     * 
+     * @return список FIGI индикативов
+     */
+    private List<String> getIndicatives() {
+        List<String> indicativeFigis =
+                instrumentCacheService.getIndicativeService().getAllIndicativeFigis();
+        log.info("Loaded {} indicatives for subscription", indicativeFigis.size());
+        return indicativeFigis;
     }
 
     /**
@@ -159,7 +211,7 @@ public class MarketDataStreamingService {
         log.info("Getting shares for order book subscription...");
 
         // Получаем только акции из базы данных
-        List<String> shareFigis = quoteScannerService.getShareService().getAllShareFigis();
+        List<String> shareFigis = getShares();
 
         log.info("Shares for order book subscription: {}", shareFigis.size());
         if (!shareFigis.isEmpty()) {
@@ -167,6 +219,23 @@ public class MarketDataStreamingService {
         }
 
         return shareFigis;
+    }
+
+    /**
+     * Разбить список инструментов на батчи для подписки
+     * 
+     * @param instruments список FIGI инструментов
+     * @param batchSize размер батча
+     * @return список батчей (каждый батч - новый список)
+     */
+    private List<List<String>> splitIntoBatches(List<String> instruments, int batchSize) {
+        List<List<String>> batches = new java.util.ArrayList<>();
+        for (int i = 0; i < instruments.size(); i += batchSize) {
+            int end = Math.min(i + batchSize, instruments.size());
+            // Создаем новый список для каждого батча, чтобы избежать проблем с subList()
+            batches.add(new java.util.ArrayList<>(instruments.subList(i, end)));
+        }
+        return batches;
     }
 
     /**
@@ -180,67 +249,37 @@ public class MarketDataStreamingService {
         }
 
         log.info("Starting market data stream subscription...");
-        List<String> allFigis = getAllInstruments();
 
-        if (allFigis.isEmpty()) {
+        // Получаем инструменты по типам отдельно
+        List<String> shares = getShares();
+        List<String> futures = getFutures();
+        List<String> indicatives = getIndicatives();
+
+        int totalInstruments = shares.size() + futures.size() + indicatives.size();
+
+        if (totalInstruments == 0) {
             log.warn("No instruments found for subscription, retrying in 30 seconds...");
-            log.warn("Check if shares are loaded from database or configuration is correct");
+            log.warn("Check if shares, futures and indicatives are loaded from database");
             scheduleReconnect(30);
             return;
         }
 
-        log.info("Preparing subscription requests for {} instruments", allFigis.size());
-        log.info("Subscription will include: LastPrice, Trades{}",
-                config.isEnableOrderBookSubscription() ? ", OrderBook (shares only)" : "");
+        log.info("Preparing subscription requests:");
+        log.info("  Shares: {} instruments", shares.size());
+        log.info("  Futures: {} instruments (weekend restriction: from 8:30 MSK)", futures.size());
+        log.info("  Indicatives: {} instruments (LastPrice only)", indicatives.size());
+        log.info("  Total: {} instruments", totalInstruments);
+        log.info("Subscription will include: LastPrice (all), Trades (shares + futures){}",
+                config.isEnableOrderBookSubscription()
+                        ? ", OrderBook (shares + futures, futures restricted on weekends)"
+                        : "");
+        log.info(
+                "Futures subscription: In weekends (Sat/Sun), subscriptions start only from 8:30 MSK");
+        log.info("Batch size: {} instruments, delay between batches: {}ms", SUBSCRIPTION_BATCH_SIZE,
+                BATCH_DELAY_MS);
 
         try {
-            // Подписываемся на цены последних сделок
-            log.info("Creating LastPrice subscription request for {} instruments", allFigis.size());
-            SubscribeLastPriceRequest lastPriceReq = SubscribeLastPriceRequest.newBuilder()
-                    .setSubscriptionAction(SubscriptionAction.SUBSCRIPTION_ACTION_SUBSCRIBE)
-                    .addAllInstruments(allFigis.stream()
-                            .map(f -> LastPriceInstrument.newBuilder().setInstrumentId(f).build())
-                            .toList())
-                    .build();
-
-            // Подписываемся на поток обезличенных сделок для максимального потока данных
-            log.info("Creating Trades subscription request for {} instruments", allFigis.size());
-            SubscribeTradesRequest tradesReq =
-                    SubscribeTradesRequest.newBuilder()
-                            .setSubscriptionAction(SubscriptionAction.SUBSCRIPTION_ACTION_SUBSCRIBE)
-                            .addAllInstruments(allFigis.stream()
-                                    .map(f -> ru.tinkoff.piapi.contract.v1.TradeInstrument
-                                            .newBuilder().setInstrumentId(f).build())
-                                    .toList())
-                            .build();
-
-            // Отправляем подписку на цены последних сделок
-            log.info("Building LastPrice subscription request");
-            MarketDataRequest lastPriceSubscribeReq = MarketDataRequest.newBuilder()
-                    .setSubscribeLastPriceRequest(lastPriceReq).build();
-
-            // Отправляем подписку на поток сделок
-            log.info("Building Trades subscription request");
-            MarketDataRequest tradesSubscribeReq =
-                    MarketDataRequest.newBuilder().setSubscribeTradesRequest(tradesReq).build();
-
-            // Подписываемся на стаканы только для акций (если включено в конфигурации)
-            MarketDataRequest orderBookSubscribeReq = null;
-            if (config.isEnableOrderBookSubscription()) {
-                List<String> sharesForOrderBook = getSharesForOrderBook();
-                log.info("Creating OrderBook subscription request for {} shares with depth {}",
-                        sharesForOrderBook.size(), config.getOrderBookDepth());
-                SubscribeOrderBookRequest orderBookReq = SubscribeOrderBookRequest.newBuilder()
-                        .setSubscriptionAction(SubscriptionAction.SUBSCRIPTION_ACTION_SUBSCRIBE)
-                        .addAllInstruments(sharesForOrderBook.stream()
-                                .map(f -> OrderBookInstrument.newBuilder().setInstrumentId(f)
-                                        .setDepth(config.getOrderBookDepth()).build())
-                                .toList())
-                        .build();
-
-                orderBookSubscribeReq = MarketDataRequest.newBuilder()
-                        .setSubscribeOrderBookRequest(orderBookReq).build();
-            }
+            // Создаем StreamObserver один раз для всех батчей
 
             StreamObserver<MarketDataResponse> responseObserver = new StreamObserver<>() {
                 @Override
@@ -251,8 +290,23 @@ public class MarketDataStreamingService {
                         log.info("=== LastPrice SUBSCRIPTION RESPONSE ===");
                         log.info("Total LastPrice subscriptions: {}",
                                 sr.getLastPriceSubscriptionsList().size());
-                        sr.getLastPriceSubscriptionsList().forEach(s -> log.info("  FIGI {} -> {}",
-                                s.getFigi(), s.getSubscriptionStatus()));
+
+                        // Логируем только ошибки подписки
+                        long successCount = sr.getLastPriceSubscriptionsList().stream().filter(
+                                s -> s.getSubscriptionStatus() == SubscriptionStatus.SUBSCRIPTION_STATUS_SUCCESS)
+                                .count();
+                        long errorCount = sr.getLastPriceSubscriptionsList().size() - successCount;
+
+                        log.info("Successful subscriptions: {}, Failed: {}", successCount,
+                                errorCount);
+
+                        if (errorCount > 0) {
+                            log.warn("Failed LastPrice subscriptions:");
+                            sr.getLastPriceSubscriptionsList().stream().filter(s -> s
+                                    .getSubscriptionStatus() != SubscriptionStatus.SUBSCRIPTION_STATUS_SUCCESS)
+                                    .forEach(s -> log.warn("  FIGI {} -> {}", s.getFigi(),
+                                            s.getSubscriptionStatus()));
+                        }
                         log.info("=====================================");
                         return;
                     }
@@ -263,8 +317,23 @@ public class MarketDataStreamingService {
                         log.info("=== TRADES SUBSCRIPTION RESPONSE ===");
                         log.info("Total Trades subscriptions: {}",
                                 sr.getTradeSubscriptionsList().size());
-                        sr.getTradeSubscriptionsList().forEach(s -> log.info("  FIGI {} -> {}",
-                                s.getFigi(), s.getSubscriptionStatus()));
+
+                        // Логируем только ошибки подписки
+                        long successCount = sr.getTradeSubscriptionsList().stream().filter(s -> s
+                                .getSubscriptionStatus() == SubscriptionStatus.SUBSCRIPTION_STATUS_SUCCESS)
+                                .count();
+                        long errorCount = sr.getTradeSubscriptionsList().size() - successCount;
+
+                        log.info("Successful subscriptions: {}, Failed: {}", successCount,
+                                errorCount);
+
+                        if (errorCount > 0) {
+                            log.warn("Failed Trades subscriptions:");
+                            sr.getTradeSubscriptionsList().stream().filter(s -> s
+                                    .getSubscriptionStatus() != SubscriptionStatus.SUBSCRIPTION_STATUS_SUCCESS)
+                                    .forEach(s -> log.warn("  FIGI {} -> {}", s.getFigi(),
+                                            s.getSubscriptionStatus()));
+                        }
                         log.info("===================================");
                         return;
                     }
@@ -275,8 +344,23 @@ public class MarketDataStreamingService {
                         log.info("=== ORDER BOOK SUBSCRIPTION RESPONSE ===");
                         log.info("Total OrderBook subscriptions: {}",
                                 sr.getOrderBookSubscriptionsList().size());
-                        sr.getOrderBookSubscriptionsList().forEach(s -> log.info("  FIGI {} -> {}",
-                                s.getFigi(), s.getSubscriptionStatus()));
+
+                        // Логируем только ошибки подписки
+                        long successCount = sr.getOrderBookSubscriptionsList().stream().filter(
+                                s -> s.getSubscriptionStatus() == SubscriptionStatus.SUBSCRIPTION_STATUS_SUCCESS)
+                                .count();
+                        long errorCount = sr.getOrderBookSubscriptionsList().size() - successCount;
+
+                        log.info("Successful subscriptions: {}, Failed: {}", successCount,
+                                errorCount);
+
+                        if (errorCount > 0) {
+                            log.warn("Failed OrderBook subscriptions:");
+                            sr.getOrderBookSubscriptionsList().stream().filter(s -> s
+                                    .getSubscriptionStatus() != SubscriptionStatus.SUBSCRIPTION_STATUS_SUCCESS)
+                                    .forEach(s -> log.warn("  FIGI {} -> {}", s.getFigi(),
+                                            s.getSubscriptionStatus()));
+                        }
                         log.info("======================================");
                         return;
                     }
@@ -320,24 +404,278 @@ public class MarketDataStreamingService {
                 }
             };
 
-            log.info("Connecting to T-Invest API with {} instruments...", allFigis.size());
+            log.info("Connecting to T-Invest API...");
             requestObserver = streamStub.marketDataStream(responseObserver);
 
-            // Отправляем подписку на цены последних сделок
-            log.info("Sending LastPrice subscription request to T-Invest API");
-            requestObserver.onNext(lastPriceSubscribeReq);
+            // Вспомогательный метод для отправки подписок LastPrice батчами с задержкой между
+            // батчами
+            java.util.function.Consumer<List<String>> sendLastPriceBatches = (instrumentList) -> {
+                if (instrumentList.isEmpty())
+                    return;
+                List<List<String>> batches =
+                        splitIntoBatches(instrumentList, SUBSCRIPTION_BATCH_SIZE);
+                log.info("Sending {} batches of LastPrice subscriptions (batch size: {})",
+                        batches.size(), SUBSCRIPTION_BATCH_SIZE);
+                for (int i = 0; i < batches.size(); i++) {
+                    List<String> batch = batches.get(i);
+                    SubscribeLastPriceRequest batchReq =
+                            SubscribeLastPriceRequest.newBuilder()
+                                    .setSubscriptionAction(
+                                            SubscriptionAction.SUBSCRIPTION_ACTION_SUBSCRIBE)
+                                    .addAllInstruments(
+                                            batch.stream()
+                                                    .map(f -> LastPriceInstrument.newBuilder()
+                                                            .setInstrumentId(f).build())
+                                                    .toList())
+                                    .build();
+                    MarketDataRequest request = MarketDataRequest.newBuilder()
+                            .setSubscribeLastPriceRequest(batchReq).build();
+                    requestObserver.onNext(request);
+                    log.debug("Sent LastPrice batch {}/{} ({} instruments)", i + 1, batches.size(),
+                            batch.size());
+                    // Задержка между батчами (кроме последнего батча)
+                    if (i < batches.size() - 1) {
+                        try {
+                            Thread.sleep(BATCH_DELAY_MS);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            log.warn("Interrupted while waiting between batches", e);
+                            return;
+                        }
+                    }
+                }
+            };
 
-            // Отправляем подписку на поток сделок
-            log.info("Sending Trades subscription request to T-Invest API");
-            requestObserver.onNext(tradesSubscribeReq);
+            // Вспомогательный метод для отправки подписок Trades батчами с задержкой между батчами
+            java.util.function.Consumer<List<String>> sendTradesBatches = (instrumentList) -> {
+                if (instrumentList.isEmpty())
+                    return;
+                List<List<String>> batches =
+                        splitIntoBatches(instrumentList, SUBSCRIPTION_BATCH_SIZE);
+                log.info("Sending {} batches of Trades subscriptions (batch size: {})",
+                        batches.size(), SUBSCRIPTION_BATCH_SIZE);
+                for (int i = 0; i < batches.size(); i++) {
+                    List<String> batch = batches.get(i);
+                    SubscribeTradesRequest batchReq = SubscribeTradesRequest.newBuilder()
+                            .setSubscriptionAction(SubscriptionAction.SUBSCRIPTION_ACTION_SUBSCRIBE)
+                            .addAllInstruments(batch.stream()
+                                    .map(f -> ru.tinkoff.piapi.contract.v1.TradeInstrument
+                                            .newBuilder().setInstrumentId(f).build())
+                                    .toList())
+                            .build();
+                    MarketDataRequest request = MarketDataRequest.newBuilder()
+                            .setSubscribeTradesRequest(batchReq).build();
+                    requestObserver.onNext(request);
+                    log.debug("Sent Trades batch {}/{} ({} instruments)", i + 1, batches.size(),
+                            batch.size());
+                    // Задержка между батчами (кроме последнего батча)
+                    if (i < batches.size() - 1) {
+                        try {
+                            Thread.sleep(BATCH_DELAY_MS);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            log.warn("Interrupted while waiting between batches", e);
+                            return;
+                        }
+                    }
+                }
+            };
 
-            // Отправляем подписку на стаканы (если включено)
-            if (orderBookSubscribeReq != null) {
-                log.info("Sending OrderBook subscription request to T-Invest API");
-                requestObserver.onNext(orderBookSubscribeReq);
+            // Подписка на LastPrice: сначала акции, потом фьючерсы, потом индикативы
+            // Индикативы подписываются только на LastPrice (не на Trades и OrderBook)
+            // Каждый тип инструментов разбивается на батчи по 200 штук с задержкой 100 мс между
+            // батчами
+            log.info("=== Subscribing to LastPrice (all instrument types) ===");
+            if (!shares.isEmpty()) {
+                List<List<String>> shareBatches = splitIntoBatches(shares, SUBSCRIPTION_BATCH_SIZE);
+                log.info("Subscribing to {} shares in {} batches", shares.size(),
+                        shareBatches.size());
+                sendLastPriceBatches.accept(shares);
+                // Задержка между типами инструментов
+                try {
+                    Thread.sleep(BATCH_DELAY_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    log.warn("Interrupted while waiting between instrument types", e);
+                }
             }
 
-            log.info("Successfully sent subscription requests to T-Invest API");
+            // Подписка на LastPrice для фьючерсов
+            // В выходные дни (суббота/воскресенье) подписка разрешена только с 8:30 утра
+            if (!futures.isEmpty()) {
+                if (sessionTimeService.canSubscribeToFutures()) {
+                    List<List<String>> futureBatches =
+                            splitIntoBatches(futures, SUBSCRIPTION_BATCH_SIZE);
+                    log.info("Subscribing to {} futures in {} batches", futures.size(),
+                            futureBatches.size());
+                    sendLastPriceBatches.accept(futures);
+                } else {
+                    log.info(
+                            "Skipping LastPrice subscription for {} futures (weekend before 8:30 MSK)",
+                            futures.size());
+                }
+                // Задержка между типами инструментов
+                try {
+                    Thread.sleep(BATCH_DELAY_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    log.warn("Interrupted while waiting between instrument types", e);
+                }
+            }
+
+            if (!indicatives.isEmpty()) {
+                List<List<String>> indicativeBatches =
+                        splitIntoBatches(indicatives, SUBSCRIPTION_BATCH_SIZE);
+                log.info("Subscribing to {} indicatives in {} batches", indicatives.size(),
+                        indicativeBatches.size());
+                sendLastPriceBatches.accept(indicatives);
+            }
+
+            log.info("=== LastPrice subscription completed ===");
+
+            // Подписка на Trades: только акции и фьючерсы (индикативы исключены)
+            // Каждый тип инструментов разбивается на батчи по 200 штук с задержкой 100 мс между
+            // батчами
+            log.info(
+                    "=== Subscribing to Trades (shares and futures only, indicatives excluded) ===");
+            if (!shares.isEmpty()) {
+                List<List<String>> shareBatches = splitIntoBatches(shares, SUBSCRIPTION_BATCH_SIZE);
+                log.info("Subscribing to {} shares in {} batches", shares.size(),
+                        shareBatches.size());
+                sendTradesBatches.accept(shares);
+                // Задержка между типами инструментов
+                try {
+                    Thread.sleep(BATCH_DELAY_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    log.warn("Interrupted while waiting between instrument types", e);
+                }
+            }
+
+            // Подписка на Trades для фьючерсов
+            // В выходные дни (суббота/воскресенье) подписка разрешена только с 8:30 утра
+            if (!futures.isEmpty()) {
+                if (sessionTimeService.canSubscribeToFutures()) {
+                    List<List<String>> futureBatches =
+                            splitIntoBatches(futures, SUBSCRIPTION_BATCH_SIZE);
+                    log.info("Subscribing to {} futures in {} batches", futures.size(),
+                            futureBatches.size());
+                    sendTradesBatches.accept(futures);
+                } else {
+                    log.info(
+                            "Skipping Trades subscription for {} futures (weekend before 8:30 MSK)",
+                            futures.size());
+                }
+                // Задержка между типами инструментов
+                try {
+                    Thread.sleep(BATCH_DELAY_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    log.warn("Interrupted while waiting between instrument types", e);
+                }
+            }
+
+            // Индикативы не подписываются на Trades - только на LastPrice
+            if (!indicatives.isEmpty()) {
+                log.info("Skipping Trades subscription for {} indicatives (LastPrice only)",
+                        indicatives.size());
+            }
+
+            log.info("=== Trades subscription completed ===");
+
+            // Подписка на OrderBook (акции и фьючерсы, если включено)
+            // Для фьючерсов в выходные дни подписка разрешена только с 8:30 утра
+            // Акции и фьючерсы разбиваются на батчи по 200 штук с задержкой 100 мс между батчами
+            if (config.isEnableOrderBookSubscription()) {
+                log.info("=== Subscribing to OrderBook (shares and futures) ===");
+
+                // Подписка на OrderBook для акций
+                if (!shares.isEmpty()) {
+                    List<List<String>> orderBookBatches =
+                            splitIntoBatches(shares, SUBSCRIPTION_BATCH_SIZE);
+                    log.info("Subscribing to {} shares in {} batches (batch size: {})",
+                            shares.size(), orderBookBatches.size(), SUBSCRIPTION_BATCH_SIZE);
+
+                    for (int i = 0; i < orderBookBatches.size(); i++) {
+                        List<String> batch = orderBookBatches.get(i);
+                        SubscribeOrderBookRequest batchReq = SubscribeOrderBookRequest.newBuilder()
+                                .setSubscriptionAction(
+                                        SubscriptionAction.SUBSCRIPTION_ACTION_SUBSCRIBE)
+                                .addAllInstruments(batch.stream()
+                                        .map(f -> OrderBookInstrument.newBuilder()
+                                                .setInstrumentId(f)
+                                                .setDepth(config.getOrderBookDepth()).build())
+                                        .toList())
+                                .build();
+                        MarketDataRequest request = MarketDataRequest.newBuilder()
+                                .setSubscribeOrderBookRequest(batchReq).build();
+                        requestObserver.onNext(request);
+                        log.debug("Sent OrderBook batch {}/{} ({} instruments)", i + 1,
+                                orderBookBatches.size(), batch.size());
+                        // Задержка между батчами (кроме последнего батча)
+                        if (i < orderBookBatches.size() - 1) {
+                            try {
+                                Thread.sleep(BATCH_DELAY_MS);
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                log.warn("Interrupted while waiting between batches", e);
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    log.warn("No shares available for OrderBook subscription");
+                }
+
+                // Подписка на OrderBook для фьючерсов
+                // В выходные дни (суббота/воскресенье) подписка разрешена только с 8:30 утра
+                if (!futures.isEmpty()) {
+                    if (sessionTimeService.canSubscribeToFutures()) {
+                        List<List<String>> futureOrderBookBatches =
+                                splitIntoBatches(futures, SUBSCRIPTION_BATCH_SIZE);
+                        log.info("Subscribing to {} futures in {} batches (batch size: {})",
+                                futures.size(), futureOrderBookBatches.size(),
+                                SUBSCRIPTION_BATCH_SIZE);
+
+                        for (int i = 0; i < futureOrderBookBatches.size(); i++) {
+                            List<String> batch = futureOrderBookBatches.get(i);
+                            SubscribeOrderBookRequest batchReq = SubscribeOrderBookRequest
+                                    .newBuilder()
+                                    .setSubscriptionAction(
+                                            SubscriptionAction.SUBSCRIPTION_ACTION_SUBSCRIBE)
+                                    .addAllInstruments(batch.stream()
+                                            .map(f -> OrderBookInstrument.newBuilder()
+                                                    .setInstrumentId(f)
+                                                    .setDepth(config.getOrderBookDepth()).build())
+                                            .toList())
+                                    .build();
+                            MarketDataRequest request = MarketDataRequest.newBuilder()
+                                    .setSubscribeOrderBookRequest(batchReq).build();
+                            requestObserver.onNext(request);
+                            log.debug("Sent Futures OrderBook batch {}/{} ({} instruments)", i + 1,
+                                    futureOrderBookBatches.size(), batch.size());
+                            // Задержка между батчами (кроме последнего батча)
+                            if (i < futureOrderBookBatches.size() - 1) {
+                                try {
+                                    Thread.sleep(BATCH_DELAY_MS);
+                                } catch (InterruptedException e) {
+                                    Thread.currentThread().interrupt();
+                                    log.warn("Interrupted while waiting between batches", e);
+                                    break;
+                                }
+                            }
+                        }
+                    } else {
+                        log.info(
+                                "Skipping OrderBook subscription for {} futures (weekend before 8:30 MSK)",
+                                futures.size());
+                    }
+                }
+
+                log.info("=== OrderBook subscription completed ===");
+            }
+
+            log.info("Successfully sent all subscription batches to T-Invest API");
 
         } catch (Exception e) {
             log.error("Error starting market data stream", e);

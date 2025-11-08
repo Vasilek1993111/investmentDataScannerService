@@ -150,4 +150,41 @@ public class SessionTimeService {
     public boolean isAnySessionActive() {
         return isMorningSessionTime() || isWeekendSessionTime();
     }
+
+    /**
+     * Проверяет, можно ли подписываться на фьючерсы в выходные дни
+     * 
+     * В субботу и воскресенье подписка на фьючерсы (LastPrice, Trades, OrderBook) разрешена только
+     * с 8:30 утра и позднее
+     * 
+     * @return true если сейчас рабочий день или выходной день после 8:30
+     */
+    public boolean canSubscribeToFutures() {
+        // Если включен тестовый режим, всегда разрешаем подписку
+        if (config.isEnableTestMode()) {
+            return true;
+        }
+
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.of("+3")); // Московское время
+        DayOfWeek dayOfWeek = now.getDayOfWeek();
+        int currentHour = now.getHour();
+        int currentMinute = now.getMinute();
+
+        // Если это не выходной день (суббота или воскресенье), разрешаем подписку
+        if (dayOfWeek != DayOfWeek.SATURDAY && dayOfWeek != DayOfWeek.SUNDAY) {
+            return true;
+        }
+
+        // Если это выходной день, проверяем время: должно быть 8:30 или позже
+        if (currentHour > 8) {
+            return true; // После 9:00
+        }
+
+        if (currentHour == 8) {
+            return currentMinute >= 30; // С 8:30
+        }
+
+        // До 8:30 в выходные дни - подписка запрещена
+        return false;
+    }
 }

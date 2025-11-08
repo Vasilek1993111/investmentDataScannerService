@@ -698,10 +698,39 @@ public class InstrumentCacheService {
     }
 
     /**
+     * Проверить, является ли инструмент индикативом
+     * 
+     * @param figi FIGI инструмента
+     * @return true, если инструмент является индикативом
+     */
+    public boolean isIndicative(String figi) {
+        if (figi == null) {
+            return false;
+        }
+        // Проверяем по тикеру индикативов (если FIGI есть в списке тикеров индикативов)
+        Map<String, String> indicativeTickers = indicativeService.getIndicativeTickers();
+        return indicativeTickers.containsKey(figi);
+    }
+
+    /**
      * Получить ShareService для доступа к акциям
      */
     public ShareService getShareService() {
         return shareService;
+    }
+
+    /**
+     * Получить FutureService для доступа к фьючерсам
+     */
+    public FutureService getFutureService() {
+        return futureService;
+    }
+
+    /**
+     * Получить IndicativeService для доступа к индикативам
+     */
+    public IndicativeService getIndicativeService() {
+        return indicativeService;
     }
 
     /**
