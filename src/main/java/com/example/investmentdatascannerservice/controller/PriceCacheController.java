@@ -264,6 +264,29 @@ public class PriceCacheController {
         }
     }
 
+    /**
+     * Проверка наличия данных для конкретного figi в базе данных last_prices
+     */
+    @GetMapping("/check-last-price/{figi}")
+    public ResponseEntity<Map<String, Object>> checkLastPriceInDatabase(@PathVariable String figi) {
+        try {
+            log.info("Checking last price in database for figi: {}", figi);
+            Map<String, Object> result = priceCacheService.checkLastPriceInDatabase(figi);
+
+            // Добавляем информацию о кэше
+            BigDecimal cachedPrice = priceCacheService.getLastPrice(figi);
+            result.put("inCache", cachedPrice != null);
+            result.put("cachedPrice", cachedPrice);
+            result.put("cacheDate", priceCacheService.getLastPriceDate());
+
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("Error checking last price in database for figi: {}", figi, e);
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("error", "Error checking last price: " + e.getMessage()));
+        }
+    }
+
 
 
     /**

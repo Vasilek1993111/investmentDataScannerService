@@ -54,6 +54,7 @@ public class QuoteScannerService {
     private final ClosePriceService closePriceService;
     private final ClosePriceEveningSessionService closePriceEveningSessionService;
     private final ShareService shareService;
+    private final PriceCacheService priceCacheService;
 
     // Динамический список индексов для полоски
     private final List<IndexConfig> dynamicIndices = new CopyOnWriteArrayList<>();
@@ -70,7 +71,7 @@ public class QuoteScannerService {
             SessionTimeService sessionTimeService, InstrumentPairService instrumentPairService,
             MeterRegistry meterRegistry, ClosePriceService closePriceService,
             ClosePriceEveningSessionService closePriceEveningSessionService,
-            ShareService shareService) {
+            ShareService shareService, PriceCacheService priceCacheService) {
         this.config = config;
         this.marketDataProcessor = marketDataProcessor;
         this.notificationService = notificationService;
@@ -81,6 +82,7 @@ public class QuoteScannerService {
         this.closePriceService = closePriceService;
         this.closePriceEveningSessionService = closePriceEveningSessionService;
         this.shareService = shareService;
+        this.priceCacheService = priceCacheService;
     }
 
     @PostConstruct
@@ -106,11 +108,11 @@ public class QuoteScannerService {
         instrumentCacheService.loadWeekendExchangeVolumes();
         log.info("Accumulated volumes reset for new session (preserving weekend exchange volumes)");
 
-        // Загружаем цены закрытия за предыдущий торговый день
-        loadClosePrices();
-
-        // Загружаем цены закрытия вечерней сессии за предыдущий торговый день
-        loadEveningClosePrices();
+        // Загружаем все цены (основной сессии, вечерней, last_price) для всех инструментов
+        // Это нужно делать ДО инициализации индексов, так как в строке индексов могут быть
+        // не только индексы, но и фьючерсы и акции
+        // PriceCacheService уже содержит все необходимые цены для всех типов инструментов
+        loadAllPricesFromCache();
 
         // Загрузка средних объемов отключена: таблица shares_aggregated_data больше не существует
 
@@ -128,30 +130,37 @@ public class QuoteScannerService {
     }
 
     /**
-     * Загружает цены закрытия за предыдущий торговый день для всех акций из базы данных
+     * Загружает все цены (основной сессии, вечерней, last_price) из PriceCacheService Это загружает
+     * цены для всех инструментов (акции, фьючерсы, индексы) Вызывается ДО инициализации индексов,
+     * так как в строке индексов могут быть разные типы инструментов
      */
-    private void loadClosePrices() {
+    private void loadAllPricesFromCache() {
         try {
-            log.info("Loading close prices for previous trading day...");
-            // Получаем все FIGI акций из базы данных
-            List<String> allShareFigis = shareService.getAllShareFigis();
-            Map<String, BigDecimal> loadedClosePrices =
-                    closePriceService.getClosePricesForPreviousDay(allShareFigis);
-            instrumentCacheService.loadClosePrices(loadedClosePrices);
-            log.info("Loaded {} close prices for previous trading day from {} shares",
-                    loadedClosePrices.size(), allShareFigis.size());
+            log.info(
+                    "Loading all prices from PriceCacheService (close, evening session, last_price)...");
 
-            if (!loadedClosePrices.isEmpty()) {
-                log.info("First 5 close prices: {}",
-                        loadedClosePrices.entrySet().stream().limit(5)
-                                .map(entry -> entry.getKey() + "=" + entry.getValue())
-                                .collect(Collectors.toList()));
+            // Убеждаемся, что кэш цен инициализирован
+            // PriceCacheService уже загружает все цены при инициализации через @PostConstruct,
+            // но мы явно проверяем, что данные доступны
+            Map<String, BigDecimal> closePrices = priceCacheService.getAllClosePrices();
+            Map<String, BigDecimal> eveningSessionPrices =
+                    priceCacheService.getAllEveningSessionPrices();
+            Map<String, BigDecimal> lastPrices = priceCacheService.getAllLastPrices();
+
+            log.info(
+                    "PriceCacheService contains: {} close prices, {} evening session prices, {} last prices",
+                    closePrices.size(), eveningSessionPrices.size(), lastPrices.size());
+
+            // Загружаем цены закрытия в InstrumentCacheService для обратной совместимости
+            if (!closePrices.isEmpty()) {
+                instrumentCacheService.loadClosePrices(closePrices);
+                log.info("Loaded {} close prices into InstrumentCacheService", closePrices.size());
             }
+
         } catch (Exception e) {
-            log.error("Error loading close prices", e);
+            log.error("Error loading all prices from PriceCacheService", e);
         }
     }
-
 
     /**
      * Инициализирует список индексов по умолчанию
@@ -167,28 +176,6 @@ public class QuoteScannerService {
         dynamicIndices.add(new IndexConfig("BBG0013HGJ44", "XPT", "XPT"));
 
         log.info("Initialized {} default indices", dynamicIndices.size());
-    }
-
-    /**
-     * Загружает цены закрытия вечерней сессии за предыдущий торговый день для всех акций из базы
-     * данных
-     */
-    private void loadEveningClosePrices() {
-        try {
-            log.info("Loading evening close prices for previous trading day...");
-            // Получаем все FIGI акций из базы данных
-            List<String> allShareFigis = shareService.getAllShareFigis();
-            Map<String, BigDecimal> loadedEveningClosePrices = closePriceEveningSessionService
-                    .loadEveningClosePricesForPreviousDay(allShareFigis);
-            log.info("Loaded {} evening close prices for previous trading day from {} shares",
-                    loadedEveningClosePrices.size(), allShareFigis.size());
-            if (!loadedEveningClosePrices.isEmpty()) {
-                log.info("Evening close prices loaded for instruments: {}",
-                        loadedEveningClosePrices.keySet());
-            }
-        } catch (Exception e) {
-            log.error("Error loading evening close prices", e);
-        }
     }
 
     @PreDestroy

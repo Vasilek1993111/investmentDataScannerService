@@ -24,8 +24,10 @@ public interface LastPriceRepository extends JpaRepository<LastPriceEntity, Last
 
     /**
      * Найти последнюю цену для конкретного инструмента (только одна запись)
+     * 
+     * Использует прямую таблицу invest_prices.last_prices вместо VIEW для лучшей производительности
      */
-    @Query(value = "SELECT * FROM invest.last_prices WHERE figi = :figi ORDER BY time DESC LIMIT 1",
+    @Query(value = "SELECT * FROM invest_prices.last_prices WHERE figi = :figi ORDER BY time DESC LIMIT 1",
             nativeQuery = true)
     Optional<LastPriceEntity> findLatestPriceByFigi(@Param("figi") String figi);
 
@@ -33,24 +35,41 @@ public interface LastPriceRepository extends JpaRepository<LastPriceEntity, Last
      * Найти последние цены для всех инструментов Использует DISTINCT ON для получения самой
      * последней записи по каждому figi Если котировки нет в текущем дне, смотрит в прошлые дни
      * (автоматически через ORDER BY time DESC)
+     * 
+     * Использует прямую таблицу invest_prices.last_prices вместо VIEW, так как DISTINCT ON может не
+     * работать корректно с VIEW в PostgreSQL
      */
     @Query(value = "SELECT DISTINCT ON (lp.figi) lp.figi, lp.time, lp.price, lp.currency, lp.exchange "
-            + "FROM invest.last_prices lp " + "ORDER BY lp.figi, lp.time DESC", nativeQuery = true)
+            + "FROM invest_prices.last_prices lp " + "ORDER BY lp.figi, lp.time DESC",
+            nativeQuery = true)
     List<Object[]> findLatestPricesForAllFigis();
+
+    /**
+     * Найти последние цены для всех инструментов за указанную дату Возвращает по одному значению на
+     * figi (самое позднее время в указанную дату)
+     */
+    @Query(value = "SELECT DISTINCT ON (lp.figi) lp.figi, lp.time, lp.price, lp.currency, lp.exchange "
+            + "FROM invest_prices.last_prices lp " + "WHERE DATE(lp.time) = :date "
+            + "ORDER BY lp.figi, lp.time DESC", nativeQuery = true)
+    List<Object[]> findLatestPricesByDate(@Param("date") LocalDate date);
 
     /**
      * Найти последние цены для списка инструментов Для каждого figi возвращает самую последнюю
      * запись
+     * 
+     * Использует прямую таблицу invest_prices.last_prices вместо VIEW
      */
     @Query(value = "SELECT DISTINCT ON (figi) figi, time, price, currency, exchange "
-            + "FROM invest.last_prices " + "WHERE figi IN :figis " + "ORDER BY figi, time DESC",
-            nativeQuery = true)
+            + "FROM invest_prices.last_prices " + "WHERE figi IN :figis "
+            + "ORDER BY figi, time DESC", nativeQuery = true)
     List<Object[]> findLatestPricesByFigis(@Param("figis") List<String> figis);
 
     /**
      * Найти последнюю цену для конкретного инструмента за определенную дату
+     * 
+     * Использует прямую таблицу invest_prices.last_prices вместо VIEW
      */
-    @Query(value = "SELECT * FROM invest.last_prices WHERE figi = :figi "
+    @Query(value = "SELECT * FROM invest_prices.last_prices WHERE figi = :figi "
             + "AND DATE(time) = :date ORDER BY time DESC LIMIT 1", nativeQuery = true)
     Optional<LastPriceEntity> findLatestByFigiAndDate(@Param("figi") String figi,
             @Param("date") LocalDate date);
@@ -58,16 +77,20 @@ public interface LastPriceRepository extends JpaRepository<LastPriceEntity, Last
     /**
      * Найти последнюю цену для конкретного инструмента начиная с определенной даты Если нет данных
      * за текущий день, ищет в прошлых днях
+     * 
+     * Использует прямую таблицу invest_prices.last_prices вместо VIEW
      */
-    @Query(value = "SELECT * FROM invest.last_prices WHERE figi = :figi "
+    @Query(value = "SELECT * FROM invest_prices.last_prices WHERE figi = :figi "
             + "AND DATE(time) <= :date ORDER BY time DESC LIMIT 1", nativeQuery = true)
     Optional<LastPriceEntity> findLatestByFigiUpToDate(@Param("figi") String figi,
             @Param("date") LocalDate date);
 
     /**
      * Найти последнюю доступную дату в таблице
+     * 
+     * Использует прямую таблицу invest_prices.last_prices вместо VIEW
      */
-    @Query(value = "SELECT MAX(DATE(time)) FROM invest.last_prices", nativeQuery = true)
+    @Query(value = "SELECT MAX(DATE(time)) FROM invest_prices.last_prices", nativeQuery = true)
     Optional<LocalDate> findLatestDate();
 }
 

@@ -3,7 +3,6 @@ package com.example.investmentdatascannerservice.service;
 import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -12,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.example.investmentdatascannerservice.entity.ClosePriceEntity;
 import com.example.investmentdatascannerservice.entity.ClosePriceEveningSessionEntity;
+import com.example.investmentdatascannerservice.entity.LastPriceEntity;
 import com.example.investmentdatascannerservice.entity.OpenPriceEntity;
 import com.example.investmentdatascannerservice.repository.ClosePriceEveningSessionRepository;
 import com.example.investmentdatascannerservice.repository.ClosePriceRepository;
@@ -434,50 +434,62 @@ public class PriceCacheService {
     }
 
     /**
-     * Загрузка последних цен сделок (last_price) в кэш Загружает самую последнюю котировку по
-     * каждому figi. Если котировки нет в текущем дне, смотрит в прошлые дни.
+     * Загрузка последних цен сделок (last_price) в кэш с унифицированной логикой определения даты
      */
     @Transactional(readOnly = true)
     public void loadAllLastPrices() {
         try {
-            log.info("Loading last prices (latest quotes) for all instruments...");
-
-            // Получаем последние цены для всех инструментов используя DISTINCT ON
-            List<Object[]> results = lastPriceRepository.findLatestPricesForAllFigis();
-
-            int loadedCount = 0;
-            LocalDate latestDate = null;
-
-            for (Object[] row : results) {
-                try {
-                    String figi = (String) row[0];
-                    LocalDateTime time = (LocalDateTime) row[1];
-                    BigDecimal price = (BigDecimal) row[2];
-
-                    if (figi != null && price != null) {
-                        lastPricesCache.put(figi, price);
-                        loadedCount++;
-
-                        // Обновляем последнюю дату
-                        if (time != null) {
-                            LocalDate priceDate = time.toLocalDate();
-                            if (latestDate == null || priceDate.isAfter(latestDate)) {
-                                latestDate = priceDate;
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    log.warn("Error processing last price row: {}", java.util.Arrays.toString(row),
-                            e);
-                }
+            // Сначала пытаемся загрузить цены за сегодня
+            LocalDate today = LocalDate.now();
+            log.info("Trying to load last prices for today: {}", today);
+            int loadedToday = loadLastPricesForDate(today);
+            if (loadedToday > 0) {
+                log.info("Loaded {} last prices for today ({})", loadedToday, today);
+                return;
             }
 
-            lastPriceDate = latestDate;
-            log.info("Loaded {} last prices. Latest date: {}", loadedCount,
-                    latestDate != null ? latestDate.toString() : "N/A");
+            // Если за сегодня данных нет — используем последнюю торговую дату
+            LocalDate targetDate = getLastTradingDate();
+            if (!targetDate.equals(today)) {
+                log.info("No last prices for today. Fallback to last trading date: {}", targetDate);
+                int loadedForTarget = loadLastPricesForDate(targetDate);
+                log.info("Loaded {} last prices for fallback date {}", loadedForTarget, targetDate);
+            } else {
+                log.info("Last trading date equals today ({}), no last prices found.", today);
+            }
 
         } catch (Exception e) {
             log.error("Error loading last prices into cache", e);
+        }
+    }
+
+    /**
+     * Загрузка последних цен сделок (last_price) для конкретной даты
+     */
+    private int loadLastPricesForDate(LocalDate targetDate) {
+        try {
+            // Получаем последние цены (по максимальному времени) за указанную дату
+            List<Object[]> lastPrices = lastPriceRepository.findLatestPricesByDate(targetDate);
+
+            int loadedCount = 0;
+            for (Object[] row : lastPrices) {
+                String figi = (String) row[0];
+                BigDecimal price = (BigDecimal) row[2];
+                if (figi != null && price != null) {
+                    lastPricesCache.put(figi, price);
+                    loadedCount++;
+                }
+            }
+
+            if (loadedCount > 0) {
+                lastPriceDate = targetDate;
+            }
+            log.info("Loaded {} last prices for date: {}", loadedCount, targetDate);
+
+            return loadedCount;
+        } catch (Exception e) {
+            log.error("Error loading last prices for date: {}", targetDate, e);
+            return 0;
         }
     }
 
@@ -511,6 +523,34 @@ public class PriceCacheService {
         lastPriceDate = null;
         loadAllLastPrices();
         log.info("Last prices cache force reload completed. Cache size: {}, Last date: {}",
-                lastPricesCache.size(), lastPriceDate);
+                lastPricesCache.size(), lastPriceDate != null ? lastPriceDate.toString() : "N/A");
+    }
+
+    /**
+     * Проверка наличия данных для конкретного figi в базе данных
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> checkLastPriceInDatabase(String figi) {
+        Map<String, Object> result = new java.util.HashMap<>();
+        try {
+            Optional<LastPriceEntity> latestPrice = lastPriceRepository.findLatestPriceByFigi(figi);
+            if (latestPrice.isPresent()) {
+                LastPriceEntity entity = latestPrice.get();
+                result.put("found", true);
+                result.put("figi", entity.getId().getFigi());
+                result.put("time", entity.getId().getTime());
+                result.put("price", entity.getPrice());
+                result.put("currency", entity.getCurrency());
+                result.put("exchange", entity.getExchange());
+            } else {
+                result.put("found", false);
+                result.put("message", "No data found for figi: " + figi);
+            }
+        } catch (Exception e) {
+            log.error("Error checking last price in database for figi: {}", figi, e);
+            result.put("found", false);
+            result.put("error", e.getMessage());
+        }
+        return result;
     }
 }
