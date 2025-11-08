@@ -122,8 +122,11 @@ public class NotificationService {
      * Получение статистики сервиса
      */
     public java.util.Map<String, Object> getStats() {
+        // Преобразуем double в long для целочисленных значений счетчиков
+        long sentCount = (long) notificationsSent.count();
+        long failedCount = (long) notificationsFailed.count();
+
         return java.util.Map.of("subscriberCount", subscribers.size(), "notificationsSent",
-                notificationsSent.count(), "notificationsFailed", notificationsFailed.count(),
-                "hasSubscribers", hasSubscribers());
+                sentCount, "notificationsFailed", failedCount, "hasSubscribers", hasSubscribers());
     }
 }

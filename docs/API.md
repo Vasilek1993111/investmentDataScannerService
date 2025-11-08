@@ -87,8 +87,8 @@ Investment Data Scanner Service предоставляет REST API и WebSocket
 
 - `subscriberCount` (integer) - Текущее количество активных подписчиков
 - `hasSubscribers` (boolean) - Есть ли активные подписчики
-- `notificationsSent` (number) - Общее количество отправленных уведомлений
-- `notificationsFailed` (number) - Количество неудачных отправок уведомлений
+- `notificationsSent` (integer) - Общее количество отправленных уведомлений
+- `notificationsFailed` (integer) - Количество неудачных отправок уведомлений
 
 **Коды ответов:**
 

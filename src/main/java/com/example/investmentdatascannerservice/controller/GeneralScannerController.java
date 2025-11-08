@@ -291,23 +291,8 @@ public class GeneralScannerController {
                         (Map<String, Object>) notificationServiceObj;
                 response.put("subscriberCount", notificationStats.get("subscriberCount"));
                 response.put("hasSubscribers", notificationStats.get("hasSubscribers"));
-
-                // Преобразуем double в целые числа для notificationsSent и notificationsFailed
-                Object notificationsSentObj = notificationStats.get("notificationsSent");
-                Object notificationsFailedObj = notificationStats.get("notificationsFailed");
-
-                long notificationsSent = 0;
-                long notificationsFailed = 0;
-
-                if (notificationsSentObj instanceof Number) {
-                    notificationsSent = ((Number) notificationsSentObj).longValue();
-                }
-                if (notificationsFailedObj instanceof Number) {
-                    notificationsFailed = ((Number) notificationsFailedObj).longValue();
-                }
-
-                response.put("notificationsSent", notificationsSent);
-                response.put("notificationsFailed", notificationsFailed);
+                response.put("notificationsSent", notificationStats.get("notificationsSent"));
+                response.put("notificationsFailed", notificationStats.get("notificationsFailed"));
             } else {
                 response.put("subscriberCount", 0);
                 response.put("hasSubscribers", false);
