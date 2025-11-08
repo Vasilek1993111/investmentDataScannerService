@@ -41,6 +41,8 @@ buildNumber.properties
 *.iml
 *.ipr
 .vscode/
+# Но разрешаем коммитить шаблон launch.json
+!.vscode/launch.json.example
 *.swp
 *.swo
 *~
@@ -57,7 +59,10 @@ Thumbs.db
 # Spring Boot
 *.pid
 *.log
-logs/
+
+# Logs directory - ignore log files but keep directory structure
+logs/**/*.log
+!logs/**/.gitkeep
 
 # Application specific
 application-local.properties
@@ -65,9 +70,14 @@ application-dev.properties
 application-prod.properties
 
 # Environment variables
+# Игнорируем реальные .env файлы с секретами
 .env
+.env.test
+.env.prod
+.env.local
 .env.*
-env.*
+# Но разрешаем коммитить шаблоны для других разработчиков
+!env.*.example
 
 # Database
 *.db

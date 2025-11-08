@@ -1,0 +1,493 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    
+    <!-- Property for log directory based on profile -->
+    <springProfile name="test">
+        <property name="LOG_DIR" value="logs/test"/>
+        <property name="LOG_LEVEL_ROOT" value="INFO"/>
+        <property name="LOG_LEVEL_APP" value="INFO"/>
+        <property name="LOG_LEVEL_FRAMEWORK" value="WARN"/>
+        <!-- Test: Shorter retention -->
+        <property name="MAX_HISTORY" value="30"/>
+        <property name="TOTAL_SIZE_CAP" value="3GB"/>
+    </springProfile>
+    
+    <springProfile name="prod,default">
+        <property name="LOG_DIR" value="logs/prod"/>
+        <property name="LOG_LEVEL_ROOT" value="INFO"/>
+        <property name="LOG_LEVEL_APP" value="INFO"/>
+        <property name="LOG_LEVEL_FRAMEWORK" value="WARN"/>
+        <!-- Prod: Keep logs longer -->
+        <property name="MAX_HISTORY" value="90"/>
+        <property name="TOTAL_SIZE_CAP" value="10GB"/>
+    </springProfile>
+    
+    <!-- Console appender (only for test profile) -->
+    <springProfile name="test">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            </encoder>
+        </appender>
+    </springProfile>
+    
+    <!-- Pattern for file appenders -->
+    <property name="FILE_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"/>
+    <property name="FILE_PATTERN_WITH_STACK" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n%ex{full}"/>
+    
+    <!-- Application Appender with date-based file naming -->
+    <appender name="APPLICATION" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/current/application.log</file>
+        <encoder>
+            <pattern>${FILE_PATTERN}</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/history/application-%d{yyyy_MM_dd}.%i.log</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>${MAX_HISTORY}</maxHistory>
+            <totalSizeCap>${TOTAL_SIZE_CAP}</totalSizeCap>
+            <cleanHistoryOnStart>false</cleanHistoryOnStart>
+        </rollingPolicy>
+    </appender>
+    
+    <!-- Market Data Appender -->
+    <appender name="MARKET_DATA" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/current/market-data.log</file>
+        <encoder>
+            <pattern>${FILE_PATTERN}</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/history/market-data-%d{yyyy_MM_dd}.%i.log</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>${MAX_HISTORY}</maxHistory>
+            <totalSizeCap>${TOTAL_SIZE_CAP}</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+    
+    <!-- Quote Scanner Appender -->
+    <appender name="QUOTE_SCANNER" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/current/quote-scanner.log</file>
+        <encoder>
+            <pattern>${FILE_PATTERN}</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/history/quote-scanner-%d{yyyy_MM_dd}.%i.log</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>${MAX_HISTORY}</maxHistory>
+            <totalSizeCap>${TOTAL_SIZE_CAP}</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+    
+    <!-- WebSocket Appender -->
+    <appender name="WEBSOCKET" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/current/websocket.log</file>
+        <encoder>
+            <pattern>${FILE_PATTERN}</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/history/websocket-%d{yyyy_MM_dd}.%i.log</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>${MAX_HISTORY}</maxHistory>
+            <totalSizeCap>${TOTAL_SIZE_CAP}</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+    
+    <!-- Instrument Appender -->
+    <appender name="INSTRUMENT" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/current/instrument.log</file>
+        <encoder>
+            <pattern>${FILE_PATTERN}</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/history/instrument-%d{yyyy_MM_dd}.%i.log</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>${MAX_HISTORY}</maxHistory>
+            <totalSizeCap>${TOTAL_SIZE_CAP}</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+    
+    <!-- Price Appender -->
+    <appender name="PRICE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/current/price.log</file>
+        <encoder>
+            <pattern>${FILE_PATTERN}</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/history/price-%d{yyyy_MM_dd}.%i.log</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>${MAX_HISTORY}</maxHistory>
+            <totalSizeCap>${TOTAL_SIZE_CAP}</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+    
+    <!-- Scanner Appender -->
+    <appender name="SCANNER" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/current/scanner.log</file>
+        <encoder>
+            <pattern>${FILE_PATTERN}</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/history/scanner-%d{yyyy_MM_dd}.%i.log</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>${MAX_HISTORY}</maxHistory>
+            <totalSizeCap>${TOTAL_SIZE_CAP}</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+    
+    <!-- API Client Appender -->
+    <appender name="API_CLIENT" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/current/api-client.log</file>
+        <encoder>
+            <pattern>${FILE_PATTERN}</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/history/api-client-%d{yyyy_MM_dd}.%i.log</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>${MAX_HISTORY}</maxHistory>
+            <totalSizeCap>${TOTAL_SIZE_CAP}</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+    
+    <!-- Resilience Appender -->
+    <appender name="RESILIENCE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/current/resilience.log</file>
+        <encoder>
+            <pattern>${FILE_PATTERN}</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/history/resilience-%d{yyyy_MM_dd}.%i.log</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>${MAX_HISTORY}</maxHistory>
+            <totalSizeCap>${TOTAL_SIZE_CAP}</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+    
+    <!-- Database Appender -->
+    <appender name="DATABASE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/current/database.log</file>
+        <encoder>
+            <pattern>${FILE_PATTERN}</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/history/database-%d{yyyy_MM_dd}.%i.log</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>${MAX_HISTORY}</maxHistory>
+            <totalSizeCap>${TOTAL_SIZE_CAP}</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+    
+    <!-- Controllers Appender -->
+    <appender name="CONTROLLERS" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/current/controllers.log</file>
+        <encoder>
+            <pattern>${FILE_PATTERN}</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/history/controllers-%d{yyyy_MM_dd}.%i.log</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>${MAX_HISTORY}</maxHistory>
+            <totalSizeCap>${TOTAL_SIZE_CAP}</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+    
+    <!-- Config Appender -->
+    <appender name="CONFIG" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/current/config.log</file>
+        <encoder>
+            <pattern>${FILE_PATTERN}</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/history/config-%d{yyyy_MM_dd}.%i.log</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>${MAX_HISTORY}</maxHistory>
+            <totalSizeCap>${TOTAL_SIZE_CAP}</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+    
+    <!-- Error Appender (all ERROR and above) -->
+    <appender name="ERROR" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/current/error.log</file>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>ERROR</level>
+        </filter>
+        <encoder>
+            <pattern>${FILE_PATTERN_WITH_STACK}</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/history/error-%d{yyyy_MM_dd}.%i.log</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>${MAX_HISTORY}</maxHistory>
+            <totalSizeCap>5GB</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+    
+    <!-- Logger configurations for functional areas -->
+    
+    <!-- Application root logger -->
+    <logger name="com.example.investmentdatascannerservice" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="APPLICATION"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    
+    <!-- Market Data Services -->
+    <logger name="com.example.investmentdatascannerservice.service.MarketDataStreamingService" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="MARKET_DATA"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="com.example.investmentdatascannerservice.service.MarketDataProcessor" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="MARKET_DATA"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    
+    <!-- Quote Scanner Services -->
+    <logger name="com.example.investmentdatascannerservice.service.QuoteScannerService" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="QUOTE_SCANNER"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="com.example.investmentdatascannerservice.service.QuoteDataFactory" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="QUOTE_SCANNER"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="com.example.investmentdatascannerservice.service.NotificationService" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="QUOTE_SCANNER"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    
+    <!-- WebSocket Controllers -->
+    <logger name="com.example.investmentdatascannerservice.controller.QuoteWebSocketController" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="WEBSOCKET"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="com.example.investmentdatascannerservice.controller.PairWebSocketController" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="WEBSOCKET"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    
+    <!-- Instrument Services -->
+    <logger name="com.example.investmentdatascannerservice.service.InstrumentPairService" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="INSTRUMENT"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="com.example.investmentdatascannerservice.service.InstrumentStartupLoader" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="INSTRUMENT"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="com.example.investmentdatascannerservice.utils.InstrumentCacheService" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="INSTRUMENT"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    
+    <!-- Price Services -->
+    <logger name="com.example.investmentdatascannerservice.service.PriceCacheService" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="PRICE"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="com.example.investmentdatascannerservice.service.StartupPriceLoader" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="PRICE"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="com.example.investmentdatascannerservice.service.ScheduledPriceUpdateService" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="PRICE"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="com.example.investmentdatascannerservice.utils.ClosePriceService" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="PRICE"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="com.example.investmentdatascannerservice.utils.ClosePriceEveningSessionService" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="PRICE"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    
+    <!-- Scanner Services -->
+    <logger name="com.example.investmentdatascannerservice.service.MorningScannerService" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="SCANNER"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="com.example.investmentdatascannerservice.service.WeekendScannerService" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="SCANNER"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    
+    <!-- API Client -->
+    <logger name="com.example.investmentdatascannerservice.service.TInvestApiClient" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="API_CLIENT"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    
+    <!-- Resilience Services -->
+    <logger name="com.example.investmentdatascannerservice.service.ResilientQuoteScannerService" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="RESILIENCE"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="com.example.investmentdatascannerservice.service.CircuitBreakerMonitoringService" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="RESILIENCE"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    
+    <!-- Database/Repository Layer -->
+    <logger name="com.example.investmentdatascannerservice.repository" level="${LOG_LEVEL_FRAMEWORK}" additivity="false">
+        <appender-ref ref="DATABASE"/>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="org.hibernate.SQL" level="WARN" additivity="false">
+        <appender-ref ref="DATABASE"/>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="org.hibernate.type.descriptor.sql.BasicBinder" level="WARN" additivity="false">
+        <appender-ref ref="DATABASE"/>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="org.springframework.jdbc" level="${LOG_LEVEL_FRAMEWORK}" additivity="false">
+        <appender-ref ref="DATABASE"/>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    
+    <!-- REST Controllers (excluding WebSocket) -->
+    <logger name="com.example.investmentdatascannerservice.controller.CircuitBreakerController" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="CONTROLLERS"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="com.example.investmentdatascannerservice.controller.FuturesScannerController" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="CONTROLLERS"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="com.example.investmentdatascannerservice.controller.GeneralScannerController" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="CONTROLLERS"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="com.example.investmentdatascannerservice.controller.InstrumentPairController" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="CONTROLLERS"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="com.example.investmentdatascannerservice.controller.MorningScannerController" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="CONTROLLERS"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="com.example.investmentdatascannerservice.controller.PriceCacheController" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="CONTROLLERS"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="com.example.investmentdatascannerservice.controller.StreamingServiceController" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="CONTROLLERS"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    <logger name="com.example.investmentdatascannerservice.controller.WeekendScannerController" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="CONTROLLERS"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    
+    <!-- Config Classes -->
+    <logger name="com.example.investmentdatascannerservice.config" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="CONFIG"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ERROR"/>
+    </logger>
+    
+    <!-- Framework loggers -->
+    <logger name="org.springframework" level="${LOG_LEVEL_FRAMEWORK}" additivity="true"/>
+    <logger name="org.springframework.web" level="${LOG_LEVEL_FRAMEWORK}" additivity="true"/>
+    <logger name="org.springframework.boot" level="${LOG_LEVEL_FRAMEWORK}" additivity="true"/>
+    <logger name="org.hibernate" level="${LOG_LEVEL_FRAMEWORK}" additivity="true"/>
+    <logger name="io.grpc" level="${LOG_LEVEL_FRAMEWORK}" additivity="true"/>
+    
+    <!-- Root logger -->
+    <root level="${LOG_LEVEL_ROOT}">
+        <appender-ref ref="APPLICATION"/>
+        <appender-ref ref="ERROR"/>
+        <springProfile name="test">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+    </root>
+</configuration>
+
