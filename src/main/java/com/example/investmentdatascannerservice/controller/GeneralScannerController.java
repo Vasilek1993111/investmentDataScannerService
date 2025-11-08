@@ -276,6 +276,54 @@ public class GeneralScannerController {
     }
 
     /**
+     * Получить количество активных подписчиков на котировки
+     */
+    @GetMapping("/subscribers/count")
+    @SuppressWarnings("unchecked")
+    public ResponseEntity<Map<String, Object>> getSubscriberCount() {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            Map<String, Object> allStats = quoteScannerService.getStats();
+            Object notificationServiceObj = allStats.get("notificationService");
+
+            if (notificationServiceObj instanceof Map) {
+                Map<String, Object> notificationStats =
+                        (Map<String, Object>) notificationServiceObj;
+                response.put("subscriberCount", notificationStats.get("subscriberCount"));
+                response.put("hasSubscribers", notificationStats.get("hasSubscribers"));
+
+                // Преобразуем double в целые числа для notificationsSent и notificationsFailed
+                Object notificationsSentObj = notificationStats.get("notificationsSent");
+                Object notificationsFailedObj = notificationStats.get("notificationsFailed");
+
+                long notificationsSent = 0;
+                long notificationsFailed = 0;
+
+                if (notificationsSentObj instanceof Number) {
+                    notificationsSent = ((Number) notificationsSentObj).longValue();
+                }
+                if (notificationsFailedObj instanceof Number) {
+                    notificationsFailed = ((Number) notificationsFailedObj).longValue();
+                }
+
+                response.put("notificationsSent", notificationsSent);
+                response.put("notificationsFailed", notificationsFailed);
+            } else {
+                response.put("subscriberCount", 0);
+                response.put("hasSubscribers", false);
+                response.put("notificationsSent", 0);
+                response.put("notificationsFailed", 0);
+            }
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Error getting subscriber count", e);
+            response.put("error", "Failed to get subscriber count");
+            response.put("message", e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    /**
      * Получить текущий список индексов (общие индексы)
      */
     @GetMapping("/indices")

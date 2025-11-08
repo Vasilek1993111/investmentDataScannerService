@@ -238,14 +238,27 @@ public class QuoteScannerService {
     }
 
     /**
-     * Очистка неактивных подписчиков - делегируем NotificationService
+     * Очистка неактивных подписчиков
+     * 
+     * Метод периодически проверяет количество подписчиков и логирует их количество. Реальная
+     * очистка происходит автоматически: 1. При корректном закрытии WebSocket через
+     * afterConnectionClosed() 2. При ошибках отправки в broadcastQuote() - удаляются закрытые
+     * сессии
+     * 
+     * В текущей реализации метод служит для мониторинга и не выполняет активную очистку, так как
+     * NotificationService использует Set<Consumer<QuoteData>> и не может автоматически определить,
+     * какие подписчики стали неактивными без дополнительной логики.
      */
     private void cleanupInactiveSubscribers() {
         int subscriberCount = notificationService.getSubscriberCount();
         if (subscriberCount > 0) {
             log.debug("Current active subscribers: {}", subscriberCount);
-            // NotificationService сам управляет подписчиками
+        } else {
+            log.debug("No active subscribers");
         }
+        // Примечание: Реальная очистка происходит в QuoteWebSocketController:
+        // - При закрытии соединения (afterConnectionClosed)
+        // - При ошибках отправки (broadcastQuote удаляет закрытые сессии)
     }
 
     /**

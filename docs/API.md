@@ -66,6 +66,43 @@ Investment Data Scanner Service предоставляет REST API и WebSocket
 
 ---
 
+#### GET /api/scanner/subscribers/count
+
+Получение количества активных подписчиков на обновления котировок через WebSocket.
+
+**Параметры запроса:** Нет
+
+**Ответ:**
+
+```json
+{
+  "subscriberCount": 5,
+  "hasSubscribers": true,
+  "notificationsSent": 75000,
+  "notificationsFailed": 0
+}
+```
+
+**Поля ответа:**
+
+- `subscriberCount` (integer) - Текущее количество активных подписчиков
+- `hasSubscribers` (boolean) - Есть ли активные подписчики
+- `notificationsSent` (number) - Общее количество отправленных уведомлений
+- `notificationsFailed` (number) - Количество неудачных отправок уведомлений
+
+**Коды ответов:**
+
+- `200 OK` - Успешный запрос
+- `500 Internal Server Error` - Внутренняя ошибка сервера
+
+**Пример использования:**
+
+```bash
+curl http://localhost:8085/api/scanner/subscribers/count
+```
+
+---
+
 #### GET /api/scanner/instruments
 
 Получение списка отслеживаемых инструментов.
