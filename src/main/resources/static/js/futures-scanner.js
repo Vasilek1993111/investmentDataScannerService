@@ -533,6 +533,13 @@ function updateQuote(quoteData) {
     const figi = quoteData.figi;
     console.log('updateQuote called:', quoteData.ticker, quoteData.figi, 'currentPrice:', quoteData.currentPrice);
 
+    // Сохраняем цену ВС из предыдущей котировки, если она уже была загружена
+    // Цена ВС не обновляется в течение дня, только загружается один раз при первой загрузке
+    const existingQuote = quotes.get(figi);
+    if (existingQuote && existingQuote.closePriceVS) {
+        quoteData.closePriceVS = existingQuote.closePriceVS;
+    }
+
     if (!quoteData.closePriceOS && !quoteData.closePrice) {
         loadClosePricesForQuote(quoteData);
     }

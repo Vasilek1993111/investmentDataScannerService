@@ -33,6 +33,7 @@
 - **Не определяет сессии** — делегирует определение `SessionTimeService`
 - **Не управляет индексами напрямую** — делегирует управление `IndexBarManager`
 - **Не кэширует цены** — использует `PriceCacheService` для получения цен
+- **Не обновляет цены в реальном времени** — `MarketDataProcessor` синхронизирует оба кэша (`InstrumentCacheService` и `PriceCacheService`)
 
 ### Архитектурная диаграмма
 
@@ -90,6 +91,9 @@
 - **`ClosePriceEveningSessionService`** — загрузка цен закрытия вечерней сессии
 - **`ShareService`** — работа с акциями
 - **`PriceCacheService`** — централизованный кэш всех цен (основная сессия, вечерняя сессия, last_price)
+  - Загружает исторические цены из БД при инициализации
+  - Обновляется в реальном времени через `MarketDataProcessor` при обработке `LastPrice` и `Trade` событий
+  - Обеспечивает синхронизацию данных между `InstrumentCacheService` и REST API endpoints
 
 ### 2. Внутренние компоненты
 
@@ -215,9 +219,12 @@ public void processLastPrice(LastPrice price) {
 1. `QuoteScannerService.processLastPrice()` — получает данные
 2. `MarketDataProcessor.processLastPrice()` — обрабатывает данные
 3. `InstrumentCacheService` — обновляет кэш цен
-4. `QuoteDataFactory` — создает `QuoteData` объект
-5. `NotificationService` — уведомляет подписчиков
-6. Счетчик обработанных котировок увеличивается
+4. `PriceCacheService` — обновляет кэш последних цен в реальном времени (через `updateLastPrice()`)
+5. `QuoteDataFactory` — создает `QuoteData` объект
+6. `NotificationService` — уведомляет подписчиков
+7. Счетчик обработанных котировок увеличивается
+
+**Важно:** Обновление `PriceCacheService` синхронизирует данные между `InstrumentCacheService` и `PriceCacheService`, что позволяет API endpoints (например, `/api/scanner/weekend-scanner/indices/prices`) возвращать актуальные `lastPrice` в реальном времени.
 
 #### Обработка Trade
 
@@ -232,9 +239,12 @@ public void processTrade(Trade trade) {
 1. `QuoteScannerService.processTrade()` — получает данные
 2. `MarketDataProcessor.processTrade()` — обрабатывает данные
 3. `InstrumentCacheService` — обновляет кэш цен и объемов
-4. Накопление объемов (только во время сессии выходного дня)
-5. `QuoteDataFactory` — создает `QuoteData` объект
-6. `NotificationService` — уведомляет подписчиков
+4. `PriceCacheService` — обновляет кэш последних цен в реальном времени (через `updateLastPrice()`)
+5. Накопление объемов (только во время сессии выходного дня)
+6. `QuoteDataFactory` — создает `QuoteData` объект
+7. `NotificationService` — уведомляет подписчиков
+
+**Важно:** Обновление `PriceCacheService` обеспечивает синхронизацию данных и доступность актуальных `lastPrice` через REST API endpoints.
 
 #### Обработка OrderBook
 
@@ -656,6 +666,61 @@ scheduler.scheduleAtFixedRate(this::startScannerIfSessionTime, 0, 10, TimeUnit.S
 - Поддерживает все типы инструментов: акции, фьючерсы, индексы
 - Выполняется до инициализации индексов
 
+## Интеграция с PriceCacheService
+
+### Обновление цен в реальном времени
+
+`MarketDataProcessor` обновляет `PriceCacheService` в реальном времени при обработке рыночных данных:
+
+#### Обновление при обработке LastPrice
+
+```java
+private void processLastPriceInternal(LastPrice price) {
+    // Обновляем InstrumentCacheService
+    cacheService.setLastPrice(figi, currentPrice);
+    // Обновляем PriceCacheService для доступа через REST API
+    priceCacheService.updateLastPrice(figi, currentPrice);
+}
+```
+
+#### Обновление при обработке Trade
+
+```java
+private void processTradeInternal(Trade trade) {
+    // Обновляем InstrumentCacheService
+    cacheService.setLastPrice(figi, currentPrice);
+    // Обновляем PriceCacheService для доступа через REST API
+    priceCacheService.updateLastPrice(figi, currentPrice);
+}
+```
+
+### Метод updateLastPrice() в PriceCacheService
+
+Метод `updateLastPrice()` обеспечивает обновление кэша последних цен в реальном времени:
+
+```java
+public void updateLastPrice(String figi, BigDecimal price) {
+    if (figi != null && price != null) {
+        lastPricesCache.put(figi, price);
+        // Обновляем дату на сегодня, так как это актуальная цена в реальном времени
+        lastPriceDate = LocalDate.now();
+    }
+}
+```
+
+**Особенности:**
+- Обновляет кэш `lastPricesCache` при получении новых данных от T-Invest API
+- Обновляет `lastPriceDate` на текущую дату для индикации актуальности данных
+- Синхронизирует данные между `InstrumentCacheService` и `PriceCacheService`
+- Обеспечивает доступность актуальных `lastPrice` через REST API endpoints
+
+### Преимущества синхронизации
+
+1. **Единый источник данных** — REST API endpoints возвращают те же данные, что и WebSocket
+2. **Актуальность данных** — цены обновляются в реальном времени в обоих кэшах
+3. **Обратная совместимость** — `InstrumentCacheService` продолжает работать как раньше
+4. **Производительность** — оба кэша обновляются синхронно без дополнительных запросов к БД
+
 ## Конфигурация
 
 ### Параметры конфигурации
@@ -746,6 +811,8 @@ Map<String, Object> stats = quoteScannerService.getStats();
    │
    ├─► Обновление кэша (InstrumentCacheService)
    │
+   ├─► Обновление кэша цен (PriceCacheService) ← Синхронизация для REST API
+   │
    ├─► Создание QuoteData (QuoteDataFactory)
    │
    └─► Уведомление подписчиков (NotificationService)
@@ -774,6 +841,7 @@ Map<String, Object> stats = quoteScannerService.getStats();
    │   │
    ├─► Обновление кэша цен
    │   │   InstrumentCacheService.setLastPrice(figi, price)
+   │   │   PriceCacheService.updateLastPrice(figi, price)  ← Обновление в реальном времени
    │   │
    ├─► Создание QuoteData
    │   │   QuoteDataFactory.createFromLastPrice(price)
@@ -787,6 +855,8 @@ Map<String, Object> stats = quoteScannerService.getStats();
        │   ├─► Обработка ошибок
        │   └─► Обновление метрик
 ```
+
+**Примечание:** Обновление `PriceCacheService` в реальном времени обеспечивает синхронизацию данных между `InstrumentCacheService` (используется для WebSocket) и `PriceCacheService` (используется для REST API endpoints). Это гарантирует, что REST API endpoints возвращают актуальные `lastPrice` без задержек.
 
 ## Обработка ошибок
 
@@ -813,6 +883,7 @@ Map<String, Object> stats = quoteScannerService.getStats();
 3. **Кэширование** — быстрое получение данных из кэша
 4. **Дедупликация** — предотвращение повторной обработки
 5. **Параллельные уведомления** — параллельная отправка подписчикам
+6. **Синхронизация кэшей** — одновременное обновление `InstrumentCacheService` и `PriceCacheService` без дополнительных запросов к БД
 
 ### Метрики производительности
 

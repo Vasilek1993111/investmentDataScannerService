@@ -262,18 +262,12 @@ function updateIndicesBar(quoteData) {
     }
 
     // Изменение от ВС (снизу)
-    const priceVS = quoteData.closePriceVS || indexInfo.closePriceEvening;
+    // Цена ВС не обновляется в течение дня, только загружается один раз при первой загрузке
+    const priceVS = indexInfo.closePriceEvening || quoteData.closePriceVS;
     if (priceVS && priceVS > 0) {
-        // Обновляем отображение цены ВС, если она изменилась
-        if (quoteData.closePriceVS) {
-            const newPriceVS = Number(quoteData.closePriceVS);
-            const oldPriceVS = Number(indexInfo.closePriceEvening) || 0;
-            if (newPriceVS > 0 && Math.abs(newPriceVS - oldPriceVS) > 0.0001) {
-                indexInfo.closePriceEvening = newPriceVS;
-                if (eveningPriceElement) eveningPriceElement.textContent = `ВС: ${formatPrice(newPriceVS)}`;
-            }
-        } else if (!indexInfo.closePriceEvening) {
-            const priceVSNum = Number(priceVS);
+        // Обновляем цену ВС только если она еще не загружена (аналогично ОС)
+        if (!indexInfo.closePriceEvening && quoteData.closePriceVS) {
+            const priceVSNum = Number(quoteData.closePriceVS);
             if (priceVSNum > 0) {
                 indexInfo.closePriceEvening = priceVSNum;
                 if (eveningPriceElement) eveningPriceElement.textContent = `ВС: ${formatPrice(priceVSNum)}`;
@@ -311,6 +305,7 @@ function updateIndicesBar(quoteData) {
     }
 
     // Сохраняем котировку с учетом уже существующих цен закрытия
+    // Цена ОС и ВС не обновляются в течение дня, только используются сохраненные значения
     if (!quoteData.closePriceOS && indexInfo.closePriceOS) {
         quoteData.closePriceOS = indexInfo.closePriceOS;
         quoteData.closePrice = indexInfo.closePriceOS;
@@ -322,7 +317,9 @@ function updateIndicesBar(quoteData) {
         quoteData.closePriceOS = indexInfo.closePriceOS;
         quoteData.closePrice = indexInfo.closePriceOS;
     }
-    if (indexInfo.closePriceEvening && !quoteData.closePriceVS) {
+    // Используем сохраненную цену ВС, не обновляем из quoteData после первой загрузки
+    if (indexInfo.closePriceEvening) {
+        // Всегда используем сохраненную цену ВС, не обновляем из quoteData
         quoteData.closePriceVS = indexInfo.closePriceEvening;
     }
     indexInfo.data = quoteData;
@@ -393,7 +390,8 @@ function loadIndexPricesForSingleIndex(indexInfo, figi) {
                     }
                 }
 
-                if (eveningSessionPrice && eveningSessionPrice > 0 && (!indexInfo.closePriceEvening || indexInfo.closePriceEvening !== eveningSessionPrice)) {
+                // Цена ВС не обновляется в течение дня, только загружается один раз при первой загрузке
+                if (eveningSessionPrice && eveningSessionPrice > 0 && !indexInfo.closePriceEvening) {
                     if (eveningPriceElement) eveningPriceElement.textContent = `ВС: ${formatPrice(eveningSessionPrice)}`;
                     indexInfo.closePriceEvening = eveningSessionPrice;
                     // Обновляем котировку, если она есть
