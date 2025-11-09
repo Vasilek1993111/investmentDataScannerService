@@ -760,6 +760,10 @@ function createComparison(baseTicker, stock, futures) {
         delta: Math.round(delta * 100) / 100, // Округление до сотых
         stockVolume: getDisplayVolume(stock),
         futuresVolume: getDisplayVolume(futures),
+        futuresBid: futures.bestBid || null,
+        futuresBidQuantity: futures.bestBidQuantity || 0,
+        futuresAsk: futures.bestAsk || null,
+        futuresAskQuantity: futures.bestAskQuantity || 0,
         timestamp: Math.max(
             stock.timestamp ? new Date(stock.timestamp).getTime() : 0,
             futures.timestamp ? new Date(futures.timestamp).getTime() : 0
@@ -795,6 +799,14 @@ function createFuturesComparison(baseTicker, nearFutures, farFutures) {
         delta: Math.round(delta * 100) / 100, // Округление до сотых
         nearVolume: getDisplayVolume(nearFutures),
         farVolume: getDisplayVolume(farFutures),
+        nearBid: nearFutures.bestBid || null,
+        nearBidQuantity: nearFutures.bestBidQuantity || 0,
+        nearAsk: nearFutures.bestAsk || null,
+        nearAskQuantity: nearFutures.bestAskQuantity || 0,
+        farBid: farFutures.bestBid || null,
+        farBidQuantity: farFutures.bestBidQuantity || 0,
+        farAsk: farFutures.bestAsk || null,
+        farAskQuantity: farFutures.bestAskQuantity || 0,
         timestamp: Math.max(
             nearFutures.timestamp ? new Date(nearFutures.timestamp).getTime() : 0,
             farFutures.timestamp ? new Date(farFutures.timestamp).getTime() : 0
@@ -973,6 +985,14 @@ function formatDelta(delta) {
     return num.toFixed(2) + '%';
 }
 
+function formatBidAsk(price, quantity) {
+    if (price === null || price === undefined || price === 0) return '--';
+    const priceNum = Number(price);
+    if (!Number.isFinite(priceNum)) return '--';
+    const qty = quantity || 0;
+    return `${priceNum.toFixed(2)} (${qty})`;
+}
+
 function formatSpreadPercent(spreadPercent) {
     if (spreadPercent === null || spreadPercent === undefined) return '--';
     const num = Number(spreadPercent);
@@ -991,7 +1011,7 @@ function updateStockNearFuturesTable() {
     if (!tbody) return;
 
     if (!stockNearFutures || stockNearFutures.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="12" class="no-data">Нет данных</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="14" class="no-data">Нет данных</td></tr>';
         return;
     }
 
@@ -1007,6 +1027,8 @@ function updateStockNearFuturesTable() {
             <td>${formatPrice(comparison.futuresPrice)}</td>
             <td>${formatVolume(comparison.stockVolume)}</td>
             <td>${formatVolume(comparison.futuresVolume)}</td>
+            <td>${formatBidAsk(comparison.futuresBid, comparison.futuresBidQuantity)}</td>
+            <td>${formatBidAsk(comparison.futuresAsk, comparison.futuresAskQuantity)}</td>
             <td class="${getChangeClass(comparison.spreadPercent)}">${formatSpreadPercent(comparison.spreadPercent)}</td>
             <td>${formatSpreadPercent(comparison.fairSpread)}</td>
             <td class="${getChangeClass(comparison.delta)}">${formatDelta(comparison.delta)}</td>
@@ -1022,7 +1044,7 @@ function updateStockFarFuturesTable() {
     if (!tbody) return;
 
     if (!stockFarFutures || stockFarFutures.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="12" class="no-data">Нет данных</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="14" class="no-data">Нет данных</td></tr>';
         return;
     }
 
@@ -1038,6 +1060,8 @@ function updateStockFarFuturesTable() {
             <td>${formatPrice(comparison.futuresPrice)}</td>
             <td>${formatVolume(comparison.stockVolume)}</td>
             <td>${formatVolume(comparison.futuresVolume)}</td>
+            <td>${formatBidAsk(comparison.futuresBid, comparison.futuresBidQuantity)}</td>
+            <td>${formatBidAsk(comparison.futuresAsk, comparison.futuresAskQuantity)}</td>
             <td class="${getChangeClass(comparison.spreadPercent)}">${formatSpreadPercent(comparison.spreadPercent)}</td>
             <td>${formatSpreadPercent(comparison.fairSpread)}</td>
             <td class="${getChangeClass(comparison.delta)}">${formatDelta(comparison.delta)}</td>
@@ -1053,7 +1077,7 @@ function updateNearFarFuturesTable() {
     if (!tbody) return;
 
     if (!nearFarFutures || nearFarFutures.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="12" class="no-data">Нет данных</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="16" class="no-data">Нет данных</td></tr>';
         return;
     }
 
@@ -1070,6 +1094,10 @@ function updateNearFarFuturesTable() {
             <td>${formatPrice(comparison.farPrice)}</td>
             <td>${formatVolume(comparison.nearVolume)}</td>
             <td>${formatVolume(comparison.farVolume)}</td>
+            <td>${formatBidAsk(comparison.nearBid, comparison.nearBidQuantity)}</td>
+            <td>${formatBidAsk(comparison.nearAsk, comparison.nearAskQuantity)}</td>
+            <td>${formatBidAsk(comparison.farBid, comparison.farBidQuantity)}</td>
+            <td>${formatBidAsk(comparison.farAsk, comparison.farAskQuantity)}</td>
             <td class="${getChangeClass(comparison.spreadPercent)}">${formatSpreadPercent(comparison.spreadPercent)}</td>
             <td>${formatSpreadPercent(comparison.fairSpread)}</td>
             <td class="${getChangeClass(comparison.delta)}">${formatDelta(comparison.delta)}</td>
