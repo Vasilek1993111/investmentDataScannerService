@@ -6,12 +6,14 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
 import org.springframework.core.env.Environment;
 import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Конфигурация для сканера котировок
  * 
  * Позволяет настраивать параметры производительности и режимы работы через application.properties
  */
+@Slf4j
 @ConfigurationProperties(prefix = "quote-scanner")
 @Data
 public class QuoteScannerConfig implements ApplicationContextAware {
@@ -109,5 +111,7 @@ public class QuoteScannerConfig implements ApplicationContextAware {
     @Override
     public void setApplicationContext(ApplicationContext applicationContext) {
         this.environment = applicationContext.getEnvironment();
+        log.info("QuoteScannerConfig initialized: maxQuotesPerSecond={}, enableDatabaseSaving={}, enableWebSocketBroadcast={}, enableOrderBookSubscription={}, orderBookDepth={}, enableSharesMode={}, keyRate={}",
+                maxQuotesPerSecond, enableDatabaseSaving, enableWebSocketBroadcast, enableOrderBookSubscription, orderBookDepth, enableSharesMode, keyRate);
     }
 }

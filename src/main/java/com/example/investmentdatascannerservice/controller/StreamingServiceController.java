@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.example.investmentdatascannerservice.service.MarketDataStreamingService;
 import com.example.investmentdatascannerservice.service.MarketDataStreamingService.ServiceStats;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * REST контроллер для мониторинга и управления потоковым сервисом
@@ -14,6 +15,7 @@ import com.example.investmentdatascannerservice.service.MarketDataStreamingServi
  * Предоставляет endpoints для мониторинга производительности и управления потоковым сервисом
  * данных.
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/streaming-service")
 public class StreamingServiceController {
@@ -31,7 +33,10 @@ public class StreamingServiceController {
      */
     @GetMapping("/stats")
     public ResponseEntity<ServiceStats> getServiceStats() {
+        log.debug("Request to get streaming service stats");
         ServiceStats stats = streamingService.getServiceStats();
+        log.info("Streaming service stats: isRunning={}, isConnected={}, totalReceivedAll={}",
+                stats.isRunning(), stats.isConnected(), stats.getTotalReceivedAll());
         return ResponseEntity.ok(stats);
     }
 
@@ -42,7 +47,9 @@ public class StreamingServiceController {
      */
     @PostMapping("/reconnect")
     public ResponseEntity<Void> forceReconnect() {
+        log.info("Request to force reconnect streaming service");
         streamingService.forceReconnect();
+        log.info("Streaming service reconnect requested");
         return ResponseEntity.ok().build();
     }
 
@@ -53,8 +60,11 @@ public class StreamingServiceController {
      */
     @GetMapping("/status")
     public ResponseEntity<Boolean> getConnectionStatus() {
+        log.debug("Request to get streaming service connection status");
         ServiceStats stats = streamingService.getServiceStats();
-        return ResponseEntity.ok(stats.isConnected());
+        boolean isConnected = stats.isConnected();
+        log.debug("Streaming service connection status: {}", isConnected);
+        return ResponseEntity.ok(isConnected);
     }
 
     /**
@@ -64,6 +74,7 @@ public class StreamingServiceController {
      */
     @GetMapping("/health")
     public ResponseEntity<ServiceHealth> getServiceHealth() {
+        log.debug("Request to get streaming service health");
         ServiceStats stats = streamingService.getServiceStats();
         ServiceHealth health = new ServiceHealth(stats.isRunning(), stats.isConnected(),
                 stats.getTotalReceivedAll(), 0L, // totalErrors - не отслеживается
@@ -72,6 +83,8 @@ public class StreamingServiceController {
                 0.0, // insertUtilization - не используется
                 0.0, // errorRate - не отслеживается
                 0.0); // processingRate - не отслеживается
+        log.debug("Streaming service health: isRunning={}, isConnected={}, totalProcessed={}",
+                health.isRunning(), health.isConnected(), health.getTotalProcessed());
         return ResponseEntity.ok(health);
     }
 

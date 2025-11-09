@@ -11,12 +11,14 @@ import com.example.investmentdatascannerservice.utils.InstrumentCacheService;
 import ru.tinkoff.piapi.contract.v1.LastPrice;
 import ru.tinkoff.piapi.contract.v1.Trade;
 import ru.tinkoff.piapi.contract.v1.TradeDirection;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Фабрика для создания QuoteData объектов
  * 
  * Оптимизированная фабрика для создания DTO с минимальными накладными расходами
  */
+@Slf4j
 @Component
 public class QuoteDataFactory {
 
@@ -34,6 +36,7 @@ public class QuoteDataFactory {
      */
     public QuoteData createFromLastPrice(LastPrice price, BigDecimal currentPrice) {
         String figi = price.getFigi();
+        log.trace("Creating QuoteData from LastPrice for FIGI: {}", figi);
 
         // Получаем данные из кэша
         String ticker = cacheService.getInstrumentTicker(figi, figi);
@@ -74,6 +77,8 @@ public class QuoteDataFactory {
      */
     public QuoteData createFromTrade(Trade trade, BigDecimal currentPrice) {
         String figi = trade.getFigi();
+        log.trace("Creating QuoteData from Trade for FIGI: {}, quantity: {}, direction: {}",
+                figi, trade.getQuantity(), trade.getDirection());
 
         // Получаем данные из кэша
         String ticker = cacheService.getInstrumentTicker(figi, figi);
@@ -119,6 +124,8 @@ public class QuoteDataFactory {
      */
     public QuoteData createFromOrderBook(String figi, BigDecimal bestBid, BigDecimal bestAsk,
             long bestBidQuantity, long bestAskQuantity) {
+        log.trace("Creating QuoteData from OrderBook for FIGI: {}, bestBid: {}, bestAsk: {}, bestBidQuantity: {}, bestAskQuantity: {}",
+                figi, bestBid, bestAsk, bestBidQuantity, bestAskQuantity);
         // Получаем данные из кэша
         String ticker = cacheService.getInstrumentTicker(figi, figi);
         String instrumentName = cacheService.getInstrumentName(figi, figi);
@@ -130,6 +137,7 @@ public class QuoteDataFactory {
 
         // Если нет текущей цены, используем цену закрытия или 0
         if (currentPrice == null) {
+            log.debug("Current price is null for FIGI: {}, using closePrice or ZERO", figi);
             currentPrice = closePrice != null ? closePrice : BigDecimal.ZERO;
         }
         if (previousPrice == null) {
@@ -165,6 +173,7 @@ public class QuoteDataFactory {
         if (previousPrice == null || currentPrice == null
                 || previousPrice.compareTo(BigDecimal.ZERO) <= 0
                 || currentPrice.compareTo(BigDecimal.ZERO) <= 0) {
+            log.trace("Cannot calculate direction: previousPrice={}, currentPrice={}", previousPrice, currentPrice);
             return "NEUTRAL";
         }
 

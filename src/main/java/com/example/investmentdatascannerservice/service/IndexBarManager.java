@@ -6,6 +6,8 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 import com.example.investmentdatascannerservice.utils.InstrumentCacheService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Универсальный менеджер строки индексов с потокобезопасным хранением отдельного списка индексов на
@@ -16,9 +18,11 @@ import com.example.investmentdatascannerservice.utils.InstrumentCacheService;
  */
 public class IndexBarManager {
 
+    private static final Logger log = LoggerFactory.getLogger(IndexBarManager.class);
     private final List<IndexConfig> indices = new CopyOnWriteArrayList<>();
 
     public void clear() {
+        log.debug("Clearing all indices");
         indices.clear();
     }
 
@@ -26,10 +30,14 @@ public class IndexBarManager {
         indices.clear();
         if (defaults != null) {
             indices.addAll(defaults);
+            log.info("Initialized {} default indices", defaults.size());
+        } else {
+            log.debug("No default indices provided");
         }
     }
 
     public List<Map<String, String>> getCurrentIndices() {
+        log.trace("Getting current indices, count: {}", indices.size());
         return indices.stream().map(config -> {
             Map<String, String> index = new HashMap<>();
             index.put("figi", config.figi);
@@ -42,10 +50,12 @@ public class IndexBarManager {
     public boolean addIndex(String figi, String name, String displayName) {
         boolean exists = indices.stream().anyMatch(config -> config.ticker.equals(name));
         if (exists) {
+            log.debug("Index already exists, skipping: ticker={}", name);
             return false;
         }
         indices.add(new IndexConfig(figi != null ? figi : name, name,
                 displayName != null ? displayName : name));
+        log.info("Index added: figi={}, ticker={}, displayName={}", figi, name, displayName);
         return true;
     }
 
@@ -58,15 +68,23 @@ public class IndexBarManager {
         String figi = null;
         if (instrumentCacheService != null && name != null) {
             figi = instrumentCacheService.getFigiByTicker(name);
+            log.debug("Resolved FIGI for ticker {}: {}", name, figi);
         }
         return addIndex(figi != null ? figi : name, name, displayName);
     }
 
     public boolean removeIndex(String ticker) {
-        return indices.removeIf(config -> config.ticker.equals(ticker));
+        boolean removed = indices.removeIf(config -> config.ticker.equals(ticker));
+        if (removed) {
+            log.info("Index removed: ticker={}", ticker);
+        } else {
+            log.debug("Index not found for removal: ticker={}", ticker);
+        }
+        return removed;
     }
 
     public List<String> getIndexFigis() {
+        log.trace("Getting index FIGIs, count: {}", indices.size());
         return indices.stream().map(config -> config.figi).collect(Collectors.toList());
     }
 

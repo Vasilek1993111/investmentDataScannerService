@@ -10,6 +10,7 @@ import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
 import io.github.resilience4j.retry.RetryRegistry;
 import io.github.resilience4j.timelimiter.TimeLimiterConfig;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Конфигурация Resilience4j для Circuit Breaker, Retry и TimeLimiter
@@ -17,6 +18,7 @@ import io.github.resilience4j.timelimiter.TimeLimiterConfig;
  * Обеспечивает отказоустойчивость при работе с внешними сервисами, автоматическое восстановление и
  * защиту от каскадных сбоев.
  */
+@Slf4j
 @Configuration
 public class ResilienceConfig {
 
@@ -25,6 +27,7 @@ public class ResilienceConfig {
      */
     @Bean
     public CircuitBreakerConfig tinvestApiCircuitBreakerConfig() {
+        log.info("Configuring Circuit Breaker for T-Invest API: failureRateThreshold=50%, waitDurationInOpenState=30s, slidingWindowSize=10, minimumNumberOfCalls=5");
         return CircuitBreakerConfig.custom()
                 // Порог ошибок для перехода в OPEN состояние (50%)
                 .failureRateThreshold(50)
@@ -50,6 +53,7 @@ public class ResilienceConfig {
     @Bean
     public CircuitBreakerRegistry circuitBreakerRegistry(
             CircuitBreakerConfig tinvestApiCircuitBreakerConfig) {
+        log.info("Creating CircuitBreakerRegistry");
         return CircuitBreakerRegistry.of(tinvestApiCircuitBreakerConfig);
     }
 
@@ -58,7 +62,9 @@ public class ResilienceConfig {
      */
     @Bean
     public CircuitBreaker tinvestApiCircuitBreaker(CircuitBreakerRegistry circuitBreakerRegistry) {
-        return circuitBreakerRegistry.circuitBreaker("tinvest-api");
+        CircuitBreaker circuitBreaker = circuitBreakerRegistry.circuitBreaker("tinvest-api");
+        log.info("Circuit Breaker 'tinvest-api' created and registered");
+        return circuitBreaker;
     }
 
     /**
@@ -66,6 +72,7 @@ public class ResilienceConfig {
      */
     @Bean
     public RetryConfig tinvestApiRetryConfig() {
+        log.info("Configuring Retry for T-Invest API: maxAttempts=3, waitDuration=1s");
         return RetryConfig.custom()
                 // Максимальное количество попыток (3)
                 .maxAttempts(3)
@@ -87,6 +94,7 @@ public class ResilienceConfig {
      */
     @Bean
     public RetryRegistry retryRegistry(RetryConfig tinvestApiRetryConfig) {
+        log.info("Creating RetryRegistry");
         return RetryRegistry.of(tinvestApiRetryConfig);
     }
 
@@ -95,7 +103,9 @@ public class ResilienceConfig {
      */
     @Bean
     public Retry tinvestApiRetry(RetryRegistry retryRegistry) {
-        return retryRegistry.retry("tinvest-api");
+        Retry retry = retryRegistry.retry("tinvest-api");
+        log.info("Retry 'tinvest-api' created and registered");
+        return retry;
     }
 
     /**
@@ -103,6 +113,7 @@ public class ResilienceConfig {
      */
     @Bean
     public TimeLimiterConfig tinvestApiTimeLimiterConfig() {
+        log.info("Configuring TimeLimiter for T-Invest API: timeoutDuration=10s, cancelRunningFuture=true");
         return TimeLimiterConfig.custom()
                 // Таймаут для вызовов (10 секунд)
                 .timeoutDuration(Duration.ofSeconds(10))

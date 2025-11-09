@@ -6,12 +6,14 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import io.github.cdimascio.dotenv.Dotenv;
 import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Конфигурация приложения
  * 
  * Содержит общие настройки приложения и управление переменными окружения
  */
+@Slf4j
 @Configuration
 @ConfigurationProperties(prefix = "app")
 @Data
@@ -23,10 +25,17 @@ public class AppConfig {
                 .ignoreIfMissing().load();
 
         if (dotenv != null) {
+            int loadedCount = 0;
             for (var entry : dotenv.entries()) {
                 // Устанавливаем в System Properties
                 System.setProperty(entry.getKey(), entry.getValue());
+                loadedCount++;
             }
+            org.slf4j.LoggerFactory.getLogger(AppConfig.class)
+                    .info("Loaded {} environment variables from .env file", loadedCount);
+        } else {
+            org.slf4j.LoggerFactory.getLogger(AppConfig.class)
+                    .warn(".env file not found or could not be loaded");
         }
     }
 
@@ -38,7 +47,13 @@ public class AppConfig {
     @Bean
     @Primary
     public Dotenv dotenv() {
-        return Dotenv.configure().directory("./").filename(".env").ignoreIfMalformed()
+        Dotenv dotenv = Dotenv.configure().directory("./").filename(".env").ignoreIfMalformed()
                 .ignoreIfMissing().load();
+        if (dotenv != null) {
+            log.info("Dotenv bean created successfully with {} variables", dotenv.entries().size());
+        } else {
+            log.warn("Dotenv bean created but .env file was not loaded");
+        }
+        return dotenv;
     }
 }
