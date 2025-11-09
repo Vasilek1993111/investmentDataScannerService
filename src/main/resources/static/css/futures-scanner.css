@@ -814,6 +814,22 @@ tr:last-child td:last-child {
     }
 }
 
+/* Разрешаем выделение текста в таблицах */
+table {
+    user-select: text;
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+}
+
+table td,
+table th {
+    user-select: text;
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+}
+
 /* Анимация подсветки текста при изменении (как в индексах) */
 .price-up {
     color: #27ae60;

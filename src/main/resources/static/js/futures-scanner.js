@@ -321,13 +321,15 @@ function findNearAndFarFutures(baseTicker) {
     // Сначала проверяем фьючерсы в кэше
     futuresDataCache.forEach((futuresData, figi) => {
         // Проверяем, что базовый актив совпадает
+        // Приоритет: basicAsset из данных фьючерса, затем baseTicker из тикера
         const futuresBasicAsset = futuresData.basicAsset ? futuresData.basicAsset.toUpperCase() : null;
-        if (futuresBasicAsset !== baseTicker) {
-            // Пробуем определить базовый тикер по тикеру фьючерса
-            const baseTickerFromTicker = getBaseTicker(futuresData.ticker, figi);
-            if (baseTickerFromTicker !== baseTicker) {
-                return; // Пропускаем, если базовый актив не совпадает
-            }
+        const baseTickerFromTicker = getBaseTicker(futuresData.ticker, figi);
+
+        // Используем basicAsset если доступен, иначе используем baseTicker из тикера
+        const effectiveFuturesBase = futuresBasicAsset || baseTickerFromTicker;
+
+        if (!effectiveFuturesBase || effectiveFuturesBase !== baseTicker) {
+            return; // Пропускаем, если базовый актив не совпадает
         }
 
         // Проверяем, что фьючерс есть в quotes (должен быть добавлен при загрузке)
@@ -389,6 +391,44 @@ function findNearAndFarFutures(baseTicker) {
             if (nearQuarter.quarter === 4 && candidateQuarter.quarter === 1) {
                 farFutures = candidate;
                 break;
+            }
+        }
+    }
+
+    // Дополнительная проверка: убеждаемся, что ближний и дальний фьючерсы имеют одинаковый базовый актив
+    if (nearFutures && farFutures) {
+        const nearData = futuresDataCache.get(nearFutures.figi);
+        const farData = futuresDataCache.get(farFutures.figi);
+
+        if (nearData && farData) {
+            const nearBasicAsset = nearData.basicAsset ? nearData.basicAsset.toUpperCase() : null;
+            const farBasicAsset = farData.basicAsset ? farData.basicAsset.toUpperCase() : null;
+
+            // Если basicAsset доступен для обоих, проверяем совпадение
+            if (nearBasicAsset && farBasicAsset) {
+                if (nearBasicAsset !== farBasicAsset) {
+                    if (window.DEBUG_FUTURES) {
+                        console.warn(`findNearAndFarFutures: Different basic assets - ${nearData.ticker} (${nearBasicAsset}) vs ${farData.ticker} (${farBasicAsset}), skipping pair`);
+                    }
+                    return {
+                        nearFutures: nearFutures.figi,
+                        farFutures: null // Не возвращаем дальний, если базовые активы разные
+                    };
+                }
+            } else {
+                // Если basicAsset недоступен, проверяем по тикеру
+                const nearBaseFromTicker = getBaseTicker(nearData.ticker, nearFutures.figi);
+                const farBaseFromTicker = getBaseTicker(farData.ticker, farFutures.figi);
+
+                if (nearBaseFromTicker && farBaseFromTicker && nearBaseFromTicker !== farBaseFromTicker) {
+                    if (window.DEBUG_FUTURES) {
+                        console.warn(`findNearAndFarFutures: Different base tickers - ${nearData.ticker} (${nearBaseFromTicker}) vs ${farData.ticker} (${farBaseFromTicker}), skipping pair`);
+                    }
+                    return {
+                        nearFutures: nearFutures.figi,
+                        farFutures: null // Не возвращаем дальний, если базовые активы разные
+                    };
+                }
             }
         }
     }
@@ -689,9 +729,20 @@ function updateFuturesComparisons() {
     }
 
     // Собираем все уникальные базовые тикеры
+    // Важно: используем basicAsset из кэша, если доступен, для более точной группировки
     const baseTickers = new Set();
     quotesArray.forEach(quote => {
-        const baseTicker = getBaseTicker(quote.ticker, quote.figi);
+        // Определяем базовый тикер с приоритетом basicAsset
+        let baseTicker = null;
+        if (futuresDataCache.has(quote.figi)) {
+            const futuresData = futuresDataCache.get(quote.figi);
+            if (futuresData && futuresData.basicAsset) {
+                baseTicker = futuresData.basicAsset.toUpperCase();
+            }
+        }
+        if (!baseTicker) {
+            baseTicker = getBaseTicker(quote.ticker, quote.figi);
+        }
         if (baseTicker) {
             baseTickers.add(baseTicker);
         }
@@ -701,10 +752,21 @@ function updateFuturesComparisons() {
     }
 
     // Группируем инструменты по базовому тикеру
+    // Важно: используем basicAsset из кэша, если доступен, для более точной группировки
     const instrumentGroups = new Map();
 
     quotesArray.forEach(quote => {
-        const baseTicker = getBaseTicker(quote.ticker, quote.figi);
+        // Определяем базовый тикер с приоритетом basicAsset
+        let baseTicker = null;
+        if (futuresDataCache.has(quote.figi)) {
+            const futuresData = futuresDataCache.get(quote.figi);
+            if (futuresData && futuresData.basicAsset) {
+                baseTicker = futuresData.basicAsset.toUpperCase();
+            }
+        }
+        if (!baseTicker) {
+            baseTicker = getBaseTicker(quote.ticker, quote.figi);
+        }
         if (!baseTicker) return;
 
         if (!instrumentGroups.has(baseTicker)) {
@@ -722,15 +784,11 @@ function updateFuturesComparisons() {
         }
     });
 
-    // Находим ближние и дальние фьючерсы для каждого базового актива (с кэшированием)
+    // Находим ближние и дальние фьючерсы для каждого базового актива
+    // ВАЖНО: Не используем кэш, так как данные могут изменяться, и кэш может содержать неправильные пары
+    // Вместо этого всегда вызываем findNearAndFarFutures для актуальных данных
     baseTickers.forEach(baseTicker => {
-        let futuresInfo = nearFarFuturesCache.get(baseTicker);
-        if (!futuresInfo) {
-            futuresInfo = findNearAndFarFutures(baseTicker);
-            if (futuresInfo) {
-                nearFarFuturesCache.set(baseTicker, futuresInfo);
-            }
-        }
+        const futuresInfo = findNearAndFarFutures(baseTicker);
 
         if (futuresInfo) {
             const group = instrumentGroups.get(baseTicker);
@@ -761,8 +819,69 @@ function updateFuturesComparisons() {
         }
 
         // Ближний vs Дальний фьючерс
+        // СТРОГАЯ проверка: оба фьючерса должны иметь одинаковый базовый актив
         if (nearFuturesQuote && farFuturesQuote) {
-            nearFarComparisons.push(createFuturesComparison(baseTicker, nearFuturesQuote, farFuturesQuote));
+            // Явные исключения для пар, которые не должны отображаться
+            const nearTicker = nearFuturesQuote.ticker.toUpperCase();
+            const farTicker = farFuturesQuote.ticker.toUpperCase();
+
+            // Исключаем пару RMZ5 - RIH6 (в любом порядке)
+            if ((nearTicker === 'RMZ5' && farTicker === 'RIH6') ||
+                (nearTicker === 'RIH6' && farTicker === 'RMZ5')) {
+                if (window.DEBUG_FUTURES) {
+                    console.warn(`Skipping excluded pair: ${nearFuturesQuote.ticker} vs ${farFuturesQuote.ticker}`);
+                }
+                return; // Пропускаем эту пару
+            }
+
+            // Получаем данные фьючерсов из кэша
+            const nearData = futuresDataCache.get(nearFuturesQuote.figi);
+            const farData = futuresDataCache.get(farFuturesQuote.figi);
+
+            if (!nearData || !farData) {
+                if (window.DEBUG_FUTURES) {
+                    console.warn(`Skipping near-far pair: missing data for ${nearFuturesQuote.ticker} or ${farFuturesQuote.ticker}`);
+                }
+                // Пропускаем эту итерацию
+            } else {
+                // Проверяем basicAsset напрямую из данных (приоритет)
+                const nearBasicAsset = nearData.basicAsset ? nearData.basicAsset.toUpperCase().trim() : null;
+                const farBasicAsset = farData.basicAsset ? farData.basicAsset.toUpperCase().trim() : null;
+
+                let shouldAddPair = true;
+
+                // Если basicAsset доступен для обоих, проверяем строгое совпадение
+                if (nearBasicAsset && farBasicAsset) {
+                    if (nearBasicAsset !== farBasicAsset) {
+                        if (window.DEBUG_FUTURES) {
+                            console.warn(`Skipping near-far pair: ${nearFuturesQuote.ticker} (basicAsset: ${nearBasicAsset}) vs ${farFuturesQuote.ticker} (basicAsset: ${farBasicAsset}) - DIFFERENT basic assets`);
+                        }
+                        shouldAddPair = false; // Строго пропускаем, если basicAsset разный
+                    }
+                } else if (nearBasicAsset || farBasicAsset) {
+                    // Если только у одного есть basicAsset, это подозрительно - пропускаем
+                    if (window.DEBUG_FUTURES) {
+                        console.warn(`Skipping near-far pair: ${nearFuturesQuote.ticker} (basicAsset: ${nearBasicAsset}) vs ${farFuturesQuote.ticker} (basicAsset: ${farBasicAsset}) - one missing basicAsset`);
+                    }
+                    shouldAddPair = false;
+                } else {
+                    // Если basicAsset нет у обоих, проверяем по тикеру
+                    const nearBaseFromTicker = getBaseTicker(nearFuturesQuote.ticker, nearFuturesQuote.figi);
+                    const farBaseFromTicker = getBaseTicker(farFuturesQuote.ticker, farFuturesQuote.figi);
+
+                    if (nearBaseFromTicker && farBaseFromTicker && nearBaseFromTicker !== farBaseFromTicker) {
+                        if (window.DEBUG_FUTURES) {
+                            console.warn(`Skipping near-far pair: ${nearFuturesQuote.ticker} (base: ${nearBaseFromTicker}) vs ${farFuturesQuote.ticker} (base: ${farBaseFromTicker}) - different base tickers`);
+                        }
+                        shouldAddPair = false; // Пропускаем, если базовые тикеры разные
+                    }
+                }
+
+                // Если все проверки пройдены, создаем пару
+                if (shouldAddPair) {
+                    nearFarComparisons.push(createFuturesComparison(baseTicker, nearFuturesQuote, farFuturesQuote));
+                }
+            }
         }
     });
 
@@ -1059,26 +1178,33 @@ function getChangeClass(change) {
     return change > 0 ? 'positive' : change < 0 ? 'negative' : '';
 }
 
+
 /**
- * Обновляет информацию о справедливом расхождении для каждой группы фьючерсов
+ * Обновляет информацию о справедливом расхождении и экспирации для каждой группы фьючерсов
  */
 function updateFairSpreadInfo() {
-    // Для группы "Акции vs Ближние фьючерсы" - вычисляем среднее справедливое расхождение
+    // Для группы "Акции vs Ближние фьючерсы" - вычисляем среднее справедливое расхождение и экспирацию
     if (stockNearFutures && stockNearFutures.length > 0) {
         const fairSpreads = stockNearFutures.map(c => {
             const days = getDaysToExpirationNumber(c.futures.figi);
             return days > 0 ? (keyRate / 365) * days : 0;
         }).filter(v => v > 0);
 
-        if (fairSpreads.length > 0) {
-            const avgFairSpread = fairSpreads.reduce((sum, v) => sum + v, 0) / fairSpreads.length;
-            const infoEl = document.getElementById('stockNearFairSpreadInfo');
-            if (infoEl) {
-                infoEl.textContent = `Справедливое расхождение (среднее): ${formatSpreadPercent(avgFairSpread)}`;
-            }
-        } else {
-            const infoEl = document.getElementById('stockNearFairSpreadInfo');
-            if (infoEl) {
+        const expirationDays = stockNearFutures.map(c => getDaysToExpirationNumber(c.futures.figi)).filter(d => d > 0);
+
+        const infoEl = document.getElementById('stockNearFairSpreadInfo');
+        if (infoEl) {
+            if (fairSpreads.length > 0 && expirationDays.length > 0) {
+                const avgFairSpread = fairSpreads.reduce((sum, v) => sum + v, 0) / fairSpreads.length;
+                const minDays = Math.min(...expirationDays);
+                const maxDays = Math.max(...expirationDays);
+                const avgDays = Math.round(expirationDays.reduce((sum, d) => sum + d, 0) / expirationDays.length);
+                let expirationText = `Экспирация: ${avgDays} дн.`;
+                if (minDays !== maxDays) {
+                    expirationText = `Экспирация: ${minDays}-${maxDays} дн. (среднее: ${avgDays} дн.)`;
+                }
+                infoEl.innerHTML = `Справедливое расхождение (среднее): ${formatSpreadPercent(avgFairSpread)} | ${expirationText}`;
+            } else {
                 infoEl.textContent = '';
             }
         }
@@ -1089,22 +1215,28 @@ function updateFairSpreadInfo() {
         }
     }
 
-    // Для группы "Акции vs Дальние фьючерсы" - вычисляем среднее справедливое расхождение
+    // Для группы "Акции vs Дальние фьючерсы" - вычисляем среднее справедливое расхождение и экспирацию
     if (stockFarFutures && stockFarFutures.length > 0) {
         const fairSpreads = stockFarFutures.map(c => {
             const days = getDaysToExpirationNumber(c.futures.figi);
             return days > 0 ? (keyRate / 365) * days : 0;
         }).filter(v => v > 0);
 
-        if (fairSpreads.length > 0) {
-            const avgFairSpread = fairSpreads.reduce((sum, v) => sum + v, 0) / fairSpreads.length;
-            const infoEl = document.getElementById('stockFarFairSpreadInfo');
-            if (infoEl) {
-                infoEl.textContent = `Справедливое расхождение (среднее): ${formatSpreadPercent(avgFairSpread)}`;
-            }
-        } else {
-            const infoEl = document.getElementById('stockFarFairSpreadInfo');
-            if (infoEl) {
+        const expirationDays = stockFarFutures.map(c => getDaysToExpirationNumber(c.futures.figi)).filter(d => d > 0);
+
+        const infoEl = document.getElementById('stockFarFairSpreadInfo');
+        if (infoEl) {
+            if (fairSpreads.length > 0 && expirationDays.length > 0) {
+                const avgFairSpread = fairSpreads.reduce((sum, v) => sum + v, 0) / fairSpreads.length;
+                const minDays = Math.min(...expirationDays);
+                const maxDays = Math.max(...expirationDays);
+                const avgDays = Math.round(expirationDays.reduce((sum, d) => sum + d, 0) / expirationDays.length);
+                let expirationText = `Экспирация: ${avgDays} дн.`;
+                if (minDays !== maxDays) {
+                    expirationText = `Экспирация: ${minDays}-${maxDays} дн. (среднее: ${avgDays} дн.)`;
+                }
+                infoEl.innerHTML = `Справедливое расхождение (среднее): ${formatSpreadPercent(avgFairSpread)} | ${expirationText}`;
+            } else {
                 infoEl.textContent = '';
             }
         }
@@ -1115,7 +1247,7 @@ function updateFairSpreadInfo() {
         }
     }
 
-    // Для группы "Ближние vs Дальние фьючерсы" - вычисляем среднее справедливое расхождение (разница в днях)
+    // Для группы "Ближние vs Дальние фьючерсы" - вычисляем среднее справедливое расхождение и экспирацию
     if (nearFarFutures && nearFarFutures.length > 0) {
         const fairSpreads = nearFarFutures.map(c => {
             const nearDays = getDaysToExpirationNumber(c.nearFutures.figi);
@@ -1124,15 +1256,18 @@ function updateFairSpreadInfo() {
             return daysDifference > 0 ? (keyRate / 365) * daysDifference : 0;
         }).filter(v => v > 0);
 
-        if (fairSpreads.length > 0) {
-            const avgFairSpread = fairSpreads.reduce((sum, v) => sum + v, 0) / fairSpreads.length;
-            const infoEl = document.getElementById('nearFarFairSpreadInfo');
-            if (infoEl) {
-                infoEl.textContent = `Справедливое расхождение (среднее): ${formatSpreadPercent(avgFairSpread)}`;
-            }
-        } else {
-            const infoEl = document.getElementById('nearFarFairSpreadInfo');
-            if (infoEl) {
+        const nearExpirationDays = nearFarFutures.map(c => getDaysToExpirationNumber(c.nearFutures.figi)).filter(d => d > 0);
+        const farExpirationDays = nearFarFutures.map(c => getDaysToExpirationNumber(c.farFutures.figi)).filter(d => d > 0);
+
+        const infoEl = document.getElementById('nearFarFairSpreadInfo');
+        if (infoEl) {
+            if (fairSpreads.length > 0 && nearExpirationDays.length > 0 && farExpirationDays.length > 0) {
+                const avgFairSpread = fairSpreads.reduce((sum, v) => sum + v, 0) / fairSpreads.length;
+                const avgNearDays = Math.round(nearExpirationDays.reduce((sum, d) => sum + d, 0) / nearExpirationDays.length);
+                const avgFarDays = Math.round(farExpirationDays.reduce((sum, d) => sum + d, 0) / farExpirationDays.length);
+                const expirationText = `Экспирация: ближний ${avgNearDays} дн., дальний ${avgFarDays} дн.`;
+                infoEl.innerHTML = `Справедливое расхождение (среднее): ${formatSpreadPercent(avgFairSpread)} | ${expirationText}`;
+            } else {
                 infoEl.textContent = '';
             }
         }
@@ -1150,17 +1285,16 @@ function updateStockNearFuturesTable() {
     if (!tbody) return;
 
     if (!stockNearFutures || stockNearFutures.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="13" class="no-data">Нет данных</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" class="no-data">Нет данных</td></tr>';
         return;
     }
 
     tbody.innerHTML = '';
     stockNearFutures.forEach(comparison => {
         const row = document.createElement('tr');
-        const expirationDays = calculateDaysToExpiration(comparison.futures.figi);
         row.innerHTML = `
-            <td><strong>${comparison.stock.ticker}</strong></td>
-            <td><strong>${comparison.futures.ticker}</strong></td>
+            <td><strong class="ticker-cell">${comparison.stock.ticker}</strong></td>
+            <td><strong class="ticker-cell">${comparison.futures.ticker}</strong></td>
             <td>${comparison.lotSize}</td>
             <td>${formatPrice(comparison.stockPrice)}</td>
             <td>${formatPrice(comparison.futuresPrice)}</td>
@@ -1170,7 +1304,6 @@ function updateStockNearFuturesTable() {
             <td>${formatBidAsk(comparison.futuresAsk, comparison.futuresAskQuantity)}</td>
             <td class="${getChangeClass(comparison.spreadPercent)}">${formatSpreadPercent(comparison.spreadPercent)}</td>
             <td class="${getChangeClass(comparison.delta)}">${formatDelta(comparison.delta)}</td>
-            <td class="expiration-cell">${expirationDays}</td>
             <td>${formatTime(comparison.timestamp)}</td>
         `;
         tbody.appendChild(row);
@@ -1182,17 +1315,16 @@ function updateStockFarFuturesTable() {
     if (!tbody) return;
 
     if (!stockFarFutures || stockFarFutures.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="13" class="no-data">Нет данных</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" class="no-data">Нет данных</td></tr>';
         return;
     }
 
     tbody.innerHTML = '';
     stockFarFutures.forEach(comparison => {
         const row = document.createElement('tr');
-        const expirationDays = calculateDaysToExpiration(comparison.futures.figi);
         row.innerHTML = `
-            <td><strong>${comparison.stock.ticker}</strong></td>
-            <td><strong>${comparison.futures.ticker}</strong></td>
+            <td><strong class="ticker-cell">${comparison.stock.ticker}</strong></td>
+            <td><strong class="ticker-cell">${comparison.futures.ticker}</strong></td>
             <td>${comparison.lotSize}</td>
             <td>${formatPrice(comparison.stockPrice)}</td>
             <td>${formatPrice(comparison.futuresPrice)}</td>
@@ -1202,7 +1334,6 @@ function updateStockFarFuturesTable() {
             <td>${formatBidAsk(comparison.futuresAsk, comparison.futuresAskQuantity)}</td>
             <td class="${getChangeClass(comparison.spreadPercent)}">${formatSpreadPercent(comparison.spreadPercent)}</td>
             <td class="${getChangeClass(comparison.delta)}">${formatDelta(comparison.delta)}</td>
-            <td class="expiration-cell">${expirationDays}</td>
             <td>${formatTime(comparison.timestamp)}</td>
         `;
         tbody.appendChild(row);
@@ -1214,18 +1345,16 @@ function updateNearFarFuturesTable() {
     if (!tbody) return;
 
     if (!nearFarFutures || nearFarFutures.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="15" class="no-data">Нет данных</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="14" class="no-data">Нет данных</td></tr>';
         return;
     }
 
     tbody.innerHTML = '';
     nearFarFutures.forEach(comparison => {
         const row = document.createElement('tr');
-        const nearExpirationDays = calculateDaysToExpiration(comparison.nearFutures.figi);
-        const farExpirationDays = calculateDaysToExpiration(comparison.farFutures.figi);
         row.innerHTML = `
-            <td><strong>${comparison.nearFutures.ticker}</strong></td>
-            <td><strong>${comparison.farFutures.ticker}</strong></td>
+            <td><strong class="ticker-cell">${comparison.nearFutures.ticker}</strong></td>
+            <td><strong class="ticker-cell">${comparison.farFutures.ticker}</strong></td>
             <td>${comparison.lotSize}</td>
             <td>${formatPrice(comparison.nearPrice)}</td>
             <td>${formatPrice(comparison.farPrice)}</td>
@@ -1237,12 +1366,6 @@ function updateNearFarFuturesTable() {
             <td>${formatBidAsk(comparison.farAsk, comparison.farAskQuantity)}</td>
             <td class="${getChangeClass(comparison.spreadPercent)}">${formatSpreadPercent(comparison.spreadPercent)}</td>
             <td class="${getChangeClass(comparison.delta)}">${formatDelta(comparison.delta)}</td>
-            <td class="expiration-cell">
-                <div class="expiration-info">
-                    <div class="near-expiration">Ближний: ${nearExpirationDays}</div>
-                    <div class="far-expiration">Дальний: ${farExpirationDays}</div>
-                </div>
-            </td>
             <td>${formatTime(comparison.timestamp)}</td>
         `;
         tbody.appendChild(row);
