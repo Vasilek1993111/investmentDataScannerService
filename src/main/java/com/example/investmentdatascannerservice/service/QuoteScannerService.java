@@ -359,14 +359,14 @@ public class QuoteScannerService {
      */
     public void startScannerIfSessionTime() {
         if (sessionTimeService.isMorningSessionTime()) {
-            if (config.isEnableTestMode()) {
-                log.info("Morning session detected - TEST MODE ENABLED");
+            if (config.isTestModeMorning()) {
+                log.info("Morning session detected - TEST MODE ENABLED (morning scanner)");
             } else {
                 log.info("Morning session detected - scanner ready");
             }
         } else {
-            if (config.isEnableTestMode()) {
-                log.info("Outside morning session - TEST MODE ENABLED");
+            if (config.isTestModeMorning()) {
+                log.info("Outside morning session - TEST MODE ENABLED (morning scanner)");
             } else {
                 log.info("Outside morning session - scanner inactive");
             }
@@ -378,14 +378,14 @@ public class QuoteScannerService {
      */
     public void startScannerIfWeekendSessionTime() {
         if (sessionTimeService.isWeekendSessionTime()) {
-            if (config.isEnableTestMode()) {
-                log.info("Weekend session detected - TEST MODE ENABLED");
+            if (config.isTestModeWeekend()) {
+                log.info("Weekend session detected - TEST MODE ENABLED (weekend scanner)");
             } else {
                 log.info("Weekend session detected - scanner ready");
             }
         } else {
-            if (config.isEnableTestMode()) {
-                log.info("Outside weekend session - TEST MODE ENABLED");
+            if (config.isTestModeWeekend()) {
+                log.info("Outside weekend session - TEST MODE ENABLED (weekend scanner)");
             } else {
                 log.info("Outside weekend session - scanner inactive");
             }

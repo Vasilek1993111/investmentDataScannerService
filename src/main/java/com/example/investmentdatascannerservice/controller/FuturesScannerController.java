@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import com.example.investmentdatascannerservice.config.QuoteScannerConfig;
 import com.example.investmentdatascannerservice.service.PriceCacheService;
 import com.example.investmentdatascannerservice.service.QuoteScannerService;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +30,7 @@ public class FuturesScannerController {
 
     private final QuoteScannerService quoteScannerService;
     private final PriceCacheService priceCacheService;
+    private final QuoteScannerConfig config;
 
     /**
      * Получить текущий список индексов для сканера фьючерсов
@@ -191,12 +193,37 @@ public class FuturesScannerController {
         try {
             boolean isActive = quoteScannerService.isScannerActive();
             response.put("isActive", isActive);
+            response.put("testMode", config.isTestModeFutures());
             response.put("message",
                     isActive ? "Сканер фьючерсов активен" : "Сканер фьючерсов неактивен");
         } catch (Exception e) {
             log.error("Error checking futures scanner status", e);
             response.put("isActive", false);
+            response.put("testMode", config.isTestModeFutures());
             response.put("message", "Ошибка при проверке статуса сканера: " + e.getMessage());
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Получить статус сканера фьючерсов
+     */
+    @GetMapping("/status")
+    public ResponseEntity<Map<String, Object>> getFuturesScannerStatus() {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            boolean isActive = quoteScannerService.isScannerActive();
+            response.put("active", isActive);
+            response.put("testMode", config.isTestModeFutures());
+            response.put("message",
+                    isActive ? "Сканер фьючерсов активен" : "Сканер фьючерсов неактивен");
+        } catch (Exception e) {
+            log.error("Error getting futures scanner status", e);
+            response.put("active", false);
+            response.put("testMode", config.isTestModeFutures());
+            response.put("message", "Ошибка при получении статуса сканера: " + e.getMessage());
         }
 
         return ResponseEntity.ok(response);

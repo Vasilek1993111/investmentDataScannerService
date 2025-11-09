@@ -1152,7 +1152,7 @@ async function updateScannerStatus() {
 
         if (testModeResp && testModeResp.ok) {
             const data = await testModeResp.json();
-            isTestMode = !!data.testModeEnabled;
+            isTestMode = !!data.testModeFutures;
         }
     } catch (error) {
         console.warn('Не удалось получить статус тестового режима:', error);

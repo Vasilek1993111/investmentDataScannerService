@@ -175,7 +175,9 @@ quote-scanner.enable-database-saving=false
 quote-scanner.enable-websocket-broadcast=true
 quote-scanner.enable-order-book-subscription=true
 quote-scanner.order-book-depth=1
-quote-scanner.enable-test-mode=true
+quote-scanner.enable-test-mode-morning=true
+quote-scanner.enable-test-mode-weekend=true
+quote-scanner.enable-test-mode-futures=true
 quote-scanner.enable-shares-mode=true
 
 # Logging

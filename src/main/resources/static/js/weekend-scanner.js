@@ -789,7 +789,7 @@ async function updateWeekendStatus() {
 
         if (testResp && testResp.ok) {
             const data = await testResp.json();
-            isTestMode = !!data.testModeEnabled;
+            isTestMode = !!data.testModeWeekend;
         }
         if (sessionResp && sessionResp.ok) {
             const data = await sessionResp.json();

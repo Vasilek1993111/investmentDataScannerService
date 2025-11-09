@@ -88,9 +88,13 @@ public class GeneralScannerController {
      */
     @GetMapping("/test-mode")
     public ResponseEntity<Map<String, Object>> getTestModeStatus() {
-        return ResponseEntity.ok(Map.of("testModeEnabled", config.isEnableTestMode(),
-                "scannerActive", quoteScannerService.isScannerActive(), "sharesMode",
-                config.isEnableSharesMode()));
+        Map<String, Object> response = new HashMap<>();
+        response.put("testModeMorning", config.isTestModeMorning());
+        response.put("testModeWeekend", config.isTestModeWeekend());
+        response.put("testModeFutures", config.isTestModeFutures());
+        response.put("scannerActive", quoteScannerService.isScannerActive());
+        response.put("sharesMode", config.isEnableSharesMode());
+        return ResponseEntity.ok(response);
     }
 
     /**
@@ -151,7 +155,9 @@ public class GeneralScannerController {
         response.put("active", isActive);
         response.put("weekendSession", isWeekendSession);
         response.put("morningSession", isMorningSession);
-        response.put("testMode", config.isEnableTestMode());
+        response.put("testModeMorning", config.isTestModeMorning());
+        response.put("testModeWeekend", config.isTestModeWeekend());
+        response.put("testModeFutures", config.isTestModeFutures());
         response.put("sharesMode", config.isEnableSharesMode());
 
         String message;
