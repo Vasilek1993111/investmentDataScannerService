@@ -264,14 +264,9 @@ public class MarketDataProcessor {
         cacheService.setBestBidQuantity(figi, bestBidQuantity);
         cacheService.setBestAskQuantity(figi, bestAskQuantity);
 
-        // Проверяем, есть ли текущая цена для инструмента
-        BigDecimal currentPrice = cacheService.getLastPrice(figi);
-        if (currentPrice == null) {
-            log.debug("Skipping OrderBook notification for {} - no current price available", figi);
-            return;
-        }
-
         // Создаем QuoteData для уведомления подписчиков об обновлении стакана
+        // Отправляем уведомление независимо от наличия currentPrice, так как стакан может быть
+        // доступен даже без цены
         QuoteData quoteData = quoteDataFactory.createFromOrderBook(figi, bestBid, bestAsk,
                 bestBidQuantity, bestAskQuantity);
 
