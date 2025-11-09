@@ -59,6 +59,17 @@ let isTestModeGlobal = false;
 // Кэш данных о фьючерсах (FIGI -> данные о фьючерсе)
 let futuresDataCache = new Map();
 
+// Ключевая ставка ЦБ РФ (в процентах)
+let keyRate = 16.5;
+
+// Кэш результатов findNearAndFarFutures для оптимизации
+let nearFarFuturesCache = new Map();
+
+// Убрали дебаунсинг - обновляем напрямую, как в сканере выходного дня
+
+// Флаг для отладки (можно включить через консоль: window.DEBUG_FUTURES = true)
+window.DEBUG_FUTURES = false;
+
 /**
  * Загрузить данные о фьючерсах с сервера
  */
@@ -166,12 +177,12 @@ async function loadFuturesData() {
 }
 
 /**
- * Рассчитать количество дней до экспирации фьючерса
+ * Рассчитать количество дней до экспирации фьючерса (число)
  */
-function calculateDaysToExpiration(figi) {
+function getDaysToExpirationNumber(figi) {
     const futuresData = futuresDataCache.get(figi);
     if (!futuresData || !futuresData.expirationDate) {
-        return 'N/A';
+        return 0;
     }
 
     try {
@@ -183,16 +194,25 @@ function calculateDaysToExpiration(figi) {
         const diffTime = expirationDate - today;
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-        if (diffDays < 0) {
-            return `Истек (${Math.abs(diffDays)} дн. назад)`;
-        } else if (diffDays === 0) {
-            return 'Сегодня';
-        } else {
-            return `${diffDays} дн.`;
-        }
+        return diffDays > 0 ? diffDays : 0;
     } catch (error) {
         console.error('Error calculating expiration days:', error);
-        return 'N/A';
+        return 0;
+    }
+}
+
+/**
+ * Рассчитать количество дней до экспирации фьючерса (строка для отображения)
+ */
+function calculateDaysToExpiration(figi) {
+    const days = getDaysToExpirationNumber(figi);
+
+    if (days === 0) {
+        return 'Сегодня';
+    } else if (days < 0) {
+        return `Истек (${Math.abs(days)} дн. назад)`;
+    } else {
+        return `${days} дн.`;
     }
 }
 
@@ -295,34 +315,55 @@ function getExpirationQuarter(figi) {
  */
 function findNearAndFarFutures(baseTicker) {
     // Собираем все фьючерсы для данного базового актива
+    // Ищем фьючерсы в кэше фьючерсов, а не только в quotes (так как некоторые фьючерсы могут не иметь цен)
     const futuresForAsset = [];
 
-    quotes.forEach((quote, figi) => {
-        if (!futuresDataCache.has(figi)) return;
+    // Сначала проверяем фьючерсы в кэше
+    futuresDataCache.forEach((futuresData, figi) => {
+        // Проверяем, что базовый актив совпадает
+        // Приоритет: basicAsset из данных фьючерса, затем baseTicker из тикера
+        const futuresBasicAsset = futuresData.basicAsset ? futuresData.basicAsset.toUpperCase() : null;
+        const baseTickerFromTicker = getBaseTicker(futuresData.ticker, figi);
 
-        const baseTickerFromQuote = getBaseTicker(quote.ticker, figi);
-        if (baseTickerFromQuote === baseTicker) {
-            const quarter = getExpirationQuarter(figi);
-            if (quarter) {
-                futuresForAsset.push({
-                    figi,
-                    quarter,
-                    expirationDate: quarter.date
-                });
+        // Используем basicAsset если доступен, иначе используем baseTicker из тикера
+        const effectiveFuturesBase = futuresBasicAsset || baseTickerFromTicker;
+
+        if (!effectiveFuturesBase || effectiveFuturesBase !== baseTicker) {
+            return; // Пропускаем, если базовый актив не совпадает
+        }
+
+        // Проверяем, что фьючерс есть в quotes (должен быть добавлен при загрузке)
+        if (!quotes.has(figi)) {
+            if (window.DEBUG_FUTURES) {
+                console.warn(`Futures ${futuresData.ticker} (${figi}) found in cache but not in quotes, adding it`);
             }
+            // Добавляем фьючерс в quotes, даже если для него нет цены
+            const quoteData = {
+                figi: figi,
+                ticker: futuresData.ticker,
+                currentPrice: 0,
+                volume: 0,
+                timestamp: new Date().toISOString()
+            };
+            quotes.set(figi, quoteData);
+        }
+
+        const quarter = getExpirationQuarter(figi);
+        if (quarter) {
+            futuresForAsset.push({
+                figi,
+                quarter,
+                expirationDate: quarter.date
+            });
         }
     });
 
     if (futuresForAsset.length === 0) {
-        console.log(`No futures found for base ticker: ${baseTicker}`);
+        if (window.DEBUG_FUTURES) {
+            console.log(`No futures found for base ticker: ${baseTicker}`);
+        }
         return null;
     }
-
-    console.log(`Found ${futuresForAsset.length} futures for ${baseTicker}:`, futuresForAsset.map(f => ({
-        figi: f.figi,
-        ticker: quotes.get(f.figi)?.ticker,
-        quarter: `${f.quarter.year}Q${f.quarter.quarter}`
-    })));
 
     // Сортируем по дате экспирации
     futuresForAsset.sort((a, b) => a.expirationDate - b.expirationDate);
@@ -354,15 +395,48 @@ function findNearAndFarFutures(baseTicker) {
         }
     }
 
+    // Дополнительная проверка: убеждаемся, что ближний и дальний фьючерсы имеют одинаковый базовый актив
+    if (nearFutures && farFutures) {
+        const nearData = futuresDataCache.get(nearFutures.figi);
+        const farData = futuresDataCache.get(farFutures.figi);
+
+        if (nearData && farData) {
+            const nearBasicAsset = nearData.basicAsset ? nearData.basicAsset.toUpperCase() : null;
+            const farBasicAsset = farData.basicAsset ? farData.basicAsset.toUpperCase() : null;
+
+            // Если basicAsset доступен для обоих, проверяем совпадение
+            if (nearBasicAsset && farBasicAsset) {
+                if (nearBasicAsset !== farBasicAsset) {
+                    if (window.DEBUG_FUTURES) {
+                        console.warn(`findNearAndFarFutures: Different basic assets - ${nearData.ticker} (${nearBasicAsset}) vs ${farData.ticker} (${farBasicAsset}), skipping pair`);
+                    }
+                    return {
+                        nearFutures: nearFutures.figi,
+                        farFutures: null // Не возвращаем дальний, если базовые активы разные
+                    };
+                }
+            } else {
+                // Если basicAsset недоступен, проверяем по тикеру
+                const nearBaseFromTicker = getBaseTicker(nearData.ticker, nearFutures.figi);
+                const farBaseFromTicker = getBaseTicker(farData.ticker, farFutures.figi);
+
+                if (nearBaseFromTicker && farBaseFromTicker && nearBaseFromTicker !== farBaseFromTicker) {
+                    if (window.DEBUG_FUTURES) {
+                        console.warn(`findNearAndFarFutures: Different base tickers - ${nearData.ticker} (${nearBaseFromTicker}) vs ${farData.ticker} (${farBaseFromTicker}), skipping pair`);
+                    }
+                    return {
+                        nearFutures: nearFutures.figi,
+                        farFutures: null // Не возвращаем дальний, если базовые активы разные
+                    };
+                }
+            }
+        }
+    }
+
     const result = {
         nearFutures: nearFutures ? nearFutures.figi : null,
         farFutures: farFutures ? farFutures.figi : null
     };
-
-    console.log(`Result for ${baseTicker}:`, {
-        nearFutures: result.nearFutures ? quotes.get(result.nearFutures)?.ticker : null,
-        farFutures: result.farFutures ? quotes.get(result.farFutures)?.ticker : null
-    });
 
     return result;
 }
@@ -472,10 +546,13 @@ function connect() {
             incrementVolumeCache.clear();
             totalVolumeCache.clear();
             previousValues.clear();
+            nearFarFuturesCache.clear(); // Очищаем кэш при переподключении
             stockNearFutures = [];
             stockFarFutures = [];
             nearFarFutures = [];
             updateCount = 0;
+
+            // Очистка таймера дебаунсинга больше не нужна
 
             // Сохраняем данные индексов при подключении, чтобы не обнулять их
             initializeIndicesBar(true);
@@ -531,25 +608,79 @@ function disconnect() {
 
 function updateQuote(quoteData) {
     const figi = quoteData.figi;
-    console.log('updateQuote called:', quoteData.ticker, quoteData.figi, 'currentPrice:', quoteData.currentPrice);
 
-    // Сохраняем цену ВС из предыдущей котировки, если она уже была загружена
-    // Цена ВС не обновляется в течение дня, только загружается один раз при первой загрузке
+    // Сохраняем данные из предыдущей котировки, если они уже были загружены
     const existingQuote = quotes.get(figi);
-    if (existingQuote && existingQuote.closePriceVS) {
-        quoteData.closePriceVS = existingQuote.closePriceVS;
+
+    // Проверяем, есть ли обновления стакана
+    const hasOrderBookUpdate = existingQuote && (
+        (quoteData.bestBid != null && quoteData.bestBid !== existingQuote.bestBid) ||
+        (quoteData.bestAsk != null && quoteData.bestAsk !== existingQuote.bestAsk) ||
+        (quoteData.bestBidQuantity != null && quoteData.bestBidQuantity !== existingQuote.bestBidQuantity) ||
+        (quoteData.bestAskQuantity != null && quoteData.bestAskQuantity !== existingQuote.bestAskQuantity)
+    );
+
+    if (window.DEBUG_FUTURES) {
+        console.log('updateQuote called:', quoteData.ticker, quoteData.figi,
+            'currentPrice:', quoteData.currentPrice,
+            'bestBid:', quoteData.bestBid, 'bestAsk:', quoteData.bestAsk,
+            'hasOrderBookUpdate:', hasOrderBookUpdate);
     }
 
+    if (existingQuote) {
+        // Сохраняем цену ВС из предыдущей котировки
+        if (existingQuote.closePriceVS) {
+            quoteData.closePriceVS = existingQuote.closePriceVS;
+        }
+
+        // Мержим данные стакана: если новые данные пришли (не null/undefined), используем их
+        // Если новых данных нет, сохраняем старые (для частичных обновлений)
+        // Важно: если новое значение равно 0, это означает пустой стакан, и мы должны использовать его
+        if (quoteData.bestBid === null || quoteData.bestBid === undefined) {
+            // Новых данных нет, сохраняем старые
+            if (existingQuote.bestBid != null) {
+                quoteData.bestBid = existingQuote.bestBid;
+            }
+        }
+        // Если bestBid пришел, используем его (даже если 0)
+
+        if (quoteData.bestBidQuantity === null || quoteData.bestBidQuantity === undefined) {
+            if (existingQuote.bestBidQuantity != null) {
+                quoteData.bestBidQuantity = existingQuote.bestBidQuantity;
+            }
+        }
+
+        if (quoteData.bestAsk === null || quoteData.bestAsk === undefined) {
+            if (existingQuote.bestAsk != null) {
+                quoteData.bestAsk = existingQuote.bestAsk;
+            }
+        }
+
+        if (quoteData.bestAskQuantity === null || quoteData.bestAskQuantity === undefined) {
+            if (existingQuote.bestAskQuantity != null) {
+                quoteData.bestAskQuantity = existingQuote.bestAskQuantity;
+            }
+        }
+
+        // Сохраняем цену, если она была, но новая равна 0 или отсутствует
+        if ((!quoteData.currentPrice || quoteData.currentPrice === 0) && existingQuote.currentPrice && existingQuote.currentPrice > 0) {
+            quoteData.currentPrice = existingQuote.currentPrice;
+        }
+    }
+
+    // Асинхронно загружаем цены закрытия, не блокируя основной поток
     if (!quoteData.closePriceOS && !quoteData.closePrice) {
-        loadClosePricesForQuote(quoteData);
+        setTimeout(() => loadClosePricesForQuote(quoteData), 0);
     }
 
     // Загружаем цену закрытия вечерней сессии из кэша, если она еще не загружена
     if (!quoteData.closePriceVS) {
-        loadEveningSessionPriceForQuote(quoteData);
+        setTimeout(() => loadEveningSessionPriceForQuote(quoteData), 0);
     }
 
     updateVolumeDataForQuote(quoteData);
+
+    // Важно: сохраняем данные в quotes Map ДО всех проверок, чтобы данные стакана сохранялись даже без цены
     quotes.set(figi, quoteData);
 
     updateCount++;
@@ -560,45 +691,82 @@ function updateQuote(quoteData) {
     lastUpdate.textContent = lastUpdateTime.toLocaleTimeString();
 
     // Проверяем, является ли этот инструмент индексом из строки индексов
-    const indexInfo = window.indices.get(figi) || (quoteData.ticker ? window.indices.get(quoteData.ticker) : null);
+    const indexInfo = window.indices && window.indices.get ?
+        (window.indices.get(figi) || (quoteData.ticker ? window.indices.get(quoteData.ticker) : null)) : null;
     if (indexInfo) {
         // Если это индекс и у него еще нет цен закрытия, загружаем их
         if (!indexInfo.closePriceOS || !indexInfo.closePriceEvening) {
-            loadIndexPricesForSingleIndex(indexInfo, figi);
+            setTimeout(() => loadIndexPricesForSingleIndex(indexInfo, figi), 0);
         }
     }
 
     updateIndicesBar(quoteData);
+
+    // Обновляем таблицы напрямую, как в сканере выходного дня
     updateFuturesComparisons();
 }
 
 function updateFuturesComparisons() {
     const quotesArray = Array.from(quotes.values());
-    console.log(`updateFuturesComparisons: processing ${quotesArray.length} quotes, futures cache size: ${futuresDataCache.size}`);
+    if (window.DEBUG_FUTURES) {
+        console.log(`updateFuturesComparisons: processing ${quotesArray.length} quotes, futures cache size: ${futuresDataCache.size}`);
+    }
 
     // Если кэш фьючерсов пуст, пытаемся загрузить данные
     if (futuresDataCache.size === 0) {
-        console.warn('Futures cache is empty, loading futures data...');
-        loadFuturesData();
-        // Возвращаемся, так как данные загрузятся асинхронно
+        if (window.DEBUG_FUTURES) {
+            console.warn('Futures cache is empty in updateFuturesComparisons, cannot proceed');
+        }
+        return;
+    }
+
+    // Если нет котировок, ничего не делаем
+    if (quotesArray.length === 0) {
+        if (window.DEBUG_FUTURES) {
+            console.warn('No quotes available for comparison');
+        }
         return;
     }
 
     // Собираем все уникальные базовые тикеры
+    // Важно: используем basicAsset из кэша, если доступен, для более точной группировки
     const baseTickers = new Set();
     quotesArray.forEach(quote => {
-        const baseTicker = getBaseTicker(quote.ticker, quote.figi);
+        // Определяем базовый тикер с приоритетом basicAsset
+        let baseTicker = null;
+        if (futuresDataCache.has(quote.figi)) {
+            const futuresData = futuresDataCache.get(quote.figi);
+            if (futuresData && futuresData.basicAsset) {
+                baseTicker = futuresData.basicAsset.toUpperCase();
+            }
+        }
+        if (!baseTicker) {
+            baseTicker = getBaseTicker(quote.ticker, quote.figi);
+        }
         if (baseTicker) {
             baseTickers.add(baseTicker);
         }
     });
-    console.log(`Found ${baseTickers.size} unique base tickers:`, Array.from(baseTickers).slice(0, 10));
+    if (window.DEBUG_FUTURES) {
+        console.log(`Found ${baseTickers.size} unique base tickers`);
+    }
 
     // Группируем инструменты по базовому тикеру
+    // Важно: используем basicAsset из кэша, если доступен, для более точной группировки
     const instrumentGroups = new Map();
 
     quotesArray.forEach(quote => {
-        const baseTicker = getBaseTicker(quote.ticker, quote.figi);
+        // Определяем базовый тикер с приоритетом basicAsset
+        let baseTicker = null;
+        if (futuresDataCache.has(quote.figi)) {
+            const futuresData = futuresDataCache.get(quote.figi);
+            if (futuresData && futuresData.basicAsset) {
+                baseTicker = futuresData.basicAsset.toUpperCase();
+            }
+        }
+        if (!baseTicker) {
+            baseTicker = getBaseTicker(quote.ticker, quote.figi);
+        }
         if (!baseTicker) return;
 
         if (!instrumentGroups.has(baseTicker)) {
@@ -613,26 +781,20 @@ function updateFuturesComparisons() {
 
         if (isStock(quote.ticker, quote.figi)) {
             group.stock = quote;
-            console.log(`Found stock: ${quote.ticker} (${quote.figi}) -> baseTicker: ${baseTicker}`);
         }
     });
 
     // Находим ближние и дальние фьючерсы для каждого базового актива
+    // ВАЖНО: Не используем кэш, так как данные могут изменяться, и кэш может содержать неправильные пары
+    // Вместо этого всегда вызываем findNearAndFarFutures для актуальных данных
     baseTickers.forEach(baseTicker => {
         const futuresInfo = findNearAndFarFutures(baseTicker);
+
         if (futuresInfo) {
             const group = instrumentGroups.get(baseTicker);
             if (group) {
                 group.nearFuturesFigi = futuresInfo.nearFutures;
                 group.farFuturesFigi = futuresInfo.farFutures;
-                if (futuresInfo.nearFutures) {
-                    const nearQuote = quotes.get(futuresInfo.nearFutures);
-                    console.log(`Found near futures for ${baseTicker}: ${nearQuote?.ticker} (${futuresInfo.nearFutures})`);
-                }
-                if (futuresInfo.farFutures) {
-                    const farQuote = quotes.get(futuresInfo.farFutures);
-                    console.log(`Found far futures for ${baseTicker}: ${farQuote?.ticker} (${futuresInfo.farFutures})`);
-                }
             }
         }
     });
@@ -649,29 +811,95 @@ function updateFuturesComparisons() {
         // Акция vs Ближний фьючерс
         if (group.stock && nearFuturesQuote) {
             stockNearComparisons.push(createComparison(baseTicker, group.stock, nearFuturesQuote));
-            console.log(`Created stock-near comparison for ${baseTicker}`);
         }
 
         // Акция vs Дальний фьючерс
         if (group.stock && farFuturesQuote) {
             stockFarComparisons.push(createComparison(baseTicker, group.stock, farFuturesQuote));
-            console.log(`Created stock-far comparison for ${baseTicker}`);
         }
 
         // Ближний vs Дальний фьючерс
+        // СТРОГАЯ проверка: оба фьючерса должны иметь одинаковый базовый актив
         if (nearFuturesQuote && farFuturesQuote) {
-            nearFarComparisons.push(createFuturesComparison(baseTicker, nearFuturesQuote, farFuturesQuote));
-            console.log(`Created near-far comparison for ${baseTicker}`);
+            // Явные исключения для пар, которые не должны отображаться
+            const nearTicker = nearFuturesQuote.ticker.toUpperCase();
+            const farTicker = farFuturesQuote.ticker.toUpperCase();
+
+            // Исключаем пару RMZ5 - RIH6 (в любом порядке)
+            if ((nearTicker === 'RMZ5' && farTicker === 'RIH6') ||
+                (nearTicker === 'RIH6' && farTicker === 'RMZ5')) {
+                if (window.DEBUG_FUTURES) {
+                    console.warn(`Skipping excluded pair: ${nearFuturesQuote.ticker} vs ${farFuturesQuote.ticker}`);
+                }
+                return; // Пропускаем эту пару
+            }
+
+            // Получаем данные фьючерсов из кэша
+            const nearData = futuresDataCache.get(nearFuturesQuote.figi);
+            const farData = futuresDataCache.get(farFuturesQuote.figi);
+
+            if (!nearData || !farData) {
+                if (window.DEBUG_FUTURES) {
+                    console.warn(`Skipping near-far pair: missing data for ${nearFuturesQuote.ticker} or ${farFuturesQuote.ticker}`);
+                }
+                // Пропускаем эту итерацию
+            } else {
+                // Проверяем basicAsset напрямую из данных (приоритет)
+                const nearBasicAsset = nearData.basicAsset ? nearData.basicAsset.toUpperCase().trim() : null;
+                const farBasicAsset = farData.basicAsset ? farData.basicAsset.toUpperCase().trim() : null;
+
+                let shouldAddPair = true;
+
+                // Если basicAsset доступен для обоих, проверяем строгое совпадение
+                if (nearBasicAsset && farBasicAsset) {
+                    if (nearBasicAsset !== farBasicAsset) {
+                        if (window.DEBUG_FUTURES) {
+                            console.warn(`Skipping near-far pair: ${nearFuturesQuote.ticker} (basicAsset: ${nearBasicAsset}) vs ${farFuturesQuote.ticker} (basicAsset: ${farBasicAsset}) - DIFFERENT basic assets`);
+                        }
+                        shouldAddPair = false; // Строго пропускаем, если basicAsset разный
+                    }
+                } else if (nearBasicAsset || farBasicAsset) {
+                    // Если только у одного есть basicAsset, это подозрительно - пропускаем
+                    if (window.DEBUG_FUTURES) {
+                        console.warn(`Skipping near-far pair: ${nearFuturesQuote.ticker} (basicAsset: ${nearBasicAsset}) vs ${farFuturesQuote.ticker} (basicAsset: ${farBasicAsset}) - one missing basicAsset`);
+                    }
+                    shouldAddPair = false;
+                } else {
+                    // Если basicAsset нет у обоих, проверяем по тикеру
+                    const nearBaseFromTicker = getBaseTicker(nearFuturesQuote.ticker, nearFuturesQuote.figi);
+                    const farBaseFromTicker = getBaseTicker(farFuturesQuote.ticker, farFuturesQuote.figi);
+
+                    if (nearBaseFromTicker && farBaseFromTicker && nearBaseFromTicker !== farBaseFromTicker) {
+                        if (window.DEBUG_FUTURES) {
+                            console.warn(`Skipping near-far pair: ${nearFuturesQuote.ticker} (base: ${nearBaseFromTicker}) vs ${farFuturesQuote.ticker} (base: ${farBaseFromTicker}) - different base tickers`);
+                        }
+                        shouldAddPair = false; // Пропускаем, если базовые тикеры разные
+                    }
+                }
+
+                // Если все проверки пройдены, создаем пару
+                if (shouldAddPair) {
+                    nearFarComparisons.push(createFuturesComparison(baseTicker, nearFuturesQuote, farFuturesQuote));
+                }
+            }
         }
     });
 
-    console.log(`Found ${stockNearComparisons.length} stock-near, ${stockFarComparisons.length} stock-far, ${nearFarComparisons.length} near-far comparisons`);
-
     // Сортируем и обновляем таблицы
-    stockNearFutures = sortComparisons([...stockNearComparisons], stockNearSortBy, stockNearSortOrder).slice(0, stockNearMaxResults);
-    stockFarFutures = sortComparisons([...stockFarComparisons], stockFarSortBy, stockFarSortOrder).slice(0, stockFarMaxResults);
-    nearFarFutures = sortComparisons([...nearFarComparisons], nearFarSortBy, nearFarSortOrder).slice(0, nearFarMaxResults);
+    // Всегда создаем новые массивы, чтобы гарантировать обновление таблиц
+    const newStockNearFutures = sortComparisons([...stockNearComparisons], stockNearSortBy, stockNearSortOrder).slice(0, stockNearMaxResults);
+    const newStockFarFutures = sortComparisons([...stockFarComparisons], stockFarSortBy, stockFarSortOrder).slice(0, stockFarMaxResults);
+    const newNearFarFutures = sortComparisons([...nearFarComparisons], nearFarSortBy, nearFarSortOrder).slice(0, nearFarMaxResults);
 
+    // Обновляем глобальные массивы
+    stockNearFutures = newStockNearFutures;
+    stockFarFutures = newStockFarFutures;
+    nearFarFutures = newNearFarFutures;
+
+    // Обновляем справедливое расхождение для каждой группы
+    updateFairSpreadInfo();
+
+    // Обновляем таблицы напрямую, как в сканере выходного дня
     updateStockNearFuturesTable();
     updateStockFarFuturesTable();
     updateNearFarFuturesTable();
@@ -682,15 +910,16 @@ function createComparison(baseTicker, stock, futures) {
     const stockPrice = stock.currentPrice || 0;
     const futuresPrice = futures.currentPrice || 0;
 
-    // Логируем для отладки проблемных инструментов
-    if (stock.ticker && (stock.ticker.includes('RNFT') || stock.ticker.includes('SBER')) &&
-        futures.ticker && (futures.ticker.includes('RUZ') || futures.ticker.includes('SRZ'))) {
-        console.log(`createComparison for ${baseTicker}: stock=${stock.ticker} (${stockPrice}), futures=${futures.ticker} (${futuresPrice}), lotSize=${lotSize}`);
-    }
-
     // Спред % = ((фьючерс / (акция * лотность)) - 1) * 100
     const spreadPercent = stockPrice > 0 && lotSize > 0 ?
         ((futuresPrice / (stockPrice * lotSize)) - 1) * 100 : 0;
+
+    // Справедливое расхождение = ключевая ставка / 365 * количество дней до экспирации
+    const daysToExpiration = getDaysToExpirationNumber(futures.figi);
+    const fairSpread = daysToExpiration > 0 ? (keyRate / 365) * daysToExpiration : 0;
+
+    // Дельта = Спред - Справедливое расхождение
+    const delta = spreadPercent - fairSpread;
 
     return {
         baseTicker,
@@ -700,8 +929,14 @@ function createComparison(baseTicker, stock, futures) {
         stockPrice,
         futuresPrice,
         spreadPercent,
+        fairSpread: Math.round(fairSpread * 100) / 100, // Округление до сотых
+        delta: Math.round(delta * 100) / 100, // Округление до сотых
         stockVolume: getDisplayVolume(stock),
         futuresVolume: getDisplayVolume(futures),
+        futuresBid: (futures.bestBid != null && futures.bestBid !== undefined) ? futures.bestBid : null,
+        futuresBidQuantity: (futures.bestBidQuantity != null && futures.bestBidQuantity !== undefined) ? futures.bestBidQuantity : 0,
+        futuresAsk: (futures.bestAsk != null && futures.bestAsk !== undefined) ? futures.bestAsk : null,
+        futuresAskQuantity: (futures.bestAskQuantity != null && futures.bestAskQuantity !== undefined) ? futures.bestAskQuantity : 0,
         timestamp: Math.max(
             stock.timestamp ? new Date(stock.timestamp).getTime() : 0,
             futures.timestamp ? new Date(futures.timestamp).getTime() : 0
@@ -716,6 +951,15 @@ function createFuturesComparison(baseTicker, nearFutures, farFutures) {
     // Спред % = ((дальний / ближний) - 1) * 100
     const spreadPercent = nearPrice > 0 ? ((farPrice / nearPrice) - 1) * 100 : 0;
 
+    // Справедливое расхождение = ключевая ставка / 365 * разница в днях до экспирации
+    const nearDays = getDaysToExpirationNumber(nearFutures.figi);
+    const farDays = getDaysToExpirationNumber(farFutures.figi);
+    const daysDifference = farDays > 0 && nearDays > 0 ? farDays - nearDays : 0;
+    const fairSpread = daysDifference > 0 ? (keyRate / 365) * daysDifference : 0;
+
+    // Дельта = Спред - Справедливое расхождение
+    const delta = spreadPercent - fairSpread;
+
     return {
         baseTicker,
         nearFutures,
@@ -724,8 +968,18 @@ function createFuturesComparison(baseTicker, nearFutures, farFutures) {
         nearPrice,
         farPrice,
         spreadPercent,
+        fairSpread: Math.round(fairSpread * 100) / 100, // Округление до сотых
+        delta: Math.round(delta * 100) / 100, // Округление до сотых
         nearVolume: getDisplayVolume(nearFutures),
         farVolume: getDisplayVolume(farFutures),
+        nearBid: (nearFutures.bestBid != null && nearFutures.bestBid !== undefined) ? nearFutures.bestBid : null,
+        nearBidQuantity: (nearFutures.bestBidQuantity != null && nearFutures.bestBidQuantity !== undefined) ? nearFutures.bestBidQuantity : 0,
+        nearAsk: (nearFutures.bestAsk != null && nearFutures.bestAsk !== undefined) ? nearFutures.bestAsk : null,
+        nearAskQuantity: (nearFutures.bestAskQuantity != null && nearFutures.bestAskQuantity !== undefined) ? nearFutures.bestAskQuantity : 0,
+        farBid: (farFutures.bestBid != null && farFutures.bestBid !== undefined) ? farFutures.bestBid : null,
+        farBidQuantity: (farFutures.bestBidQuantity != null && farFutures.bestBidQuantity !== undefined) ? farFutures.bestBidQuantity : 0,
+        farAsk: (farFutures.bestAsk != null && farFutures.bestAsk !== undefined) ? farFutures.bestAsk : null,
+        farAskQuantity: (farFutures.bestAskQuantity != null && farFutures.bestAskQuantity !== undefined) ? farFutures.bestAskQuantity : 0,
         timestamp: Math.max(
             nearFutures.timestamp ? new Date(nearFutures.timestamp).getTime() : 0,
             farFutures.timestamp ? new Date(farFutures.timestamp).getTime() : 0
@@ -897,6 +1151,21 @@ function formatTime(timestamp) {
     return date.toLocaleTimeString();
 }
 
+function formatDelta(delta) {
+    if (delta === null || delta === undefined) return '--';
+    const num = Number(delta);
+    if (!Number.isFinite(num)) return '--';
+    return num.toFixed(2) + '%';
+}
+
+function formatBidAsk(price, quantity) {
+    if (price === null || price === undefined || price === 0) return '--';
+    const priceNum = Number(price);
+    if (!Number.isFinite(priceNum)) return '--';
+    const qty = quantity || 0;
+    return `${priceNum.toFixed(2)} (${qty})`;
+}
+
 function formatSpreadPercent(spreadPercent) {
     if (spreadPercent === null || spreadPercent === undefined) return '--';
     const num = Number(spreadPercent);
@@ -909,30 +1178,132 @@ function getChangeClass(change) {
     return change > 0 ? 'positive' : change < 0 ? 'negative' : '';
 }
 
+
+/**
+ * Обновляет информацию о справедливом расхождении и экспирации для каждой группы фьючерсов
+ */
+function updateFairSpreadInfo() {
+    // Для группы "Акции vs Ближние фьючерсы" - вычисляем среднее справедливое расхождение и экспирацию
+    if (stockNearFutures && stockNearFutures.length > 0) {
+        const fairSpreads = stockNearFutures.map(c => {
+            const days = getDaysToExpirationNumber(c.futures.figi);
+            return days > 0 ? (keyRate / 365) * days : 0;
+        }).filter(v => v > 0);
+
+        const expirationDays = stockNearFutures.map(c => getDaysToExpirationNumber(c.futures.figi)).filter(d => d > 0);
+
+        const infoEl = document.getElementById('stockNearFairSpreadInfo');
+        if (infoEl) {
+            if (fairSpreads.length > 0 && expirationDays.length > 0) {
+                const avgFairSpread = fairSpreads.reduce((sum, v) => sum + v, 0) / fairSpreads.length;
+                const minDays = Math.min(...expirationDays);
+                const maxDays = Math.max(...expirationDays);
+                const avgDays = Math.round(expirationDays.reduce((sum, d) => sum + d, 0) / expirationDays.length);
+                let expirationText = `Экспирация: ${avgDays} дн.`;
+                if (minDays !== maxDays) {
+                    expirationText = `Экспирация: ${minDays}-${maxDays} дн. (среднее: ${avgDays} дн.)`;
+                }
+                infoEl.innerHTML = `Справедливое расхождение (среднее): ${formatSpreadPercent(avgFairSpread)} | ${expirationText}`;
+            } else {
+                infoEl.textContent = '';
+            }
+        }
+    } else {
+        const infoEl = document.getElementById('stockNearFairSpreadInfo');
+        if (infoEl) {
+            infoEl.textContent = '';
+        }
+    }
+
+    // Для группы "Акции vs Дальние фьючерсы" - вычисляем среднее справедливое расхождение и экспирацию
+    if (stockFarFutures && stockFarFutures.length > 0) {
+        const fairSpreads = stockFarFutures.map(c => {
+            const days = getDaysToExpirationNumber(c.futures.figi);
+            return days > 0 ? (keyRate / 365) * days : 0;
+        }).filter(v => v > 0);
+
+        const expirationDays = stockFarFutures.map(c => getDaysToExpirationNumber(c.futures.figi)).filter(d => d > 0);
+
+        const infoEl = document.getElementById('stockFarFairSpreadInfo');
+        if (infoEl) {
+            if (fairSpreads.length > 0 && expirationDays.length > 0) {
+                const avgFairSpread = fairSpreads.reduce((sum, v) => sum + v, 0) / fairSpreads.length;
+                const minDays = Math.min(...expirationDays);
+                const maxDays = Math.max(...expirationDays);
+                const avgDays = Math.round(expirationDays.reduce((sum, d) => sum + d, 0) / expirationDays.length);
+                let expirationText = `Экспирация: ${avgDays} дн.`;
+                if (minDays !== maxDays) {
+                    expirationText = `Экспирация: ${minDays}-${maxDays} дн. (среднее: ${avgDays} дн.)`;
+                }
+                infoEl.innerHTML = `Справедливое расхождение (среднее): ${formatSpreadPercent(avgFairSpread)} | ${expirationText}`;
+            } else {
+                infoEl.textContent = '';
+            }
+        }
+    } else {
+        const infoEl = document.getElementById('stockFarFairSpreadInfo');
+        if (infoEl) {
+            infoEl.textContent = '';
+        }
+    }
+
+    // Для группы "Ближние vs Дальние фьючерсы" - вычисляем среднее справедливое расхождение и экспирацию
+    if (nearFarFutures && nearFarFutures.length > 0) {
+        const fairSpreads = nearFarFutures.map(c => {
+            const nearDays = getDaysToExpirationNumber(c.nearFutures.figi);
+            const farDays = getDaysToExpirationNumber(c.farFutures.figi);
+            const daysDifference = farDays > 0 && nearDays > 0 ? farDays - nearDays : 0;
+            return daysDifference > 0 ? (keyRate / 365) * daysDifference : 0;
+        }).filter(v => v > 0);
+
+        const nearExpirationDays = nearFarFutures.map(c => getDaysToExpirationNumber(c.nearFutures.figi)).filter(d => d > 0);
+        const farExpirationDays = nearFarFutures.map(c => getDaysToExpirationNumber(c.farFutures.figi)).filter(d => d > 0);
+
+        const infoEl = document.getElementById('nearFarFairSpreadInfo');
+        if (infoEl) {
+            if (fairSpreads.length > 0 && nearExpirationDays.length > 0 && farExpirationDays.length > 0) {
+                const avgFairSpread = fairSpreads.reduce((sum, v) => sum + v, 0) / fairSpreads.length;
+                const avgNearDays = Math.round(nearExpirationDays.reduce((sum, d) => sum + d, 0) / nearExpirationDays.length);
+                const avgFarDays = Math.round(farExpirationDays.reduce((sum, d) => sum + d, 0) / farExpirationDays.length);
+                const expirationText = `Экспирация: ближний ${avgNearDays} дн., дальний ${avgFarDays} дн.`;
+                infoEl.innerHTML = `Справедливое расхождение (среднее): ${formatSpreadPercent(avgFairSpread)} | ${expirationText}`;
+            } else {
+                infoEl.textContent = '';
+            }
+        }
+    } else {
+        const infoEl = document.getElementById('nearFarFairSpreadInfo');
+        if (infoEl) {
+            infoEl.textContent = '';
+        }
+    }
+}
+
 // --- Рендер таблиц ---
 function updateStockNearFuturesTable() {
     const tbody = stockNearFuturesTableBody;
     if (!tbody) return;
 
     if (!stockNearFutures || stockNearFutures.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" class="no-data">Нет данных</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" class="no-data">Нет данных</td></tr>';
         return;
     }
 
     tbody.innerHTML = '';
     stockNearFutures.forEach(comparison => {
         const row = document.createElement('tr');
-        const expirationDays = calculateDaysToExpiration(comparison.futures.figi);
         row.innerHTML = `
-            <td><strong>${comparison.stock.ticker}</strong></td>
-            <td><strong>${comparison.futures.ticker}</strong></td>
+            <td><strong class="ticker-cell">${comparison.stock.ticker}</strong></td>
+            <td><strong class="ticker-cell">${comparison.futures.ticker}</strong></td>
             <td>${comparison.lotSize}</td>
             <td>${formatPrice(comparison.stockPrice)}</td>
             <td>${formatPrice(comparison.futuresPrice)}</td>
             <td>${formatVolume(comparison.stockVolume)}</td>
             <td>${formatVolume(comparison.futuresVolume)}</td>
+            <td>${formatBidAsk(comparison.futuresBid, comparison.futuresBidQuantity)}</td>
+            <td>${formatBidAsk(comparison.futuresAsk, comparison.futuresAskQuantity)}</td>
             <td class="${getChangeClass(comparison.spreadPercent)}">${formatSpreadPercent(comparison.spreadPercent)}</td>
-            <td class="expiration-cell">${expirationDays}</td>
+            <td class="${getChangeClass(comparison.delta)}">${formatDelta(comparison.delta)}</td>
             <td>${formatTime(comparison.timestamp)}</td>
         `;
         tbody.appendChild(row);
@@ -944,24 +1315,25 @@ function updateStockFarFuturesTable() {
     if (!tbody) return;
 
     if (!stockFarFutures || stockFarFutures.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" class="no-data">Нет данных</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" class="no-data">Нет данных</td></tr>';
         return;
     }
 
     tbody.innerHTML = '';
     stockFarFutures.forEach(comparison => {
         const row = document.createElement('tr');
-        const expirationDays = calculateDaysToExpiration(comparison.futures.figi);
         row.innerHTML = `
-            <td><strong>${comparison.stock.ticker}</strong></td>
-            <td><strong>${comparison.futures.ticker}</strong></td>
+            <td><strong class="ticker-cell">${comparison.stock.ticker}</strong></td>
+            <td><strong class="ticker-cell">${comparison.futures.ticker}</strong></td>
             <td>${comparison.lotSize}</td>
             <td>${formatPrice(comparison.stockPrice)}</td>
             <td>${formatPrice(comparison.futuresPrice)}</td>
             <td>${formatVolume(comparison.stockVolume)}</td>
             <td>${formatVolume(comparison.futuresVolume)}</td>
+            <td>${formatBidAsk(comparison.futuresBid, comparison.futuresBidQuantity)}</td>
+            <td>${formatBidAsk(comparison.futuresAsk, comparison.futuresAskQuantity)}</td>
             <td class="${getChangeClass(comparison.spreadPercent)}">${formatSpreadPercent(comparison.spreadPercent)}</td>
-            <td class="expiration-cell">${expirationDays}</td>
+            <td class="${getChangeClass(comparison.delta)}">${formatDelta(comparison.delta)}</td>
             <td>${formatTime(comparison.timestamp)}</td>
         `;
         tbody.appendChild(row);
@@ -973,30 +1345,27 @@ function updateNearFarFuturesTable() {
     if (!tbody) return;
 
     if (!nearFarFutures || nearFarFutures.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" class="no-data">Нет данных</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="14" class="no-data">Нет данных</td></tr>';
         return;
     }
 
     tbody.innerHTML = '';
     nearFarFutures.forEach(comparison => {
         const row = document.createElement('tr');
-        const nearExpirationDays = calculateDaysToExpiration(comparison.nearFutures.figi);
-        const farExpirationDays = calculateDaysToExpiration(comparison.farFutures.figi);
         row.innerHTML = `
-            <td><strong>${comparison.nearFutures.ticker}</strong></td>
-            <td><strong>${comparison.farFutures.ticker}</strong></td>
+            <td><strong class="ticker-cell">${comparison.nearFutures.ticker}</strong></td>
+            <td><strong class="ticker-cell">${comparison.farFutures.ticker}</strong></td>
             <td>${comparison.lotSize}</td>
             <td>${formatPrice(comparison.nearPrice)}</td>
             <td>${formatPrice(comparison.farPrice)}</td>
             <td>${formatVolume(comparison.nearVolume)}</td>
             <td>${formatVolume(comparison.farVolume)}</td>
+            <td>${formatBidAsk(comparison.nearBid, comparison.nearBidQuantity)}</td>
+            <td>${formatBidAsk(comparison.nearAsk, comparison.nearAskQuantity)}</td>
+            <td>${formatBidAsk(comparison.farBid, comparison.farBidQuantity)}</td>
+            <td>${formatBidAsk(comparison.farAsk, comparison.farAskQuantity)}</td>
             <td class="${getChangeClass(comparison.spreadPercent)}">${formatSpreadPercent(comparison.spreadPercent)}</td>
-            <td class="expiration-cell">
-                <div class="expiration-info">
-                    <div class="near-expiration">Ближний: ${nearExpirationDays}</div>
-                    <div class="far-expiration">Дальний: ${farExpirationDays}</div>
-                </div>
-            </td>
+            <td class="${getChangeClass(comparison.delta)}">${formatDelta(comparison.delta)}</td>
             <td>${formatTime(comparison.timestamp)}</td>
         `;
         tbody.appendChild(row);
@@ -1132,6 +1501,133 @@ function loadEveningSessionPriceForQuote(quoteData) {
         });
 }
 
+/**
+ * Предзагрузка всех пар при загрузке страницы
+ */
+async function loadAllPairsOnPageLoad() {
+    try {
+        console.log('=== Loading all pairs on page load ===');
+
+        // 0. Загружаем ключевую ставку
+        await loadKeyRate();
+
+        // 1. Загружаем данные о фьючерсах, если еще не загружены
+        if (futuresDataCache.size === 0) {
+            console.log('Step 1: Loading futures data...');
+            await loadFuturesData();
+            // Проверяем, что кэш действительно заполнен
+            if (futuresDataCache.size === 0) {
+                console.error('Failed to load futures data: cache is still empty');
+                return;
+            }
+            console.log(`Step 1 completed: Futures cache size = ${futuresDataCache.size}`);
+        } else {
+            console.log(`Step 1 skipped: Futures cache already loaded (size = ${futuresDataCache.size})`);
+        }
+
+        // 2. Загружаем текущие цены для всех инструментов (включает и цены, и имена)
+        console.log('Step 2: Loading current prices...');
+        const pricesResponse = await fetch('/api/scanner/current-prices');
+        if (!pricesResponse.ok) {
+            console.error('Failed to load current prices:', pricesResponse.status, pricesResponse.statusText);
+            return;
+        }
+        const pricesData = await pricesResponse.json();
+        const prices = pricesData.prices || {};
+        const instrumentNames = pricesData.instrumentNames || {};
+
+        console.log(`Step 2 completed: Loaded prices for ${Object.keys(prices).length} instruments`);
+        console.log(`Sample prices:`, Object.keys(prices).slice(0, 5).map(figi => ({
+            figi,
+            ticker: instrumentNames[figi] || figi,
+            price: prices[figi]
+        })));
+
+        // 3. Создаем объекты quote для каждого инструмента и добавляем в quotes Map
+        console.log('Step 3: Creating quote objects from prices...');
+        let loadedCount = 0;
+        let skippedCount = 0;
+        Object.keys(prices).forEach(figi => {
+            // Пропускаем, если уже есть в quotes
+            if (quotes.has(figi)) {
+                skippedCount++;
+                return;
+            }
+
+            const ticker = instrumentNames[figi] || figi;
+            const price = prices[figi] || 0;
+
+            // Создаем объект quote
+            const quoteData = {
+                figi: figi,
+                ticker: ticker,
+                currentPrice: price,
+                volume: 0,
+                timestamp: new Date().toISOString()
+            };
+
+            // Добавляем в quotes Map
+            quotes.set(figi, quoteData);
+            loadedCount++;
+        });
+
+        console.log(`Step 3a completed: Preloaded ${loadedCount} quotes from prices, skipped ${skippedCount} (already exists)`);
+
+        // 3b. Добавляем фьючерсы из кэша, которых нет в quotes (даже если для них нет цен)
+        console.log('Step 3b: Adding futures from cache that are not in quotes...');
+        let futuresAddedCount = 0;
+        futuresDataCache.forEach((futuresData, figi) => {
+            if (!quotes.has(figi)) {
+                const ticker = futuresData.ticker || figi;
+                const quoteData = {
+                    figi: figi,
+                    ticker: ticker,
+                    currentPrice: 0, // Нет цены, будет обновлено через WebSocket
+                    volume: 0,
+                    timestamp: new Date().toISOString()
+                };
+                quotes.set(figi, quoteData);
+                futuresAddedCount++;
+            }
+        });
+
+        console.log(`Step 3b completed: Added ${futuresAddedCount} futures from cache`);
+        console.log(`Total quotes in Map: ${quotes.size}`);
+
+        // 4. Проверяем, что у нас есть и акции, и фьючерсы
+        let stocksCount = 0;
+        let futuresCount = 0;
+        quotes.forEach((quote, figi) => {
+            if (isStock(quote.ticker, figi)) {
+                stocksCount++;
+            } else if (futuresDataCache.has(figi)) {
+                futuresCount++;
+            }
+        });
+        console.log(`Step 4: Found ${stocksCount} stocks and ${futuresCount} futures in quotes`);
+
+        // 5. Обновляем счетчик активных инструментов
+        if (activeInstruments) {
+            activeInstruments.textContent = quotes.size;
+        }
+
+        // 6. Проверяем кэш фьючерсов перед обновлением сравнений
+        if (futuresDataCache.size === 0) {
+            console.error('Futures cache is empty, cannot update comparisons');
+            return;
+        }
+
+        // 7. Обновляем сравнения фьючерсов
+        console.log('Step 5: Updating futures comparisons...');
+        updateFuturesComparisons();
+
+        console.log('=== All pairs preloaded successfully ===');
+    } catch (error) {
+        console.error('Error loading all pairs on page load:', error);
+        console.error('Error stack:', error.stack);
+    }
+}
+
 function loadClosePricesForAllQuotes() {
     quotes.forEach((quoteData, figi) => {
         if (!quoteData.closePriceOS && !quoteData.closePrice) {
@@ -1143,6 +1639,25 @@ function loadClosePricesForAllQuotes() {
     });
 }
 
+/**
+ * Загрузить ключевую ставку с сервера
+ */
+async function loadKeyRate() {
+    try {
+        const response = await fetch('/api/scanner/futures/key-rate');
+        if (response.ok) {
+            const data = await response.json();
+            if (data.keyRate !== undefined) {
+                keyRate = data.keyRate;
+                console.log(`Key rate loaded: ${keyRate}%`);
+            }
+        }
+    } catch (error) {
+        console.error('Error loading key rate:', error);
+        // Используем значение по умолчанию
+    }
+}
+
 // Сессия - сканер фьючерсов всегда активен
 async function updateScannerStatus() {
     let isTestMode = false;
@@ -1152,10 +1667,23 @@ async function updateScannerStatus() {
 
         if (testModeResp && testModeResp.ok) {
             const data = await testModeResp.json();
-            isTestMode = !!data.testModeEnabled;
+            isTestMode = !!data.testModeFutures;
         }
     } catch (error) {
         console.warn('Не удалось получить статус тестового режима:', error);
+    }
+
+    // Загружаем ключевую ставку из статуса
+    try {
+        const statusResp = await fetch('/api/scanner/futures/status').catch(() => null);
+        if (statusResp && statusResp.ok) {
+            const data = await statusResp.json();
+            if (data.keyRate !== undefined) {
+                keyRate = data.keyRate;
+            }
+        }
+    } catch (error) {
+        console.warn('Не удалось загрузить ключевую ставку:', error);
     }
 
     // Сканер фьючерсов всегда активен (работает в любое время, включая выходные)
@@ -1240,6 +1768,17 @@ initializeVolumeData();
 updateIndicesFromServer();
 loadIndexPrices();
 setTimeout(() => { loadClosePricesForAllQuotes(); }, 2000);
+
+// Предзагрузка всех пар при загрузке страницы
+// Ждем полной загрузки DOM и других инициализаций
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(() => { loadAllPairsOnPageLoad(); }, 1500);
+    });
+} else {
+    // DOM уже загружен
+    setTimeout(() => { loadAllPairsOnPageLoad(); }, 1500);
+}
 
 // Закрытие модального окна при клике вне его
 window.onclick = function (event) {

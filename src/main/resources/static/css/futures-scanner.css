@@ -12,9 +12,12 @@ body {
 }
 
 .container {
-    max-width: 1400px;
+    max-width: 95%;
     margin: 0 auto;
-    padding: 20px;
+    padding: 20px 100px;
+    width: 100%;
+    box-sizing: border-box;
+    overflow-x: hidden;
 }
 
 .header {
@@ -431,26 +434,32 @@ body {
 }
 
 .table-container {
-    overflow-x: auto;
+    overflow-x: hidden;
+    overflow-y: visible;
     border-radius: 15px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 table {
     width: 100%;
     border-collapse: collapse;
     background: white;
+    table-layout: auto;
 }
 
 th {
     background: linear-gradient(135deg, #667eea, #764ba2);
     color: white;
-    padding: 15px 12px;
+    padding: 12px 8px;
     text-align: left;
     font-weight: 600;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    white-space: nowrap;
 }
 
 th:first-child {
@@ -462,9 +471,10 @@ th:last-child {
 }
 
 td {
-    padding: 12px;
+    padding: 10px 8px;
     border-bottom: 1px solid #f0f0f0;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
+    white-space: nowrap;
 }
 
 tr:hover {
@@ -563,28 +573,46 @@ tr:last-child td:last-child {
     display: grid;
     gap: 30px;
     margin-bottom: 30px;
-    max-width: 1600px;
+    max-width: 100%;
     margin-left: auto;
     margin-right: auto;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .scanner-section {
     background: rgba(255, 255, 255, 0.95);
     border-radius: 20px;
-    padding: 25px;
+    padding: 20px 15px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.2);
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
 }
 
 .scanner-section h2 {
     text-align: center;
-    margin-bottom: 20px;
+    margin-bottom: 10px;
     font-size: 1.5rem;
     padding: 15px;
     border-radius: 10px;
     color: white;
     text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.fair-spread-info {
+    text-align: center;
+    margin-bottom: 15px;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #333;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .scanner-section.stock-near-futures h2 {
@@ -784,6 +812,22 @@ tr:last-child td:last-child {
     .sort-group {
         min-width: auto;
     }
+}
+
+/* Разрешаем выделение текста в таблицах */
+table {
+    user-select: text;
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+}
+
+table td,
+table th {
+    user-select: text;
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
 }
 
 /* Анимация подсветки текста при изменении (как в индексах) */

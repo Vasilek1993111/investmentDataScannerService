@@ -2,6 +2,9 @@ package com.example.investmentdatascannerservice.config;
 
 import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.ApplicationContextAware;
+import org.springframework.core.env.Environment;
 import lombok.Data;
 
 /**
@@ -11,7 +14,9 @@ import lombok.Data;
  */
 @ConfigurationProperties(prefix = "quote-scanner")
 @Data
-public class QuoteScannerConfig {
+public class QuoteScannerConfig implements ApplicationContextAware {
+
+    private Environment environment;
 
     /**
      * Максимальное количество котировок в секунду для обработки
@@ -49,13 +54,60 @@ public class QuoteScannerConfig {
     private boolean enableImmediateOrderBookUpdates = true;
 
     /**
-     * Включить/выключить тестовый режим (работа вне времени утренней сессии)
-     */
-    private boolean enableTestMode = false;
-
-    /**
      * Режим сканирования для утреннего сканера true - сканировать все акции из таблицы
      * invest.shares false - использовать инструменты из конфигурации
      */
     private boolean enableSharesMode = true;
+
+    /**
+     * Ключевая ставка ЦБ РФ (в процентах) Используется для расчета справедливого расхождения между
+     * фьючерсом и акцией Формула: справедливое расхождение = ключевая ставка / 365 * количество
+     * дней до экспирации
+     */
+    private double keyRate = 16.5;
+
+    /**
+     * Проверяет, включен ли тестовый режим для утреннего сканера Определяется автоматически на
+     * основе активного Spring профиля (test = true, иначе = false)
+     */
+    public boolean isTestModeMorning() {
+        return isTestProfileActive();
+    }
+
+    /**
+     * Проверяет, включен ли тестовый режим для сканера выходного дня Определяется автоматически на
+     * основе активного Spring профиля (test = true, иначе = false)
+     */
+    public boolean isTestModeWeekend() {
+        return isTestProfileActive();
+    }
+
+    /**
+     * Проверяет, включен ли тестовый режим для сканера фьючерсов Определяется автоматически на
+     * основе активного Spring профиля (test = true, иначе = false)
+     */
+    public boolean isTestModeFutures() {
+        return isTestProfileActive();
+    }
+
+    /**
+     * Проверяет, активен ли тестовый профиль Spring
+     */
+    private boolean isTestProfileActive() {
+        if (environment == null) {
+            return false;
+        }
+        String[] activeProfiles = environment.getActiveProfiles();
+        for (String profile : activeProfiles) {
+            if ("test".equalsIgnoreCase(profile)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public void setApplicationContext(ApplicationContext applicationContext) {
+        this.environment = applicationContext.getEnvironment();
+    }
 }

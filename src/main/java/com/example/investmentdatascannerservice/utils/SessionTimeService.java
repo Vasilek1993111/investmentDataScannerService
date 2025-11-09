@@ -38,8 +38,8 @@ public class SessionTimeService {
      * @return true если сейчас время утренней сессии
      */
     public boolean isMorningSessionTime() {
-        // Если включен тестовый режим, всегда возвращаем true
-        if (config.isEnableTestMode()) {
+        // Если включен тестовый режим для утреннего сканера, всегда возвращаем true
+        if (config.isTestModeMorning()) {
             return true;
         }
 
@@ -72,8 +72,8 @@ public class SessionTimeService {
      * @return true если сейчас время сессии выходного дня
      */
     public boolean isWeekendSessionTime() {
-        // Если включен тестовый режим, всегда возвращаем true
-        if (config.isEnableTestMode()) {
+        // Если включен тестовый режим для сканера выходного дня, всегда возвращаем true
+        if (config.isTestModeWeekend()) {
             return true;
         }
 
@@ -127,8 +127,20 @@ public class SessionTimeService {
      * @return строка с описанием текущей сессии
      */
     public String getCurrentSessionInfo() {
-        if (config.isEnableTestMode()) {
-            return "TEST_MODE (все сессии активны)";
+        if (config.isTestModeMorning() || config.isTestModeWeekend()
+                || config.isTestModeFutures()) {
+            StringBuilder mode = new StringBuilder("TEST_MODE (");
+            if (config.isTestModeMorning()) {
+                mode.append("утренний ");
+            }
+            if (config.isTestModeWeekend()) {
+                mode.append("выходной ");
+            }
+            if (config.isTestModeFutures()) {
+                mode.append("фьючерсы ");
+            }
+            mode.append("активны)");
+            return mode.toString();
         }
 
         if (isMorningSessionTime()) {
@@ -160,8 +172,8 @@ public class SessionTimeService {
      * @return true если сейчас рабочий день или выходной день после 8:30
      */
     public boolean canSubscribeToFutures() {
-        // Если включен тестовый режим, всегда разрешаем подписку
-        if (config.isEnableTestMode()) {
+        // Если включен тестовый режим для сканера фьючерсов, всегда разрешаем подписку
+        if (config.isTestModeFutures()) {
             return true;
         }
 

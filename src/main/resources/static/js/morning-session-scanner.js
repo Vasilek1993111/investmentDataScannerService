@@ -540,7 +540,7 @@ async function updateSessionStatus() {
 
     if (testModeResp && testModeResp.ok) {
       const data = await testModeResp.json();
-      isTestMode = !!data.testModeEnabled;
+      isTestMode = !!data.testModeMorning;
     }
     if (sessionResp && sessionResp.ok) {
       const data = await sessionResp.json();

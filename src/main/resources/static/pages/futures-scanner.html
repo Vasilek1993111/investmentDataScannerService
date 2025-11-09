@@ -61,6 +61,7 @@
             <!-- Сравнение акций с ближними фьючерсами -->
             <div class="scanner-section stock-near-futures">
                 <h2 id="stockNearFuturesTitle">📊 Акции vs Ближние фьючерсы</h2>
+                <div class="fair-spread-info" id="stockNearFairSpreadInfo"></div>
 
                 <!-- Настройки сортировки для акций vs ближние фьючерсы -->
                 <div class="sorting-controls-inline">
@@ -103,14 +104,16 @@
                                 <th>Последняя цена фьючерса</th>
                                 <th>Объем акции</th>
                                 <th>Объем фьючерса</th>
+                                <th>BID</th>
+                                <th>ASK</th>
                                 <th>Спред %</th>
-                                <th>Экспирация</th>
+                                <th>Дельта</th>
                                 <th>Время</th>
                             </tr>
                         </thead>
                         <tbody id="stockNearFuturesTableBody">
                             <tr>
-                                <td colspan="10" class="no-data">Нет данных</td>
+                                <td colspan="12" class="no-data">Нет данных</td>
                             </tr>
                         </tbody>
                     </table>
@@ -120,6 +123,7 @@
             <!-- Сравнение акций с дальними фьючерсами -->
             <div class="scanner-section stock-far-futures">
                 <h2 id="stockFarFuturesTitle">📊 Акции vs Дальние фьючерсы</h2>
+                <div class="fair-spread-info" id="stockFarFairSpreadInfo"></div>
 
                 <!-- Настройки сортировки для акций vs дальние фьючерсы -->
                 <div class="sorting-controls-inline">
@@ -162,14 +166,16 @@
                                 <th>Последняя цена фьючерса</th>
                                 <th>Объем акции</th>
                                 <th>Объем фьючерса</th>
+                                <th>BID</th>
+                                <th>ASK</th>
                                 <th>Спред %</th>
-                                <th>Экспирация</th>
+                                <th>Дельта</th>
                                 <th>Время</th>
                             </tr>
                         </thead>
                         <tbody id="stockFarFuturesTableBody">
                             <tr>
-                                <td colspan="10" class="no-data">Нет данных</td>
+                                <td colspan="12" class="no-data">Нет данных</td>
                             </tr>
                         </tbody>
                     </table>
@@ -179,6 +185,7 @@
             <!-- Сравнение ближних и дальних фьючерсов -->
             <div class="scanner-section near-far-futures">
                 <h2 id="nearFarFuturesTitle">📊 Ближние vs Дальние фьючерсы</h2>
+                <div class="fair-spread-info" id="nearFarFairSpreadInfo"></div>
 
                 <!-- Настройки сортировки для ближние vs дальние фьючерсы -->
                 <div class="sorting-controls-inline">
@@ -214,21 +221,25 @@
                     <table>
                         <thead>
                             <tr>
-                                <th>Ближний фьючерс</th>
-                                <th>Дальний фьючерс</th>
+                                <th>Ближний</th>
+                                <th>Дальний</th>
                                 <th>Лотность</th>
-                                <th>Последняя цена ближнего</th>
-                                <th>Последняя цена дальнего</th>
+                                <th>Цена ближнего</th>
+                                <th>Цена дальнего</th>
                                 <th>Объем ближнего</th>
                                 <th>Объем дальнего</th>
+                                <th>BID (ближний)</th>
+                                <th>ASK (ближний)</th>
+                                <th>BID (дальний)</th>
+                                <th>ASK (дальний)</th>
                                 <th>Спред %</th>
-                                <th>Экспирация</th>
+                                <th>Дельта</th>
                                 <th>Время</th>
                             </tr>
                         </thead>
                         <tbody id="nearFarFuturesTableBody">
                             <tr>
-                                <td colspan="10" class="no-data">Нет данных</td>
+                                <td colspan="14" class="no-data">Нет данных</td>
                             </tr>
                         </tbody>
                     </table>

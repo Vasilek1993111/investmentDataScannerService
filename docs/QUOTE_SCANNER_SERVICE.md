@@ -731,7 +731,9 @@ public void updateLastPrice(String figi, BigDecimal price) {
 - **`enableDatabaseSaving`** — включение сохранения в БД
 - **`enableWebSocketBroadcast`** — включение WebSocket broadcast
 - **`enableSharesMode`** — режим работы с акциями
-- **`enableTestMode`** — тестовый режим (игнорирует сессии)
+- **`enableTestModeMorning`** — тестовый режим для утреннего сканера (игнорирует время утренней сессии)
+- **`enableTestModeWeekend`** — тестовый режим для сканера выходного дня (игнорирует время сессии выходного дня)
+- **`enableTestModeFutures`** — тестовый режим для сканера фьючерсов (работает в любое время)
 
 ### Пример конфигурации
 
@@ -746,10 +748,12 @@ quote.scanner.enable-database-saving=true
 quote.scanner.enable-websocket-broadcast=true
 
 # Режим работы с акциями
-quote.scanner.enable-shares-mode=true
+quote-scanner.enable-shares-mode=true
 
 # Тестовый режим
-quote.scanner.enable-test-mode=false
+quote-scanner.enable-test-mode-morning=false
+quote-scanner.enable-test-mode-weekend=false
+quote-scanner.enable-test-mode-futures=false
 ```
 
 ## Статистика и мониторинг
@@ -991,4 +995,9 @@ public class QuoteWebSocketController {
 
 Сервис следует принципам SOLID и обеспечивает чистую архитектуру приложения.
 
+## Связанная документация
+
+- [Сканер фьючерсов](./FUTURES_SCANNER.md) — детальная документация сканера фьючерсов и логика формирования пар
+- [API Documentation](./API.md) — полная документация REST API
+- [GRPC Limits](./GRPC_LIMITS.md) — лимиты gRPC подписок
 

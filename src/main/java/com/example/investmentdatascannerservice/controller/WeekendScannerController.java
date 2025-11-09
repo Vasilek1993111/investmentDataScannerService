@@ -46,7 +46,7 @@ public class WeekendScannerController {
 
         response.put("active", isActive);
         response.put("weekendSession", isWeekendSession);
-        response.put("testMode", config.isEnableTestMode());
+        response.put("testMode", config.isTestModeWeekend());
         response.put("sharesMode", config.isEnableSharesMode());
 
         String message;

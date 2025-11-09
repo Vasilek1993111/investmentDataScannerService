@@ -4,12 +4,16 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -53,10 +57,24 @@ public class MarketDataStreamingService {
 
     // Лимит T-Invest API на количество инструментов в одной подписке
     // Размер батча для подписки (акции, фьючерсы, индикативы отдельно)
-    private static final int SUBSCRIPTION_BATCH_SIZE = 200;
+    private static final int SUBSCRIPTION_BATCH_SIZE = 150;
 
-    // Задержка между отправкой батчей подписки (мс)
-    private static final int BATCH_DELAY_MS = 100;
+    // Лимиты T-Invest API сервиса котировок (gRPC)
+    // Максимум 300 инструментов на одно stream-соединение
+    private static final int MAX_INSTRUMENTS_PER_STREAM = 300;
+
+    // Максимум 300 запросов в минуту (общий лимит для всех stream-соединений)
+    // Все типы подписок (LastPrice, Trades, OrderBook) считаются вместе
+    private static final int MAX_REQUESTS_PER_MINUTE = 300;
+
+    // Рассчитываем минимальную задержку между запросами для соблюдения лимита 300 запросов/мин
+    // 60 секунд / 300 запросов = 0.2 секунды = 200 мс между запросами
+    // Для безопасности используем 250 мс (консервативное значение)
+    private static final long MIN_DELAY_BETWEEN_REQUESTS_MS = 250L; // 250 мс между запросами
+
+    // Глобальный rate limiter для всех stream-соединений (300 запросов/мин)
+    private final ReentrantLock globalRateLimiterLock = new ReentrantLock();
+    private volatile long lastRequestTime = 0;
 
     private final MarketDataStreamServiceGrpc.MarketDataStreamServiceStub streamStub;
     private final QuoteScannerService quoteScannerService;
@@ -75,7 +93,9 @@ public class MarketDataStreamingService {
     private final AtomicLong totalReceived = new AtomicLong(0);
     private final AtomicLong totalTradeReceived = new AtomicLong(0);
     private final AtomicLong totalOrderBookReceived = new AtomicLong(0);
-    private volatile StreamObserver<MarketDataRequest> requestObserver;
+
+    // Множественные stream-соединения (каждое может обрабатывать до 300 инструментов)
+    private final List<StreamConnection> streamConnections = new CopyOnWriteArrayList<>();
 
     public MarketDataStreamingService(
             MarketDataStreamServiceGrpc.MarketDataStreamServiceStub streamStub,
@@ -116,6 +136,19 @@ public class MarketDataStreamingService {
         log.info("Shutting down MarketDataStreamingService...");
 
         isRunning.set(false);
+
+        // Закрываем все stream-соединения
+        log.info("Closing {} stream connection(s)...", streamConnections.size());
+        for (StreamConnection conn : streamConnections) {
+            try {
+                if (conn.requestObserver != null) {
+                    conn.requestObserver.onCompleted();
+                }
+            } catch (Exception e) {
+                log.warn("Error closing stream connection {}", conn.streamId, e);
+            }
+        }
+        streamConnections.clear();
 
         // Завершение планировщика
         reconnectScheduler.shutdown();
@@ -240,6 +273,123 @@ public class MarketDataStreamingService {
     }
 
     /**
+     * Внутренний класс для хранения информации о stream-соединении Каждое соединение может
+     * обрабатывать до 300 инструментов
+     */
+    private static class StreamConnection {
+        private final StreamObserver<MarketDataRequest> requestObserver;
+        private final int streamId;
+        private final AtomicBoolean isConnected = new AtomicBoolean(false);
+
+        public StreamConnection(StreamObserver<MarketDataRequest> requestObserver, int streamId) {
+            this.requestObserver = requestObserver;
+            this.streamId = streamId;
+        }
+    }
+
+    /**
+     * Класс для хранения информации об инструменте с его типом
+     */
+    private static class InstrumentWithType {
+        final String figi;
+        final InstrumentType type;
+
+        enum InstrumentType {
+            SHARE, // Акции - LastPrice, Trades, OrderBook
+            FUTURE, // Фьючерсы - LastPrice, Trades, OrderBook (с ограничениями по времени)
+            INDICATIVE // Индикативы - только LastPrice
+        }
+
+        InstrumentWithType(String figi, InstrumentType type) {
+            this.figi = figi;
+            this.type = type;
+        }
+    }
+
+    /**
+     * Разделить список инструментов на группы для распределения между stream-соединениями Каждая
+     * группа должна содержать не более MAX_INSTRUMENTS_PER_STREAM инструментов
+     * 
+     * @param instruments список инструментов с типами
+     * @param maxInstrumentsPerStream максимальное количество инструментов на один stream
+     * @return список групп инструментов
+     */
+    private List<List<InstrumentWithType>> splitIntoStreamGroups(
+            List<InstrumentWithType> instruments, int maxInstrumentsPerStream) {
+        if (instruments.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<List<InstrumentWithType>> groups = new ArrayList<>();
+        for (int i = 0; i < instruments.size(); i += maxInstrumentsPerStream) {
+            int end = Math.min(i + maxInstrumentsPerStream, instruments.size());
+            groups.add(new ArrayList<>(instruments.subList(i, end)));
+        }
+        return groups;
+    }
+
+    /**
+     * Создать список всех инструментов с типами для подписки
+     */
+    private List<InstrumentWithType> getAllInstrumentsWithTypes() {
+        List<InstrumentWithType> instruments = new ArrayList<>();
+
+        // Добавляем акции
+        for (String figi : getShares()) {
+            instruments.add(new InstrumentWithType(figi, InstrumentWithType.InstrumentType.SHARE));
+        }
+
+        // Добавляем фьючерсы
+        for (String figi : getFutures()) {
+            instruments.add(new InstrumentWithType(figi, InstrumentWithType.InstrumentType.FUTURE));
+        }
+
+        // Добавляем индикативы
+        for (String figi : getIndicatives()) {
+            instruments.add(
+                    new InstrumentWithType(figi, InstrumentWithType.InstrumentType.INDICATIVE));
+        }
+
+        return instruments;
+    }
+
+    /**
+     * Глобальный rate limiter для соблюдения лимита T-Invest API (300 запросов в минуту)
+     * Гарантирует минимальную задержку 250 мс между запросами подписки
+     * 
+     * Все типы подписок (LastPrice, Trades, OrderBook) и все stream-соединения используют один
+     * глобальный rate limiter. Это обеспечивает, что общее количество запросов не превысит лимит
+     * 300 запросов/мин.
+     */
+    private void waitForRateLimit() {
+        globalRateLimiterLock.lock();
+        try {
+            long currentTime = System.currentTimeMillis();
+            long timeSinceLastRequest = currentTime - lastRequestTime;
+
+            // Если это первый запрос (lastRequestTime == 0), не добавляем задержку
+            if (lastRequestTime > 0 && timeSinceLastRequest < MIN_DELAY_BETWEEN_REQUESTS_MS) {
+                long sleepTime = MIN_DELAY_BETWEEN_REQUESTS_MS - timeSinceLastRequest;
+                if (sleepTime > 0) {
+                    try {
+                        Thread.sleep(sleepTime);
+                        log.trace(
+                                "Global rate limiter: waited {} ms to comply with API limit ({} requests/min)",
+                                sleepTime, MAX_REQUESTS_PER_MINUTE);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        log.warn("Global rate limiter interrupted", e);
+                    }
+                }
+            }
+
+            lastRequestTime = System.currentTimeMillis();
+        } finally {
+            globalRateLimiterLock.unlock();
+        }
+    }
+
+    /**
      * Разбить список инструментов на батчи для подписки
      * 
      * @param instruments список FIGI инструментов
@@ -257,8 +407,345 @@ public class MarketDataStreamingService {
     }
 
     /**
+     * Создание и настройка одного stream-соединения для группы инструментов
+     * 
+     * @param instruments группа инструментов для подписки
+     * @param streamId идентификатор stream-соединения
+     */
+    private void createAndSubscribeStream(List<InstrumentWithType> instruments, int streamId) {
+        if (instruments.isEmpty()) {
+            log.warn("Stream {}: No instruments provided, skipping stream creation", streamId);
+            return;
+        }
+
+        log.info("Stream {}: Creating stream connection for {} instruments", streamId,
+                instruments.size());
+
+        try {
+            // Разделяем инструменты по типам
+            List<String> allFigis = new ArrayList<>();
+            List<String> shareFigis = new ArrayList<>();
+            List<String> futureFigis = new ArrayList<>();
+            List<String> indicativeFigis = new ArrayList<>();
+
+            for (InstrumentWithType inst : instruments) {
+                allFigis.add(inst.figi);
+                switch (inst.type) {
+                    case SHARE:
+                        shareFigis.add(inst.figi);
+                        break;
+                    case FUTURE:
+                        futureFigis.add(inst.figi);
+                        break;
+                    case INDICATIVE:
+                        indicativeFigis.add(inst.figi);
+                        break;
+                }
+            }
+
+            log.info("Stream {}: Instruments breakdown - Shares: {}, Futures: {}, Indicatives: {}",
+                    streamId, shareFigis.size(), futureFigis.size(), indicativeFigis.size());
+
+            // Создаем StreamObserver для этого stream
+            StreamObserver<MarketDataResponse> responseObserver = new StreamObserver<>() {
+                @Override
+                public void onNext(MarketDataResponse resp) {
+                    if (resp.hasSubscribeLastPriceResponse()) {
+                        SubscribeLastPriceResponse sr = resp.getSubscribeLastPriceResponse();
+                        StreamConnection streamConn = findStreamConnection(streamId);
+                        if (streamConn != null) {
+                            streamConn.isConnected.set(true);
+                        }
+                        isConnected.set(true);
+                        log.info("Stream {}: === LastPrice SUBSCRIPTION RESPONSE ===", streamId);
+                        log.info("Stream {}: Total LastPrice subscriptions: {}", streamId,
+                                sr.getLastPriceSubscriptionsList().size());
+
+                        long successCount = sr.getLastPriceSubscriptionsList().stream().filter(
+                                s -> s.getSubscriptionStatus() == SubscriptionStatus.SUBSCRIPTION_STATUS_SUCCESS)
+                                .count();
+                        long errorCount = sr.getLastPriceSubscriptionsList().size() - successCount;
+
+                        log.info("Stream {}: Successful subscriptions: {}, Failed: {}", streamId,
+                                successCount, errorCount);
+
+                        if (errorCount > 0) {
+                            log.warn("Stream {}: Failed LastPrice subscriptions:", streamId);
+                            sr.getLastPriceSubscriptionsList().stream().filter(s -> s
+                                    .getSubscriptionStatus() != SubscriptionStatus.SUBSCRIPTION_STATUS_SUCCESS)
+                                    .forEach(s -> log.warn("Stream {}:   FIGI {} -> {}", streamId,
+                                            s.getFigi(), s.getSubscriptionStatus()));
+                        }
+                        log.info("Stream {}: =====================================", streamId);
+                        return;
+                    }
+
+                    if (resp.hasSubscribeTradesResponse()) {
+                        SubscribeTradesResponse sr = resp.getSubscribeTradesResponse();
+                        StreamConnection streamConn = findStreamConnection(streamId);
+                        if (streamConn != null) {
+                            streamConn.isConnected.set(true);
+                        }
+                        isConnected.set(true);
+                        log.info("Stream {}: === TRADES SUBSCRIPTION RESPONSE ===", streamId);
+                        log.info("Stream {}: Total Trades subscriptions: {}", streamId,
+                                sr.getTradeSubscriptionsList().size());
+
+                        long successCount = sr.getTradeSubscriptionsList().stream().filter(s -> s
+                                .getSubscriptionStatus() == SubscriptionStatus.SUBSCRIPTION_STATUS_SUCCESS)
+                                .count();
+                        long errorCount = sr.getTradeSubscriptionsList().size() - successCount;
+
+                        log.info("Stream {}: Successful subscriptions: {}, Failed: {}", streamId,
+                                successCount, errorCount);
+
+                        if (errorCount > 0) {
+                            log.warn("Stream {}: Failed Trades subscriptions:", streamId);
+                            sr.getTradeSubscriptionsList().stream().filter(s -> s
+                                    .getSubscriptionStatus() != SubscriptionStatus.SUBSCRIPTION_STATUS_SUCCESS)
+                                    .forEach(s -> log.warn("Stream {}:   FIGI {} -> {}", streamId,
+                                            s.getFigi(), s.getSubscriptionStatus()));
+                        }
+                        log.info("Stream {}: ===================================", streamId);
+                        return;
+                    }
+
+                    if (resp.hasSubscribeOrderBookResponse()) {
+                        SubscribeOrderBookResponse sr = resp.getSubscribeOrderBookResponse();
+                        StreamConnection streamConn = findStreamConnection(streamId);
+                        if (streamConn != null) {
+                            streamConn.isConnected.set(true);
+                        }
+                        isConnected.set(true);
+                        log.info("Stream {}: === ORDER BOOK SUBSCRIPTION RESPONSE ===", streamId);
+                        log.info("Stream {}: Total OrderBook subscriptions: {}", streamId,
+                                sr.getOrderBookSubscriptionsList().size());
+
+                        long successCount = sr.getOrderBookSubscriptionsList().stream().filter(
+                                s -> s.getSubscriptionStatus() == SubscriptionStatus.SUBSCRIPTION_STATUS_SUCCESS)
+                                .count();
+                        long errorCount = sr.getOrderBookSubscriptionsList().size() - successCount;
+
+                        log.info("Stream {}: Successful subscriptions: {}, Failed: {}", streamId,
+                                successCount, errorCount);
+
+                        if (errorCount > 0) {
+                            log.warn("Stream {}: Failed OrderBook subscriptions:", streamId);
+                            sr.getOrderBookSubscriptionsList().stream().filter(s -> s
+                                    .getSubscriptionStatus() != SubscriptionStatus.SUBSCRIPTION_STATUS_SUCCESS)
+                                    .forEach(s -> log.warn("Stream {}:   FIGI {} -> {}", streamId,
+                                            s.getFigi(), s.getSubscriptionStatus()));
+                        }
+                        log.info("Stream {}: ======================================", streamId);
+                        return;
+                    }
+
+                    // Обработка данных
+                    if (resp.hasLastPrice()) {
+                        processLastPrice(resp.getLastPrice());
+                        quoteScannerService.processLastPrice(resp.getLastPrice());
+                    } else if (resp.hasTrade()) {
+                        processTrade(resp.getTrade());
+                        quoteScannerService.processTrade(resp.getTrade());
+                    } else if (resp.hasOrderbook()) {
+                        processOrderBook(resp.getOrderbook());
+                        quoteScannerService.processOrderBook(resp.getOrderbook());
+                    }
+                }
+
+                @Override
+                public void onError(Throwable t) {
+                    StreamConnection streamConn = findStreamConnection(streamId);
+                    if (streamConn != null) {
+                        streamConn.isConnected.set(false);
+                    }
+                    isConnected.set(false);
+                    log.error("Stream {}: Market data stream error, attempting reconnection...",
+                            streamId, t);
+                    scheduleStreamReconnect(streamId, instruments, RECONNECT_DELAY_MS);
+                }
+
+                @Override
+                public void onCompleted() {
+                    StreamConnection streamConn = findStreamConnection(streamId);
+                    if (streamConn != null) {
+                        streamConn.isConnected.set(false);
+                    }
+                    isConnected.set(false);
+                    log.info("Stream {}: Market data stream completed, restarting subscription...",
+                            streamId);
+                    scheduleStreamReconnect(streamId, instruments, RECONNECT_DELAY_MS);
+                }
+            };
+
+            // Создаем stream-соединение
+            log.info("Stream {}: Connecting to T-Invest API...", streamId);
+            StreamObserver<MarketDataRequest> requestObserver =
+                    streamStub.marketDataStream(responseObserver);
+            StreamConnection streamConnection = new StreamConnection(requestObserver, streamId);
+            streamConnections.add(streamConnection);
+
+            // Подписка на LastPrice для всех инструментов
+            log.info("Stream {}: === Subscribing to LastPrice ({} instruments) ===", streamId,
+                    allFigis.size());
+            subscribeToLastPrice(streamConnection, allFigis);
+
+            // Подписка на Trades для shares и futures
+            List<String> tradesFigis = new ArrayList<>(shareFigis);
+            if (sessionTimeService.canSubscribeToFutures()) {
+                tradesFigis.addAll(futureFigis);
+            } else {
+                log.info(
+                        "Stream {}: Skipping Trades subscription for {} futures (weekend before 8:30 MSK)",
+                        streamId, futureFigis.size());
+            }
+            if (!tradesFigis.isEmpty()) {
+                log.info("Stream {}: === Subscribing to Trades ({} instruments) ===", streamId,
+                        tradesFigis.size());
+                subscribeToTrades(streamConnection, tradesFigis);
+            }
+
+            // Подписка на OrderBook для shares и futures (если включено)
+            if (config.isEnableOrderBookSubscription()) {
+                List<String> orderBookFigis = new ArrayList<>(shareFigis);
+                if (sessionTimeService.canSubscribeToFutures()) {
+                    orderBookFigis.addAll(futureFigis);
+                } else {
+                    log.info(
+                            "Stream {}: Skipping OrderBook subscription for {} futures (weekend before 8:30 MSK)",
+                            streamId, futureFigis.size());
+                }
+                if (!orderBookFigis.isEmpty()) {
+                    log.info("Stream {}: === Subscribing to OrderBook ({} instruments) ===",
+                            streamId, orderBookFigis.size());
+                    subscribeToOrderBook(streamConnection, orderBookFigis);
+                }
+            }
+
+            log.info("Stream {}: Successfully created and subscribed", streamId);
+
+        } catch (Exception e) {
+            log.error("Stream {}: Error creating stream connection", streamId, e);
+        }
+    }
+
+    /**
+     * Найти stream-соединение по идентификатору
+     */
+    private StreamConnection findStreamConnection(int streamId) {
+        return streamConnections.stream().filter(conn -> conn.streamId == streamId).findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * Подписка на LastPrice для списка инструментов
+     */
+    private void subscribeToLastPrice(StreamConnection streamConnection, List<String> instruments) {
+        if (instruments.isEmpty()) {
+            return;
+        }
+        List<List<String>> batches = splitIntoBatches(instruments, SUBSCRIPTION_BATCH_SIZE);
+        log.info("Stream {}: Sending {} batches of LastPrice subscriptions (batch size: {})",
+                streamConnection.streamId, batches.size(), SUBSCRIPTION_BATCH_SIZE);
+        for (int i = 0; i < batches.size(); i++) {
+            waitForRateLimit(); // Глобальный rate limiter для всех stream
+            List<String> batch = batches.get(i);
+            SubscribeLastPriceRequest batchReq = SubscribeLastPriceRequest.newBuilder()
+                    .setSubscriptionAction(SubscriptionAction.SUBSCRIPTION_ACTION_SUBSCRIBE)
+                    .addAllInstruments(batch.stream()
+                            .map(f -> LastPriceInstrument.newBuilder().setInstrumentId(f).build())
+                            .toList())
+                    .build();
+            MarketDataRequest request =
+                    MarketDataRequest.newBuilder().setSubscribeLastPriceRequest(batchReq).build();
+            streamConnection.requestObserver.onNext(request);
+            log.debug("Stream {}: Sent LastPrice batch {}/{} ({} instruments)",
+                    streamConnection.streamId, i + 1, batches.size(), batch.size());
+        }
+    }
+
+    /**
+     * Подписка на Trades для списка инструментов
+     */
+    private void subscribeToTrades(StreamConnection streamConnection, List<String> instruments) {
+        if (instruments.isEmpty()) {
+            return;
+        }
+        List<List<String>> batches = splitIntoBatches(instruments, SUBSCRIPTION_BATCH_SIZE);
+        log.info("Stream {}: Sending {} batches of Trades subscriptions (batch size: {})",
+                streamConnection.streamId, batches.size(), SUBSCRIPTION_BATCH_SIZE);
+        for (int i = 0; i < batches.size(); i++) {
+            waitForRateLimit(); // Глобальный rate limiter для всех stream
+            List<String> batch = batches.get(i);
+            SubscribeTradesRequest batchReq =
+                    SubscribeTradesRequest.newBuilder()
+                            .setSubscriptionAction(SubscriptionAction.SUBSCRIPTION_ACTION_SUBSCRIBE)
+                            .addAllInstruments(batch.stream()
+                                    .map(f -> ru.tinkoff.piapi.contract.v1.TradeInstrument
+                                            .newBuilder().setInstrumentId(f).build())
+                                    .toList())
+                            .build();
+            MarketDataRequest request =
+                    MarketDataRequest.newBuilder().setSubscribeTradesRequest(batchReq).build();
+            streamConnection.requestObserver.onNext(request);
+            log.debug("Stream {}: Sent Trades batch {}/{} ({} instruments)",
+                    streamConnection.streamId, i + 1, batches.size(), batch.size());
+        }
+    }
+
+    /**
+     * Подписка на OrderBook для списка инструментов
+     */
+    private void subscribeToOrderBook(StreamConnection streamConnection, List<String> instruments) {
+        if (instruments.isEmpty()) {
+            return;
+        }
+        List<List<String>> batches = splitIntoBatches(instruments, SUBSCRIPTION_BATCH_SIZE);
+        log.info("Stream {}: Sending {} batches of OrderBook subscriptions (batch size: {})",
+                streamConnection.streamId, batches.size(), SUBSCRIPTION_BATCH_SIZE);
+        for (int i = 0; i < batches.size(); i++) {
+            waitForRateLimit(); // Глобальный rate limiter для всех stream
+            List<String> batch = batches.get(i);
+            SubscribeOrderBookRequest batchReq = SubscribeOrderBookRequest.newBuilder()
+                    .setSubscriptionAction(SubscriptionAction.SUBSCRIPTION_ACTION_SUBSCRIBE)
+                    .addAllInstruments(batch.stream()
+                            .map(f -> OrderBookInstrument.newBuilder().setInstrumentId(f)
+                                    .setDepth(config.getOrderBookDepth()).build())
+                            .toList())
+                    .build();
+            MarketDataRequest request =
+                    MarketDataRequest.newBuilder().setSubscribeOrderBookRequest(batchReq).build();
+            streamConnection.requestObserver.onNext(request);
+            log.debug("Stream {}: Sent OrderBook batch {}/{} ({} instruments)",
+                    streamConnection.streamId, i + 1, batches.size(), batch.size());
+        }
+    }
+
+    /**
+     * Планирование переподключения для конкретного stream
+     */
+    private void scheduleStreamReconnect(int streamId, List<InstrumentWithType> instruments,
+            long delayMs) {
+        if (!isRunning.get()) {
+            return;
+        }
+        reconnectScheduler.schedule(() -> {
+            if (isRunning.get()) {
+                StreamConnection streamConn = findStreamConnection(streamId);
+                if (streamConn == null || !streamConn.isConnected.get()) {
+                    log.info("Stream {}: Attempting to reconnect to T-Invest API...", streamId);
+                    // Удаляем старое соединение если оно есть
+                    streamConnections.removeIf(conn -> conn.streamId == streamId);
+                    // Создаем новое соединение
+                    createAndSubscribeStream(instruments, streamId);
+                }
+            }
+        }, delayMs, TimeUnit.MILLISECONDS);
+    }
+
+    /**
      * Запуск высокопроизводительного потока данных о последних ценах с автоматическим
-     * переподключением
+     * переподключением и поддержкой множественных stream-соединений
      */
     public void startLastPriceStream() {
         if (!isRunning.get()) {
@@ -266,437 +753,72 @@ public class MarketDataStreamingService {
             return;
         }
 
-        log.info("Starting market data stream subscription...");
+        log.info("=== Starting market data stream subscription with multiple streams ===");
 
-        // Получаем инструменты по типам отдельно
-        List<String> shares = getShares();
-        List<String> futures = getFutures();
-        List<String> indicatives = getIndicatives();
+        // Получаем все инструменты с типами
+        List<InstrumentWithType> allInstruments = getAllInstrumentsWithTypes();
 
-        int totalInstruments = shares.size() + futures.size() + indicatives.size();
-
-        if (totalInstruments == 0) {
+        if (allInstruments.isEmpty()) {
             log.warn("No instruments found for subscription, retrying in 30 seconds...");
             log.warn("Check if shares, futures and indicatives are loaded from database");
             scheduleReconnect(30);
             return;
         }
 
+        // Подсчитываем инструменты по типам
+        long sharesCount = allInstruments.stream()
+                .filter(inst -> inst.type == InstrumentWithType.InstrumentType.SHARE).count();
+        long futuresCount = allInstruments.stream()
+                .filter(inst -> inst.type == InstrumentWithType.InstrumentType.FUTURE).count();
+        long indicativesCount = allInstruments.stream()
+                .filter(inst -> inst.type == InstrumentWithType.InstrumentType.INDICATIVE).count();
+
         log.info("Preparing subscription requests:");
-        log.info("  Shares: {} instruments", shares.size());
-        log.info("  Futures: {} instruments (weekend restriction: from 8:30 MSK)", futures.size());
-        log.info("  Indicatives: {} instruments (LastPrice only)", indicatives.size());
-        log.info("  Total: {} instruments", totalInstruments);
+        log.info("  Shares: {} instruments", sharesCount);
+        log.info("  Futures: {} instruments (weekend restriction: from 8:30 MSK)", futuresCount);
+        log.info("  Indicatives: {} instruments (LastPrice only)", indicativesCount);
+        log.info("  Total: {} instruments", allInstruments.size());
         log.info("Subscription will include: LastPrice (all), Trades (shares + futures){}",
                 config.isEnableOrderBookSubscription()
                         ? ", OrderBook (shares + futures, futures restricted on weekends)"
                         : "");
         log.info(
                 "Futures subscription: In weekends (Sat/Sun), subscriptions start only from 8:30 MSK");
-        log.info("Batch size: {} instruments, delay between batches: {}ms", SUBSCRIPTION_BATCH_SIZE,
-                BATCH_DELAY_MS);
+        log.info("Batch size: {} instruments", SUBSCRIPTION_BATCH_SIZE);
+        log.info("Rate limiting: {} ms delay between requests (max {} requests/min)",
+                MIN_DELAY_BETWEEN_REQUESTS_MS, MAX_REQUESTS_PER_MINUTE);
+        log.info("Max instruments per stream: {} (limit from T-Invest API quotes service)",
+                MAX_INSTRUMENTS_PER_STREAM);
 
         try {
-            // Создаем StreamObserver один раз для всех батчей
+            // Очищаем старые соединения
+            streamConnections.clear();
+            lastRequestTime = 0; // Сбрасываем глобальный rate limiter
 
-            StreamObserver<MarketDataResponse> responseObserver = new StreamObserver<>() {
-                @Override
-                public void onNext(MarketDataResponse resp) {
-                    if (resp.hasSubscribeLastPriceResponse()) {
-                        SubscribeLastPriceResponse sr = resp.getSubscribeLastPriceResponse();
-                        isConnected.set(true);
-                        log.info("=== LastPrice SUBSCRIPTION RESPONSE ===");
-                        log.info("Total LastPrice subscriptions: {}",
-                                sr.getLastPriceSubscriptionsList().size());
+            // Разделяем инструменты на группы для stream-соединений
+            // Каждая группа содержит максимум MAX_INSTRUMENTS_PER_STREAM инструментов
+            List<List<InstrumentWithType>> streamGroups =
+                    splitIntoStreamGroups(allInstruments, MAX_INSTRUMENTS_PER_STREAM);
 
-                        // Логируем только ошибки подписки
-                        long successCount = sr.getLastPriceSubscriptionsList().stream().filter(
-                                s -> s.getSubscriptionStatus() == SubscriptionStatus.SUBSCRIPTION_STATUS_SUCCESS)
-                                .count();
-                        long errorCount = sr.getLastPriceSubscriptionsList().size() - successCount;
+            int numberOfStreams = streamGroups.size();
+            log.info("=== Creating {} stream connection(s) for {} total instruments ===",
+                    numberOfStreams, allInstruments.size());
+            log.info("Max instruments per stream: {}", MAX_INSTRUMENTS_PER_STREAM);
 
-                        log.info("Successful subscriptions: {}, Failed: {}", successCount,
-                                errorCount);
-
-                        if (errorCount > 0) {
-                            log.warn("Failed LastPrice subscriptions:");
-                            sr.getLastPriceSubscriptionsList().stream().filter(s -> s
-                                    .getSubscriptionStatus() != SubscriptionStatus.SUBSCRIPTION_STATUS_SUCCESS)
-                                    .forEach(s -> log.warn("  FIGI {} -> {}", s.getFigi(),
-                                            s.getSubscriptionStatus()));
-                        }
-                        log.info("=====================================");
-                        return;
-                    }
-
-                    if (resp.hasSubscribeTradesResponse()) {
-                        SubscribeTradesResponse sr = resp.getSubscribeTradesResponse();
-                        isConnected.set(true);
-                        log.info("=== TRADES SUBSCRIPTION RESPONSE ===");
-                        log.info("Total Trades subscriptions: {}",
-                                sr.getTradeSubscriptionsList().size());
-
-                        // Логируем только ошибки подписки
-                        long successCount = sr.getTradeSubscriptionsList().stream().filter(s -> s
-                                .getSubscriptionStatus() == SubscriptionStatus.SUBSCRIPTION_STATUS_SUCCESS)
-                                .count();
-                        long errorCount = sr.getTradeSubscriptionsList().size() - successCount;
-
-                        log.info("Successful subscriptions: {}, Failed: {}", successCount,
-                                errorCount);
-
-                        if (errorCount > 0) {
-                            log.warn("Failed Trades subscriptions:");
-                            sr.getTradeSubscriptionsList().stream().filter(s -> s
-                                    .getSubscriptionStatus() != SubscriptionStatus.SUBSCRIPTION_STATUS_SUCCESS)
-                                    .forEach(s -> log.warn("  FIGI {} -> {}", s.getFigi(),
-                                            s.getSubscriptionStatus()));
-                        }
-                        log.info("===================================");
-                        return;
-                    }
-
-                    if (resp.hasSubscribeOrderBookResponse()) {
-                        SubscribeOrderBookResponse sr = resp.getSubscribeOrderBookResponse();
-                        isConnected.set(true);
-                        log.info("=== ORDER BOOK SUBSCRIPTION RESPONSE ===");
-                        log.info("Total OrderBook subscriptions: {}",
-                                sr.getOrderBookSubscriptionsList().size());
-
-                        // Логируем только ошибки подписки
-                        long successCount = sr.getOrderBookSubscriptionsList().stream().filter(
-                                s -> s.getSubscriptionStatus() == SubscriptionStatus.SUBSCRIPTION_STATUS_SUCCESS)
-                                .count();
-                        long errorCount = sr.getOrderBookSubscriptionsList().size() - successCount;
-
-                        log.info("Successful subscriptions: {}, Failed: {}", successCount,
-                                errorCount);
-
-                        if (errorCount > 0) {
-                            log.warn("Failed OrderBook subscriptions:");
-                            sr.getOrderBookSubscriptionsList().stream().filter(s -> s
-                                    .getSubscriptionStatus() != SubscriptionStatus.SUBSCRIPTION_STATUS_SUCCESS)
-                                    .forEach(s -> log.warn("  FIGI {} -> {}", s.getFigi(),
-                                            s.getSubscriptionStatus()));
-                        }
-                        log.info("======================================");
-                        return;
-                    }
-
-                    if (resp.hasLastPrice()) {
-                        log.info("Received last price data from T-Invest API for FIGI: {}",
-                                resp.getLastPrice().getFigi());
-                        processLastPrice(resp.getLastPrice());
-                        // Отправляем данные в сканер котировок
-                        quoteScannerService.processLastPrice(resp.getLastPrice());
-                    } else if (resp.hasTrade()) {
-                        log.info("Received trade data from T-Invest API for FIGI: {}",
-                                resp.getTrade().getFigi());
-                        processTrade(resp.getTrade());
-                        // Отправляем данные в сканер котировок
-                        quoteScannerService.processTrade(resp.getTrade());
-                    } else if (resp.hasOrderbook()) {
-                        log.debug("Received order book data from T-Invest API for FIGI: {}",
-                                resp.getOrderbook().getFigi());
-                        // Обрабатываем стакан синхронно для минимальной задержки
-                        processOrderBook(resp.getOrderbook());
-                        // Отправляем данные в сканер котировок
-                        quoteScannerService.processOrderBook(resp.getOrderbook());
-                    } else {
-                        log.info("Received unknown response type from T-Invest API: {}", resp);
-                    }
-                }
-
-                @Override
-                public void onError(Throwable t) {
-                    isConnected.set(false);
-                    log.error("Market data stream error, attempting reconnection...", t);
-                    scheduleReconnect(RECONNECT_DELAY_MS);
-                }
-
-                @Override
-                public void onCompleted() {
-                    isConnected.set(false);
-                    log.info("Market data stream completed, restarting subscription...");
-                    scheduleReconnect(RECONNECT_DELAY_MS);
-                }
-            };
-
-            log.info("Connecting to T-Invest API...");
-            requestObserver = streamStub.marketDataStream(responseObserver);
-
-            // Вспомогательный метод для отправки подписок LastPrice батчами с задержкой между
-            // батчами
-            java.util.function.Consumer<List<String>> sendLastPriceBatches = (instrumentList) -> {
-                if (instrumentList.isEmpty())
-                    return;
-                List<List<String>> batches =
-                        splitIntoBatches(instrumentList, SUBSCRIPTION_BATCH_SIZE);
-                log.info("Sending {} batches of LastPrice subscriptions (batch size: {})",
-                        batches.size(), SUBSCRIPTION_BATCH_SIZE);
-                for (int i = 0; i < batches.size(); i++) {
-                    List<String> batch = batches.get(i);
-                    SubscribeLastPriceRequest batchReq =
-                            SubscribeLastPriceRequest.newBuilder()
-                                    .setSubscriptionAction(
-                                            SubscriptionAction.SUBSCRIPTION_ACTION_SUBSCRIBE)
-                                    .addAllInstruments(
-                                            batch.stream()
-                                                    .map(f -> LastPriceInstrument.newBuilder()
-                                                            .setInstrumentId(f).build())
-                                                    .toList())
-                                    .build();
-                    MarketDataRequest request = MarketDataRequest.newBuilder()
-                            .setSubscribeLastPriceRequest(batchReq).build();
-                    requestObserver.onNext(request);
-                    log.debug("Sent LastPrice batch {}/{} ({} instruments)", i + 1, batches.size(),
-                            batch.size());
-                    // Задержка между батчами (кроме последнего батча)
-                    if (i < batches.size() - 1) {
-                        try {
-                            Thread.sleep(BATCH_DELAY_MS);
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            log.warn("Interrupted while waiting between batches", e);
-                            return;
-                        }
-                    }
-                }
-            };
-
-            // Вспомогательный метод для отправки подписок Trades батчами с задержкой между батчами
-            java.util.function.Consumer<List<String>> sendTradesBatches = (instrumentList) -> {
-                if (instrumentList.isEmpty())
-                    return;
-                List<List<String>> batches =
-                        splitIntoBatches(instrumentList, SUBSCRIPTION_BATCH_SIZE);
-                log.info("Sending {} batches of Trades subscriptions (batch size: {})",
-                        batches.size(), SUBSCRIPTION_BATCH_SIZE);
-                for (int i = 0; i < batches.size(); i++) {
-                    List<String> batch = batches.get(i);
-                    SubscribeTradesRequest batchReq = SubscribeTradesRequest.newBuilder()
-                            .setSubscriptionAction(SubscriptionAction.SUBSCRIPTION_ACTION_SUBSCRIBE)
-                            .addAllInstruments(batch.stream()
-                                    .map(f -> ru.tinkoff.piapi.contract.v1.TradeInstrument
-                                            .newBuilder().setInstrumentId(f).build())
-                                    .toList())
-                            .build();
-                    MarketDataRequest request = MarketDataRequest.newBuilder()
-                            .setSubscribeTradesRequest(batchReq).build();
-                    requestObserver.onNext(request);
-                    log.debug("Sent Trades batch {}/{} ({} instruments)", i + 1, batches.size(),
-                            batch.size());
-                    // Задержка между батчами (кроме последнего батча)
-                    if (i < batches.size() - 1) {
-                        try {
-                            Thread.sleep(BATCH_DELAY_MS);
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            log.warn("Interrupted while waiting between batches", e);
-                            return;
-                        }
-                    }
-                }
-            };
-
-            // Подписка на LastPrice: сначала акции, потом фьючерсы, потом индикативы
-            // Индикативы подписываются только на LastPrice (не на Trades и OrderBook)
-            // Каждый тип инструментов разбивается на батчи по 200 штук с задержкой 100 мс между
-            // батчами
-            log.info("=== Subscribing to LastPrice (all instrument types) ===");
-            if (!shares.isEmpty()) {
-                List<List<String>> shareBatches = splitIntoBatches(shares, SUBSCRIPTION_BATCH_SIZE);
-                log.info("Subscribing to {} shares in {} batches", shares.size(),
-                        shareBatches.size());
-                sendLastPriceBatches.accept(shares);
-                // Задержка между типами инструментов
-                try {
-                    Thread.sleep(BATCH_DELAY_MS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    log.warn("Interrupted while waiting between instrument types", e);
-                }
+            // Создаем отдельный stream для каждой группы инструментов синхронно
+            // Глобальный rate limiter гарантирует соблюдение лимита 300 запросов/мин
+            for (int i = 0; i < streamGroups.size(); i++) {
+                List<InstrumentWithType> group = streamGroups.get(i);
+                int streamId = i + 1;
+                log.info("Stream {}: Will handle {} instruments", streamId, group.size());
+                createAndSubscribeStream(group, streamId);
             }
 
-            // Подписка на LastPrice для фьючерсов
-            // В выходные дни (суббота/воскресенье) подписка разрешена только с 8:30 утра
-            if (!futures.isEmpty()) {
-                if (sessionTimeService.canSubscribeToFutures()) {
-                    List<List<String>> futureBatches =
-                            splitIntoBatches(futures, SUBSCRIPTION_BATCH_SIZE);
-                    log.info("Subscribing to {} futures in {} batches", futures.size(),
-                            futureBatches.size());
-                    sendLastPriceBatches.accept(futures);
-                } else {
-                    log.info(
-                            "Skipping LastPrice subscription for {} futures (weekend before 8:30 MSK)",
-                            futures.size());
-                }
-                // Задержка между типами инструментов
-                try {
-                    Thread.sleep(BATCH_DELAY_MS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    log.warn("Interrupted while waiting between instrument types", e);
-                }
-            }
-
-            if (!indicatives.isEmpty()) {
-                List<List<String>> indicativeBatches =
-                        splitIntoBatches(indicatives, SUBSCRIPTION_BATCH_SIZE);
-                log.info("Subscribing to {} indicatives in {} batches", indicatives.size(),
-                        indicativeBatches.size());
-                sendLastPriceBatches.accept(indicatives);
-            }
-
-            log.info("=== LastPrice subscription completed ===");
-
-            // Подписка на Trades: только акции и фьючерсы (индикативы исключены)
-            // Каждый тип инструментов разбивается на батчи по 200 штук с задержкой 100 мс между
-            // батчами
-            log.info(
-                    "=== Subscribing to Trades (shares and futures only, indicatives excluded) ===");
-            if (!shares.isEmpty()) {
-                List<List<String>> shareBatches = splitIntoBatches(shares, SUBSCRIPTION_BATCH_SIZE);
-                log.info("Subscribing to {} shares in {} batches", shares.size(),
-                        shareBatches.size());
-                sendTradesBatches.accept(shares);
-                // Задержка между типами инструментов
-                try {
-                    Thread.sleep(BATCH_DELAY_MS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    log.warn("Interrupted while waiting between instrument types", e);
-                }
-            }
-
-            // Подписка на Trades для фьючерсов
-            // В выходные дни (суббота/воскресенье) подписка разрешена только с 8:30 утра
-            if (!futures.isEmpty()) {
-                if (sessionTimeService.canSubscribeToFutures()) {
-                    List<List<String>> futureBatches =
-                            splitIntoBatches(futures, SUBSCRIPTION_BATCH_SIZE);
-                    log.info("Subscribing to {} futures in {} batches", futures.size(),
-                            futureBatches.size());
-                    sendTradesBatches.accept(futures);
-                } else {
-                    log.info(
-                            "Skipping Trades subscription for {} futures (weekend before 8:30 MSK)",
-                            futures.size());
-                }
-                // Задержка между типами инструментов
-                try {
-                    Thread.sleep(BATCH_DELAY_MS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    log.warn("Interrupted while waiting between instrument types", e);
-                }
-            }
-
-            // Индикативы не подписываются на Trades - только на LastPrice
-            if (!indicatives.isEmpty()) {
-                log.info("Skipping Trades subscription for {} indicatives (LastPrice only)",
-                        indicatives.size());
-            }
-
-            log.info("=== Trades subscription completed ===");
-
-            // Подписка на OrderBook (акции и фьючерсы, если включено)
-            // Для фьючерсов в выходные дни подписка разрешена только с 8:30 утра
-            // Акции и фьючерсы разбиваются на батчи по 200 штук с задержкой 100 мс между батчами
-            if (config.isEnableOrderBookSubscription()) {
-                log.info("=== Subscribing to OrderBook (shares and futures) ===");
-
-                // Подписка на OrderBook для акций
-                if (!shares.isEmpty()) {
-                    List<List<String>> orderBookBatches =
-                            splitIntoBatches(shares, SUBSCRIPTION_BATCH_SIZE);
-                    log.info("Subscribing to {} shares in {} batches (batch size: {})",
-                            shares.size(), orderBookBatches.size(), SUBSCRIPTION_BATCH_SIZE);
-
-                    for (int i = 0; i < orderBookBatches.size(); i++) {
-                        List<String> batch = orderBookBatches.get(i);
-                        SubscribeOrderBookRequest batchReq = SubscribeOrderBookRequest.newBuilder()
-                                .setSubscriptionAction(
-                                        SubscriptionAction.SUBSCRIPTION_ACTION_SUBSCRIBE)
-                                .addAllInstruments(batch.stream()
-                                        .map(f -> OrderBookInstrument.newBuilder()
-                                                .setInstrumentId(f)
-                                                .setDepth(config.getOrderBookDepth()).build())
-                                        .toList())
-                                .build();
-                        MarketDataRequest request = MarketDataRequest.newBuilder()
-                                .setSubscribeOrderBookRequest(batchReq).build();
-                        requestObserver.onNext(request);
-                        log.debug("Sent OrderBook batch {}/{} ({} instruments)", i + 1,
-                                orderBookBatches.size(), batch.size());
-                        // Задержка между батчами (кроме последнего батча)
-                        if (i < orderBookBatches.size() - 1) {
-                            try {
-                                Thread.sleep(BATCH_DELAY_MS);
-                            } catch (InterruptedException e) {
-                                Thread.currentThread().interrupt();
-                                log.warn("Interrupted while waiting between batches", e);
-                                break;
-                            }
-                        }
-                    }
-                } else {
-                    log.warn("No shares available for OrderBook subscription");
-                }
-
-                // Подписка на OrderBook для фьючерсов
-                // В выходные дни (суббота/воскресенье) подписка разрешена только с 8:30 утра
-                if (!futures.isEmpty()) {
-                    if (sessionTimeService.canSubscribeToFutures()) {
-                        List<List<String>> futureOrderBookBatches =
-                                splitIntoBatches(futures, SUBSCRIPTION_BATCH_SIZE);
-                        log.info("Subscribing to {} futures in {} batches (batch size: {})",
-                                futures.size(), futureOrderBookBatches.size(),
-                                SUBSCRIPTION_BATCH_SIZE);
-
-                        for (int i = 0; i < futureOrderBookBatches.size(); i++) {
-                            List<String> batch = futureOrderBookBatches.get(i);
-                            SubscribeOrderBookRequest batchReq = SubscribeOrderBookRequest
-                                    .newBuilder()
-                                    .setSubscriptionAction(
-                                            SubscriptionAction.SUBSCRIPTION_ACTION_SUBSCRIBE)
-                                    .addAllInstruments(batch.stream()
-                                            .map(f -> OrderBookInstrument.newBuilder()
-                                                    .setInstrumentId(f)
-                                                    .setDepth(config.getOrderBookDepth()).build())
-                                            .toList())
-                                    .build();
-                            MarketDataRequest request = MarketDataRequest.newBuilder()
-                                    .setSubscribeOrderBookRequest(batchReq).build();
-                            requestObserver.onNext(request);
-                            log.debug("Sent Futures OrderBook batch {}/{} ({} instruments)", i + 1,
-                                    futureOrderBookBatches.size(), batch.size());
-                            // Задержка между батчами (кроме последнего батча)
-                            if (i < futureOrderBookBatches.size() - 1) {
-                                try {
-                                    Thread.sleep(BATCH_DELAY_MS);
-                                } catch (InterruptedException e) {
-                                    Thread.currentThread().interrupt();
-                                    log.warn("Interrupted while waiting between batches", e);
-                                    break;
-                                }
-                            }
-                        }
-                    } else {
-                        log.info(
-                                "Skipping OrderBook subscription for {} futures (weekend before 8:30 MSK)",
-                                futures.size());
-                    }
-                }
-
-                log.info("=== OrderBook subscription completed ===");
-            }
-
-            log.info("Successfully sent all subscription batches to T-Invest API");
+            log.info("=== Successfully created {} stream connection(s) ===", numberOfStreams);
+            isConnected.set(true);
 
         } catch (Exception e) {
-            log.error("Error starting market data stream", e);
+            log.error("Error starting market data streams", e);
             scheduleReconnect(RECONNECT_DELAY_MS);
         }
     }
@@ -860,7 +982,10 @@ public class MarketDataStreamingService {
      * Получить статистику производительности сервиса
      */
     public ServiceStats getServiceStats() {
-        return new ServiceStats(isRunning.get(), isConnected.get(), totalReceived.get(),
+        // Проверяем, что хотя бы одно соединение активно
+        boolean anyConnected = isConnected.get()
+                || streamConnections.stream().anyMatch(conn -> conn.isConnected.get());
+        return new ServiceStats(isRunning.get(), anyConnected, totalReceived.get(),
                 totalTradeReceived.get(), totalOrderBookReceived.get());
     }
 
@@ -868,15 +993,21 @@ public class MarketDataStreamingService {
      * Принудительное переподключение к T-Invest API
      */
     public void forceReconnect() {
-        log.info("Force reconnection requested");
+        log.info("Force reconnection requested for all stream connections");
         isConnected.set(false);
-        if (requestObserver != null) {
+
+        // Закрываем все существующие stream-соединения
+        for (StreamConnection conn : streamConnections) {
             try {
-                requestObserver.onCompleted();
+                if (conn.requestObserver != null) {
+                    conn.requestObserver.onCompleted();
+                }
             } catch (Exception e) {
-                log.warn("Error completing request observer", e);
+                log.warn("Error completing request observer for stream {}", conn.streamId, e);
             }
         }
+        streamConnections.clear();
+
         scheduleReconnect(100);
     }
 
