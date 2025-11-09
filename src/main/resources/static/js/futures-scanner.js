@@ -59,6 +59,9 @@ let isTestModeGlobal = false;
 // Кэш данных о фьючерсах (FIGI -> данные о фьючерсе)
 let futuresDataCache = new Map();
 
+// Ключевая ставка ЦБ РФ (в процентах)
+let keyRate = 16.5;
+
 /**
  * Загрузить данные о фьючерсах с сервера
  */
@@ -166,12 +169,12 @@ async function loadFuturesData() {
 }
 
 /**
- * Рассчитать количество дней до экспирации фьючерса
+ * Рассчитать количество дней до экспирации фьючерса (число)
  */
-function calculateDaysToExpiration(figi) {
+function getDaysToExpirationNumber(figi) {
     const futuresData = futuresDataCache.get(figi);
     if (!futuresData || !futuresData.expirationDate) {
-        return 'N/A';
+        return 0;
     }
 
     try {
@@ -183,16 +186,25 @@ function calculateDaysToExpiration(figi) {
         const diffTime = expirationDate - today;
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-        if (diffDays < 0) {
-            return `Истек (${Math.abs(diffDays)} дн. назад)`;
-        } else if (diffDays === 0) {
-            return 'Сегодня';
-        } else {
-            return `${diffDays} дн.`;
-        }
+        return diffDays > 0 ? diffDays : 0;
     } catch (error) {
         console.error('Error calculating expiration days:', error);
-        return 'N/A';
+        return 0;
+    }
+}
+
+/**
+ * Рассчитать количество дней до экспирации фьючерса (строка для отображения)
+ */
+function calculateDaysToExpiration(figi) {
+    const days = getDaysToExpirationNumber(figi);
+
+    if (days === 0) {
+        return 'Сегодня';
+    } else if (days < 0) {
+        return `Истек (${Math.abs(days)} дн. назад)`;
+    } else {
+        return `${days} дн.`;
     }
 }
 
@@ -729,6 +741,13 @@ function createComparison(baseTicker, stock, futures) {
     const spreadPercent = stockPrice > 0 && lotSize > 0 ?
         ((futuresPrice / (stockPrice * lotSize)) - 1) * 100 : 0;
 
+    // Справедливое расхождение = ключевая ставка / 365 * количество дней до экспирации
+    const daysToExpiration = getDaysToExpirationNumber(futures.figi);
+    const fairSpread = daysToExpiration > 0 ? (keyRate / 365) * daysToExpiration : 0;
+
+    // Дельта = Спред - Справедливое расхождение
+    const delta = spreadPercent - fairSpread;
+
     return {
         baseTicker,
         stock,
@@ -737,6 +756,8 @@ function createComparison(baseTicker, stock, futures) {
         stockPrice,
         futuresPrice,
         spreadPercent,
+        fairSpread: Math.round(fairSpread * 100) / 100, // Округление до сотых
+        delta: Math.round(delta * 100) / 100, // Округление до сотых
         stockVolume: getDisplayVolume(stock),
         futuresVolume: getDisplayVolume(futures),
         timestamp: Math.max(
@@ -753,6 +774,15 @@ function createFuturesComparison(baseTicker, nearFutures, farFutures) {
     // Спред % = ((дальний / ближний) - 1) * 100
     const spreadPercent = nearPrice > 0 ? ((farPrice / nearPrice) - 1) * 100 : 0;
 
+    // Справедливое расхождение = ключевая ставка / 365 * разница в днях до экспирации
+    const nearDays = getDaysToExpirationNumber(nearFutures.figi);
+    const farDays = getDaysToExpirationNumber(farFutures.figi);
+    const daysDifference = farDays > 0 && nearDays > 0 ? farDays - nearDays : 0;
+    const fairSpread = daysDifference > 0 ? (keyRate / 365) * daysDifference : 0;
+
+    // Дельта = Спред - Справедливое расхождение
+    const delta = spreadPercent - fairSpread;
+
     return {
         baseTicker,
         nearFutures,
@@ -761,6 +791,8 @@ function createFuturesComparison(baseTicker, nearFutures, farFutures) {
         nearPrice,
         farPrice,
         spreadPercent,
+        fairSpread: Math.round(fairSpread * 100) / 100, // Округление до сотых
+        delta: Math.round(delta * 100) / 100, // Округление до сотых
         nearVolume: getDisplayVolume(nearFutures),
         farVolume: getDisplayVolume(farFutures),
         timestamp: Math.max(
@@ -934,6 +966,13 @@ function formatTime(timestamp) {
     return date.toLocaleTimeString();
 }
 
+function formatDelta(delta) {
+    if (delta === null || delta === undefined) return '--';
+    const num = Number(delta);
+    if (!Number.isFinite(num)) return '--';
+    return num.toFixed(2) + '%';
+}
+
 function formatSpreadPercent(spreadPercent) {
     if (spreadPercent === null || spreadPercent === undefined) return '--';
     const num = Number(spreadPercent);
@@ -952,7 +991,7 @@ function updateStockNearFuturesTable() {
     if (!tbody) return;
 
     if (!stockNearFutures || stockNearFutures.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" class="no-data">Нет данных</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" class="no-data">Нет данных</td></tr>';
         return;
     }
 
@@ -969,6 +1008,8 @@ function updateStockNearFuturesTable() {
             <td>${formatVolume(comparison.stockVolume)}</td>
             <td>${formatVolume(comparison.futuresVolume)}</td>
             <td class="${getChangeClass(comparison.spreadPercent)}">${formatSpreadPercent(comparison.spreadPercent)}</td>
+            <td>${formatSpreadPercent(comparison.fairSpread)}</td>
+            <td class="${getChangeClass(comparison.delta)}">${formatDelta(comparison.delta)}</td>
             <td class="expiration-cell">${expirationDays}</td>
             <td>${formatTime(comparison.timestamp)}</td>
         `;
@@ -981,7 +1022,7 @@ function updateStockFarFuturesTable() {
     if (!tbody) return;
 
     if (!stockFarFutures || stockFarFutures.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" class="no-data">Нет данных</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" class="no-data">Нет данных</td></tr>';
         return;
     }
 
@@ -998,6 +1039,8 @@ function updateStockFarFuturesTable() {
             <td>${formatVolume(comparison.stockVolume)}</td>
             <td>${formatVolume(comparison.futuresVolume)}</td>
             <td class="${getChangeClass(comparison.spreadPercent)}">${formatSpreadPercent(comparison.spreadPercent)}</td>
+            <td>${formatSpreadPercent(comparison.fairSpread)}</td>
+            <td class="${getChangeClass(comparison.delta)}">${formatDelta(comparison.delta)}</td>
             <td class="expiration-cell">${expirationDays}</td>
             <td>${formatTime(comparison.timestamp)}</td>
         `;
@@ -1010,7 +1053,7 @@ function updateNearFarFuturesTable() {
     if (!tbody) return;
 
     if (!nearFarFutures || nearFarFutures.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" class="no-data">Нет данных</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" class="no-data">Нет данных</td></tr>';
         return;
     }
 
@@ -1028,6 +1071,8 @@ function updateNearFarFuturesTable() {
             <td>${formatVolume(comparison.nearVolume)}</td>
             <td>${formatVolume(comparison.farVolume)}</td>
             <td class="${getChangeClass(comparison.spreadPercent)}">${formatSpreadPercent(comparison.spreadPercent)}</td>
+            <td>${formatSpreadPercent(comparison.fairSpread)}</td>
+            <td class="${getChangeClass(comparison.delta)}">${formatDelta(comparison.delta)}</td>
             <td class="expiration-cell">
                 <div class="expiration-info">
                     <div class="near-expiration">Ближний: ${nearExpirationDays}</div>
@@ -1176,6 +1221,9 @@ async function loadAllPairsOnPageLoad() {
     try {
         console.log('=== Loading all pairs on page load ===');
 
+        // 0. Загружаем ключевую ставку
+        await loadKeyRate();
+
         // 1. Загружаем данные о фьючерсах, если еще не загружены
         if (futuresDataCache.size === 0) {
             console.log('Step 1: Loading futures data...');
@@ -1304,6 +1352,25 @@ function loadClosePricesForAllQuotes() {
     });
 }
 
+/**
+ * Загрузить ключевую ставку с сервера
+ */
+async function loadKeyRate() {
+    try {
+        const response = await fetch('/api/scanner/futures/key-rate');
+        if (response.ok) {
+            const data = await response.json();
+            if (data.keyRate !== undefined) {
+                keyRate = data.keyRate;
+                console.log(`Key rate loaded: ${keyRate}%`);
+            }
+        }
+    } catch (error) {
+        console.error('Error loading key rate:', error);
+        // Используем значение по умолчанию
+    }
+}
+
 // Сессия - сканер фьючерсов всегда активен
 async function updateScannerStatus() {
     let isTestMode = false;
@@ -1317,6 +1384,19 @@ async function updateScannerStatus() {
         }
     } catch (error) {
         console.warn('Не удалось получить статус тестового режима:', error);
+    }
+
+    // Загружаем ключевую ставку из статуса
+    try {
+        const statusResp = await fetch('/api/scanner/futures/status').catch(() => null);
+        if (statusResp && statusResp.ok) {
+            const data = await statusResp.json();
+            if (data.keyRate !== undefined) {
+                keyRate = data.keyRate;
+            }
+        }
+    } catch (error) {
+        console.warn('Не удалось загрузить ключевую ставку:', error);
     }
 
     // Сканер фьючерсов всегда активен (работает в любое время, включая выходные)

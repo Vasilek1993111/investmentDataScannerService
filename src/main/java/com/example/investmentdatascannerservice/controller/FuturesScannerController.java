@@ -217,15 +217,28 @@ public class FuturesScannerController {
             boolean isActive = quoteScannerService.isScannerActive();
             response.put("active", isActive);
             response.put("testMode", config.isTestModeFutures());
+            response.put("keyRate", config.getKeyRate());
             response.put("message",
                     isActive ? "Сканер фьючерсов активен" : "Сканер фьючерсов неактивен");
         } catch (Exception e) {
             log.error("Error getting futures scanner status", e);
             response.put("active", false);
             response.put("testMode", config.isTestModeFutures());
+            response.put("keyRate", config.getKeyRate());
             response.put("message", "Ошибка при получении статуса сканера: " + e.getMessage());
         }
 
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Получить ключевую ставку ЦБ РФ
+     */
+    @GetMapping("/key-rate")
+    public ResponseEntity<Map<String, Object>> getKeyRate() {
+        Map<String, Object> response = new HashMap<>();
+        response.put("keyRate", config.getKeyRate());
+        response.put("message", "Ключевая ставка ЦБ РФ получена");
         return ResponseEntity.ok(response);
     }
 }
