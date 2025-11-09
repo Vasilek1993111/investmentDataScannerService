@@ -295,21 +295,42 @@ function getExpirationQuarter(figi) {
  */
 function findNearAndFarFutures(baseTicker) {
     // Собираем все фьючерсы для данного базового актива
+    // Ищем фьючерсы в кэше фьючерсов, а не только в quotes (так как некоторые фьючерсы могут не иметь цен)
     const futuresForAsset = [];
 
-    quotes.forEach((quote, figi) => {
-        if (!futuresDataCache.has(figi)) return;
-
-        const baseTickerFromQuote = getBaseTicker(quote.ticker, figi);
-        if (baseTickerFromQuote === baseTicker) {
-            const quarter = getExpirationQuarter(figi);
-            if (quarter) {
-                futuresForAsset.push({
-                    figi,
-                    quarter,
-                    expirationDate: quarter.date
-                });
+    // Сначала проверяем фьючерсы в кэше
+    futuresDataCache.forEach((futuresData, figi) => {
+        // Проверяем, что базовый актив совпадает
+        const futuresBasicAsset = futuresData.basicAsset ? futuresData.basicAsset.toUpperCase() : null;
+        if (futuresBasicAsset !== baseTicker) {
+            // Пробуем определить базовый тикер по тикеру фьючерса
+            const baseTickerFromTicker = getBaseTicker(futuresData.ticker, figi);
+            if (baseTickerFromTicker !== baseTicker) {
+                return; // Пропускаем, если базовый актив не совпадает
             }
+        }
+
+        // Проверяем, что фьючерс есть в quotes (должен быть добавлен при загрузке)
+        if (!quotes.has(figi)) {
+            console.warn(`Futures ${futuresData.ticker} (${figi}) found in cache but not in quotes, adding it`);
+            // Добавляем фьючерс в quotes, даже если для него нет цены
+            const quoteData = {
+                figi: figi,
+                ticker: futuresData.ticker,
+                currentPrice: 0,
+                volume: 0,
+                timestamp: new Date().toISOString()
+            };
+            quotes.set(figi, quoteData);
+        }
+
+        const quarter = getExpirationQuarter(figi);
+        if (quarter) {
+            futuresForAsset.push({
+                figi,
+                quarter,
+                expirationDate: quarter.date
+            });
         }
     });
 
@@ -578,9 +599,15 @@ function updateFuturesComparisons() {
 
     // Если кэш фьючерсов пуст, пытаемся загрузить данные
     if (futuresDataCache.size === 0) {
-        console.warn('Futures cache is empty, loading futures data...');
-        loadFuturesData();
-        // Возвращаемся, так как данные загрузятся асинхронно
+        console.warn('Futures cache is empty in updateFuturesComparisons, cannot proceed');
+        // Не загружаем данные здесь, так как это может вызвать бесконечный цикл
+        // Вместо этого просто выходим - данные должны быть загружены заранее
+        return;
+    }
+
+    // Если нет котировок, ничего не делаем
+    if (quotesArray.length === 0) {
+        console.warn('No quotes available for comparison');
         return;
     }
 
@@ -627,13 +654,23 @@ function updateFuturesComparisons() {
                 group.farFuturesFigi = futuresInfo.farFutures;
                 if (futuresInfo.nearFutures) {
                     const nearQuote = quotes.get(futuresInfo.nearFutures);
-                    console.log(`Found near futures for ${baseTicker}: ${nearQuote?.ticker} (${futuresInfo.nearFutures})`);
+                    if (nearQuote) {
+                        console.log(`Found near futures for ${baseTicker}: ${nearQuote.ticker} (${futuresInfo.nearFutures})`);
+                    } else {
+                        console.warn(`Near futures FIGI ${futuresInfo.nearFutures} found for ${baseTicker}, but quote not found in quotes Map`);
+                    }
                 }
                 if (futuresInfo.farFutures) {
                     const farQuote = quotes.get(futuresInfo.farFutures);
-                    console.log(`Found far futures for ${baseTicker}: ${farQuote?.ticker} (${futuresInfo.farFutures})`);
+                    if (farQuote) {
+                        console.log(`Found far futures for ${baseTicker}: ${farQuote.ticker} (${futuresInfo.farFutures})`);
+                    } else {
+                        console.warn(`Far futures FIGI ${futuresInfo.farFutures} found for ${baseTicker}, but quote not found in quotes Map`);
+                    }
                 }
             }
+        } else {
+            console.log(`No futures info found for base ticker: ${baseTicker}`);
         }
     });
 
@@ -1132,6 +1169,130 @@ function loadEveningSessionPriceForQuote(quoteData) {
         });
 }
 
+/**
+ * Предзагрузка всех пар при загрузке страницы
+ */
+async function loadAllPairsOnPageLoad() {
+    try {
+        console.log('=== Loading all pairs on page load ===');
+
+        // 1. Загружаем данные о фьючерсах, если еще не загружены
+        if (futuresDataCache.size === 0) {
+            console.log('Step 1: Loading futures data...');
+            await loadFuturesData();
+            // Проверяем, что кэш действительно заполнен
+            if (futuresDataCache.size === 0) {
+                console.error('Failed to load futures data: cache is still empty');
+                return;
+            }
+            console.log(`Step 1 completed: Futures cache size = ${futuresDataCache.size}`);
+        } else {
+            console.log(`Step 1 skipped: Futures cache already loaded (size = ${futuresDataCache.size})`);
+        }
+
+        // 2. Загружаем текущие цены для всех инструментов (включает и цены, и имена)
+        console.log('Step 2: Loading current prices...');
+        const pricesResponse = await fetch('/api/scanner/current-prices');
+        if (!pricesResponse.ok) {
+            console.error('Failed to load current prices:', pricesResponse.status, pricesResponse.statusText);
+            return;
+        }
+        const pricesData = await pricesResponse.json();
+        const prices = pricesData.prices || {};
+        const instrumentNames = pricesData.instrumentNames || {};
+
+        console.log(`Step 2 completed: Loaded prices for ${Object.keys(prices).length} instruments`);
+        console.log(`Sample prices:`, Object.keys(prices).slice(0, 5).map(figi => ({
+            figi,
+            ticker: instrumentNames[figi] || figi,
+            price: prices[figi]
+        })));
+
+        // 3. Создаем объекты quote для каждого инструмента и добавляем в quotes Map
+        console.log('Step 3: Creating quote objects from prices...');
+        let loadedCount = 0;
+        let skippedCount = 0;
+        Object.keys(prices).forEach(figi => {
+            // Пропускаем, если уже есть в quotes
+            if (quotes.has(figi)) {
+                skippedCount++;
+                return;
+            }
+
+            const ticker = instrumentNames[figi] || figi;
+            const price = prices[figi] || 0;
+
+            // Создаем объект quote
+            const quoteData = {
+                figi: figi,
+                ticker: ticker,
+                currentPrice: price,
+                volume: 0,
+                timestamp: new Date().toISOString()
+            };
+
+            // Добавляем в quotes Map
+            quotes.set(figi, quoteData);
+            loadedCount++;
+        });
+
+        console.log(`Step 3a completed: Preloaded ${loadedCount} quotes from prices, skipped ${skippedCount} (already exists)`);
+
+        // 3b. Добавляем фьючерсы из кэша, которых нет в quotes (даже если для них нет цен)
+        console.log('Step 3b: Adding futures from cache that are not in quotes...');
+        let futuresAddedCount = 0;
+        futuresDataCache.forEach((futuresData, figi) => {
+            if (!quotes.has(figi)) {
+                const ticker = futuresData.ticker || figi;
+                const quoteData = {
+                    figi: figi,
+                    ticker: ticker,
+                    currentPrice: 0, // Нет цены, будет обновлено через WebSocket
+                    volume: 0,
+                    timestamp: new Date().toISOString()
+                };
+                quotes.set(figi, quoteData);
+                futuresAddedCount++;
+            }
+        });
+
+        console.log(`Step 3b completed: Added ${futuresAddedCount} futures from cache`);
+        console.log(`Total quotes in Map: ${quotes.size}`);
+
+        // 4. Проверяем, что у нас есть и акции, и фьючерсы
+        let stocksCount = 0;
+        let futuresCount = 0;
+        quotes.forEach((quote, figi) => {
+            if (isStock(quote.ticker, figi)) {
+                stocksCount++;
+            } else if (futuresDataCache.has(figi)) {
+                futuresCount++;
+            }
+        });
+        console.log(`Step 4: Found ${stocksCount} stocks and ${futuresCount} futures in quotes`);
+
+        // 5. Обновляем счетчик активных инструментов
+        if (activeInstruments) {
+            activeInstruments.textContent = quotes.size;
+        }
+
+        // 6. Проверяем кэш фьючерсов перед обновлением сравнений
+        if (futuresDataCache.size === 0) {
+            console.error('Futures cache is empty, cannot update comparisons');
+            return;
+        }
+
+        // 7. Обновляем сравнения фьючерсов
+        console.log('Step 5: Updating futures comparisons...');
+        updateFuturesComparisons();
+
+        console.log('=== All pairs preloaded successfully ===');
+    } catch (error) {
+        console.error('Error loading all pairs on page load:', error);
+        console.error('Error stack:', error.stack);
+    }
+}
+
 function loadClosePricesForAllQuotes() {
     quotes.forEach((quoteData, figi) => {
         if (!quoteData.closePriceOS && !quoteData.closePrice) {
@@ -1240,6 +1401,17 @@ initializeVolumeData();
 updateIndicesFromServer();
 loadIndexPrices();
 setTimeout(() => { loadClosePricesForAllQuotes(); }, 2000);
+
+// Предзагрузка всех пар при загрузке страницы
+// Ждем полной загрузки DOM и других инициализаций
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(() => { loadAllPairsOnPageLoad(); }, 1500);
+    });
+} else {
+    // DOM уже загружен
+    setTimeout(() => { loadAllPairsOnPageLoad(); }, 1500);
+}
 
 // Закрытие модального окна при клике вне его
 window.onclick = function (event) {

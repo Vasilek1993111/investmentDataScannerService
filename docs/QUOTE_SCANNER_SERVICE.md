@@ -995,4 +995,9 @@ public class QuoteWebSocketController {
 
 Сервис следует принципам SOLID и обеспечивает чистую архитектуру приложения.
 
+## Связанная документация
+
+- [Сканер фьючерсов](./FUTURES_SCANNER.md) — детальная документация сканера фьючерсов и логика формирования пар
+- [API Documentation](./API.md) — полная документация REST API
+- [GRPC Limits](./GRPC_LIMITS.md) — лимиты gRPC подписок
 
