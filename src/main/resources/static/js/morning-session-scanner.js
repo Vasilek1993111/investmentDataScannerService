@@ -12,14 +12,6 @@ const lastUpdate = document.getElementById('lastUpdate');
 // Элементы для полоски индексов
 const indicesContainer = document.getElementById('indicesContainer');
 
-// Функция для определения порта WebSocket
-function getWebSocketPort() {
-  const currentPort = window.location.port;
-  if (currentPort === '8088') return '8088';
-  if (currentPort === '8085') return '8085';
-  return '8088';
-}
-
 let websocket = null;
 let isConnected = false;
 let quotes = new Map();
@@ -61,8 +53,7 @@ const MORNING_SESSION_END_SECOND = 59;
 function connect() {
   if (isConnected) return;
   try {
-    const port = getWebSocketPort();
-    websocket = new WebSocket(`ws://localhost:${port}/ws/quotes`);
+    websocket = new WebSocket(getWebSocketUrl('/ws/quotes'));
 
     websocket.onopen = function () {
       isConnected = true;

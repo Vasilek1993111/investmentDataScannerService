@@ -525,9 +525,8 @@ function connect() {
     }
 
     try {
-        const port = getWebSocketPort();
-        console.log(`Attempting to connect WebSocket on port ${port}...`);
-        websocket = new WebSocket(`ws://localhost:${port}/ws/quotes`);
+        console.log('Attempting to connect WebSocket...');
+        websocket = new WebSocket(getWebSocketUrl('/ws/quotes'));
 
         websocket.onopen = function () {
             console.log('WebSocket connected successfully');

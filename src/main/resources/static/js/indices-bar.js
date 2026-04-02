@@ -784,7 +784,7 @@ function addIndex() {
     }
     fetch(`${indicesBarConfig.apiEndpoint}/indices/add`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: window.AppSecurity.withCsrfHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ name, displayName })
     })
         .then(response => response.json())
@@ -823,7 +823,7 @@ function removeIndex(name) {
     if (!confirm(`Вы уверены, что хотите удалить индекс "${name}"?`)) return;
     fetch(`${indicesBarConfig.apiEndpoint}/indices/remove`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: window.AppSecurity.withCsrfHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ name })
     })
         .then(response => response.json())
