@@ -104,7 +104,7 @@ docker-compose up -d
 export T_INVEST_TEST_TOKEN="your_test_token"
 export SPRING_DATASOURCE_TEST_URL="jdbc:postgresql://localhost:5434/postgres"
 export SPRING_DATASOURCE_TEST_USERNAME="postgres"
-export SPRING_DATASOURCE_TEST_PASSWORD="123password123"
+export SPRING_DATASOURCE_TEST_PASSWORD="<generate-a-random-test-password>"
 ```
 
 ### Продакшн окружение
@@ -113,7 +113,7 @@ export SPRING_DATASOURCE_TEST_PASSWORD="123password123"
 export T_INVEST_PROD_TOKEN="your_prod_token"
 export SPRING_DATASOURCE_PROD_URL="jdbc:postgresql://45.132.176.136:5432/postgres"
 export SPRING_DATASOURCE_PROD_USERNAME="postgres"
-export SPRING_DATASOURCE_PROD_PASSWORD="your_prod_password"
+export SPRING_DATASOURCE_PROD_PASSWORD="<store-in-secret-manager>"
 ```
 
 ## Устранение неполадок

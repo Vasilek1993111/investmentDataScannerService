@@ -88,7 +88,7 @@ brew install postgresql
 -- Создание пользователя и базы данных
 sudo -u postgres psql
 
-CREATE USER investment_user WITH PASSWORD 'secure_password';
+CREATE USER investment_user WITH PASSWORD '<generate-a-random-db-password>';
 CREATE DATABASE investment_db OWNER investment_user;
 GRANT ALL PRIVILEGES ON DATABASE investment_db TO investment_user;
 
@@ -108,10 +108,10 @@ GRANT ALL ON SCHEMA invest TO investment_user;
 ```bash
 # Создайте файл .env в корне проекта
 cat > .env << EOF
-TINKOFF_API_TOKEN=your_token_here
+TINKOFF_API_TOKEN=<paste-your-real-token-from-secret-store>
 DB_URL=jdbc:postgresql://localhost:5432/investment_db
 DB_USERNAME=investment_user
-DB_PASSWORD=secure_password
+DB_PASSWORD=<generate-a-random-db-password>
 SERVER_PORT=8085
 APP_TIMEZONE=Europe/Moscow
 EOF
@@ -226,7 +226,7 @@ services:
     environment:
       POSTGRES_DB: investment_db
       POSTGRES_USER: investment_user
-      POSTGRES_PASSWORD: secure_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "5432:5432"
     volumes:
@@ -242,7 +242,7 @@ services:
       TINKOFF_API_TOKEN: ${TINKOFF_API_TOKEN}
       DB_URL: jdbc:postgresql://postgres:5432/investment_db
       DB_USERNAME: investment_user
-      DB_PASSWORD: secure_password
+      DB_PASSWORD: ${DB_PASSWORD}
       SERVER_PORT: 8085
       APP_TIMEZONE: Europe/Moscow
     ports:
@@ -332,7 +332,7 @@ data:
     # Database
     spring.datasource.url=jdbc:postgresql://postgres-service:5432/investment_db
     spring.datasource.username=investment_user
-    spring.datasource.password=secure_password
+    spring.datasource.password=${DB_PASSWORD}
     spring.datasource.driver-class-name=org.postgresql.Driver
 
     # JPA/Hibernate
@@ -603,8 +603,8 @@ config:
 helm install investment-scanner ./investment-scanner \
   --namespace investment-scanner \
   --create-namespace \
-  --set config.tinkoffApiToken=your_token_here \
-  --set config.dbPassword=secure_password
+  --set config.tinkoffApiToken=<paste-your-real-token-from-secret-store> \
+  --set config.dbPassword=<generate-a-random-db-password>
 
 # Обновление chart
 helm upgrade investment-scanner ./investment-scanner \

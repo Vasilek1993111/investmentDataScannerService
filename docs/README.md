@@ -104,10 +104,10 @@ cd InvestmentDataScannerService
 
 ```bash
 # Создайте файл .env в корне проекта
-TINKOFF_API_TOKEN=your_token_here
+TINKOFF_API_TOKEN=<put-your-token-here>
 DB_URL=jdbc:postgresql://localhost:5432/investment_db
-DB_USERNAME=your_username
-DB_PASSWORD=your_password
+DB_USERNAME=<db-username>
+DB_PASSWORD=<generate-a-random-secret>
 SERVER_PORT=8085
 APP_TIMEZONE=Europe/Moscow
 ```
