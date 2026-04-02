@@ -14,16 +14,9 @@ const indicesContainer = document.getElementById('indicesContainer');
 
 // Фильтры (удалены, так как не используются в выходном сканере)
 
-// Функция для определения порта WebSocket
-function getWebSocketPort() {
-    const currentPort = window.location.port;
-    if (currentPort === '8088') {
-        return '8088';
-    } else if (currentPort === '8085') {
-        return '8085';
-    } else {
-        return '8088';
-    }
+function getWebSocketUrl(path) {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${window.location.host}${path}`;
 }
 
 // Состояние
@@ -68,8 +61,7 @@ function connect() {
     if (isConnected) return;
 
     try {
-        const port = getWebSocketPort();
-        websocket = new WebSocket(`ws://localhost:${port}/ws/quotes`);
+        websocket = new WebSocket(getWebSocketUrl('/ws/quotes'));
 
         websocket.onopen = function () {
             console.log('WebSocket connected successfully');

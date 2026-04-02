@@ -287,6 +287,7 @@
             }
         }
     </style>
+    <script defer src="/js/security.js"></script>
 </head>
 
 <body>
@@ -429,8 +430,7 @@
             if (isConnected) return;
 
             try {
-                const port = getWebSocketPort();
-                websocket = new WebSocket(`ws://localhost:${port}/ws/pairs`);
+                websocket = new WebSocket(`${window.securityUtils.getWebSocketBaseUrl()}/ws/pairs`);
 
                 websocket.onopen = function () {
                     isConnected = true;
@@ -615,7 +615,7 @@
             }
 
             try {
-                const response = await fetch('/api/instrument-pairs/add', {
+                const response = await window.securityUtils.secureFetch('/api/instrument-pairs/add', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -656,7 +656,7 @@
             }
 
             try {
-                const response = await fetch(`/api/instrument-pairs/remove/${pairId}`, {
+                const response = await window.securityUtils.secureFetch(`/api/instrument-pairs/remove/${pairId}`, {
                     method: 'DELETE'
                 });
 

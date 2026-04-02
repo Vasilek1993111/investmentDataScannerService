@@ -28,15 +28,12 @@ public class WebSocketConfig implements WebSocketConfigurer {
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        // Регистрируем WebSocket для котировок
-        registry.addHandler(quoteWebSocketController, "/ws/quotes").setAllowedOrigins("*");
+        // По умолчанию Spring разрешает только same-origin подключения, что безопаснее
+        registry.addHandler(quoteWebSocketController, "/ws/quotes");
         log.info("Registered WebSocket handler for quotes at /ws/quotes");
 
-        // Регистрируем WebSocket для пар инструментов
-        registry.addHandler(pairWebSocketController, "/ws/pairs").setAllowedOrigins("*");
+        // По умолчанию Spring разрешает только same-origin подключения, что безопаснее
+        registry.addHandler(pairWebSocketController, "/ws/pairs");
         log.info("Registered WebSocket handler for pairs at /ws/pairs");
-
-        // В продакшене следует ограничить домены
-        log.warn("WebSocket configured with allowedOrigins=* - in production, restrict to specific domains");
     }
 }

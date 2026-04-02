@@ -12,7 +12,7 @@ services:
       # Database configuration (подключение к внешней БД)
       DB_URL: ${DB_URL:-jdbc:postgresql://host.docker.internal:5434/postgres?currentSchema=invest}
       DB_USERNAME: ${DB_USERNAME:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-123password123}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
       
       # Application configuration
       SERVER_PORT: 8085
@@ -24,7 +24,7 @@ services:
       JAVA_TOOL_OPTIONS: "-XX:+UseZGC -XX:MaxGCPauseMillis=5 -XX:InitialRAMPercentage=25 -XX:MaxRAMPercentage=75 -XX:MinRAMPercentage=25 -Djava.security.egd=file:/dev/urandom -Dsun.net.inetaddr.ttl=60 -Dnetworkaddress.cache.ttl=60 -XX:+AlwaysActAsServerClassMachine"
       
       # Tinkoff API (замените на ваш токен)
-      TINKOFF_API_TOKEN: ${TINKOFF_API_TOKEN:-your_tinkoff_token_here}
+      TINKOFF_API_TOKEN: ${TINKOFF_API_TOKEN:?TINKOFF_API_TOKEN must be set}
     ports:
       - "8085:8085"
     networks:

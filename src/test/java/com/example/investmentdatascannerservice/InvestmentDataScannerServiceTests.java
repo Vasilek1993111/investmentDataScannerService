@@ -2,6 +2,7 @@ package com.example.investmentdatascannerservice;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 
 /**
  * Основные тесты приложения Investment Data Scanner Service
@@ -10,6 +11,7 @@ import org.springframework.boot.test.context.SpringBootTest;
  * приложения.
  */
 @SpringBootTest
+@ActiveProfiles("test")
 class InvestmentDataScannerServiceTests {
 
     @Test

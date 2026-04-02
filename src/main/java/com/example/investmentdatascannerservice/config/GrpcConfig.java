@@ -34,10 +34,7 @@ public class GrpcConfig {
      */
     @Bean
     public ManagedChannel investChannel() {
-        logger.info("Initializing gRPC channel with token: {}",
-                token != null && !token.isEmpty()
-                        ? token.substring(0, Math.min(10, token.length())) + "..."
-                        : "NULL/EMPTY");
+        logger.info("Initializing gRPC channel for T-Invest API");
 
         ClientInterceptor authInterceptor = new ClientInterceptor() {
             @Override
@@ -49,8 +46,6 @@ public class GrpcConfig {
                     @Override
                     public void start(Listener<RespT> responseListener, Metadata headers) {
                         String authHeader = "Bearer " + token;
-                        logger.debug("Adding Authorization header: {}",
-                                authHeader.substring(0, Math.min(20, authHeader.length())) + "...");
                         headers.put(
                                 Metadata.Key.of("Authorization", Metadata.ASCII_STRING_MARSHALLER),
                                 authHeader);
